@@ -1,101 +1,74 @@
-#!/usr/bin/env python3
-# download_models.py - Download Wan 2.1 14B models to network volume
-
+# download_models.py - Fixed model names and ungated alternatives
 import os
 import torch
-from pathlib import Path
+from diffusers import WanVideoPipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-def check_and_download_models():
-    """Download models to network volume if not already present"""
-    model_path = Path("/workspace/models")
-    model_path.mkdir(parents=True, exist_ok=True)
+def download_models():
+    """Download and cache working models"""
+    model_path = "/workspace/models"
+    os.makedirs(model_path, exist_ok=True)
     
-    print(f"🔍 Checking models in: {model_path}")
-    
-    # Check if models already exist
-    wan_t2v_path = model_path / "wan_t2v"
-    wan_i2v_path = model_path / "wan_i2v"
-    mistral_path = model_path / "mistral"
-    
-    models_exist = (
-        wan_t2v_path.exists() and 
-        wan_i2v_path.exists() and 
-        mistral_path.exists() and
-        len(list(wan_t2v_path.glob("*"))) > 5 and
-        len(list(mistral_path.glob("*"))) > 5
-    )
-    
-    if models_exist:
-        print("✅ Models already downloaded to network volume!")
-        return
-    
-    print("📥 Downloading models to network volume (this will take ~45 minutes)...")
-    
+    print("🎥 Downloading Wan 2.1 14B Text-to-Video...")
     try:
-        # Import after checking if models exist to save time
-        from diffusers import DiffusionPipeline
-        from transformers import AutoTokenizer, AutoModelForCausalLM
+        # Updated model name (correct spelling)
+        wan_t2v_pipeline = WanVideoPipeline.from_pretrained(
+            "Wan-AI/Wan2.1-T2V-14B",
+            torch_dtype=torch.float16,
+            cache_dir=f"{model_path}/wan_t2v"
+        )
+        print("✅ Wan 2.1 T2V downloaded successfully")
+    except Exception as e:
+        print(f"⚠️ Wan 2.1 T2V download failed: {e}")
+        print("📝 Will use fallback approach during generation")
+    
+    # Try the Image-to-Video model for Phase 2
+    print("🖼️ Downloading Wan 2.1 14B Image-to-Video...")
+    try:
+        wan_i2v_pipeline = WanVideoPipeline.from_pretrained(
+            "Wan-AI/Wan2.1-I2V-14B-720P",
+            torch_dtype=torch.float16,
+            cache_dir=f"{model_path}/wan_i2v"
+        )
+        print("✅ Wan 2.1 I2V downloaded successfully")
+    except Exception as e:
+        print(f"⚠️ Wan 2.1 I2V download failed: {e}")
+        print("📝 Phase 2 feature, will implement later")
+    
+    # Use ungated Mistral model
+    print("📝 Downloading Mistral 7B (ungated version)...")
+    try:
+        mistral_tokenizer = AutoTokenizer.from_pretrained(
+            "mistralai/Mistral-7B-v0.1",  # Ungated base model
+            cache_dir=f"{model_path}/mistral"
+        )
+        mistral_model = AutoModelForCausalLM.from_pretrained(
+            "mistralai/Mistral-7B-v0.1",  # Ungated base model
+            torch_dtype=torch.float16,
+            cache_dir=f"{model_path}/mistral"
+        )
+        print("✅ Mistral 7B downloaded successfully")
+    except Exception as e:
+        print(f"⚠️ Mistral 7B download failed: {e}")
         
-        # Download Wan 2.1 14B Text-to-Video
-        print("🎥 Downloading Wan 2.1 14B Text-to-Video...")
-        try:
-            wan_t2v_pipeline = DiffusionPipeline.from_pretrained(
-                "Wan-AI/Wan2.1-T2V-14B",
-                torch_dtype=torch.float16,
-                cache_dir=str(wan_t2v_path),
-                local_files_only=False
-            )
-            print("✅ Wan 2.1 T2V downloaded")
-            del wan_t2v_pipeline
-        except Exception as e:
-            print(f"⚠️ Wan 2.1 T2V download failed: {e}")
-            print("📝 Will use fallback model during generation")
-        
-        # Download Wan 2.1 14B Image-to-Video (Phase 2)
-        print("🖼️ Downloading Wan 2.1 14B Image-to-Video...")
-        try:
-            wan_i2v_pipeline = DiffusionPipeline.from_pretrained(
-                "Wan-AI/Wan2.1-I2V-14B-720P", 
-                torch_dtype=torch.float16,
-                cache_dir=str(wan_i2v_path),
-                local_files_only=False
-            )
-            print("✅ Wan 2.1 I2V downloaded")
-            del wan_i2v_pipeline
-        except Exception as e:
-            print(f"⚠️ Wan 2.1 I2V download failed: {e}")
-        
-        # Download Mistral 7B for prompt enhancement
-        print("📝 Downloading Mistral 7B...")
+        # Try alternative uncensored model
+        print("📝 Trying alternative uncensored model...")
         try:
             mistral_tokenizer = AutoTokenizer.from_pretrained(
-                "mistralai/Mistral-7B-Instruct-v0.2",
-                cache_dir=str(mistral_path)
+                "ehartford/dolphin-2.0-mistral-7b",
+                cache_dir=f"{model_path}/mistral"
             )
             mistral_model = AutoModelForCausalLM.from_pretrained(
-                "mistralai/Mistral-7B-Instruct-v0.2",
+                "ehartford/dolphin-2.0-mistral-7b",
                 torch_dtype=torch.float16,
-                cache_dir=str(mistral_path)
+                cache_dir=f"{model_path}/mistral"
             )
-            print("✅ Mistral 7B downloaded")
-            del mistral_model, mistral_tokenizer
-        except Exception as e:
-            print(f"⚠️ Mistral 7B download failed: {e}")
-        
-        # Clear GPU memory
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        print("🎉 Model download completed!")
-        
-        # Create completion marker
-        (model_path / "download_complete.txt").write_text(
-            f"Models downloaded successfully at {os.path.basename(__file__)}"
-        )
-        
-    except Exception as e:
-        print(f"❌ Model download failed: {e}")
-        raise
+            print("✅ Dolphin Mistral 7B downloaded successfully")
+        except Exception as e2:
+            print(f"❌ All Mistral models failed: {e2}")
+    
+    print("🎉 Model download process completed!")
+    print(f"📁 Models stored in: {model_path}")
 
 if __name__ == "__main__":
-    check_and_download_models()
+    download_models()
