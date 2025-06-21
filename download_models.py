@@ -1,8 +1,3 @@
-# Remove the corrupted file
-rm download_models.py
-
-# Create a clean Python file with ONLY the Python code
-cat > download_models.py << 'EOF'
 # download_models.py - Fixed to handle missing WanVideoPipeline
 import os
 import torch
@@ -99,4 +94,3 @@ def download_models():
 
 if __name__ == "__main__":
     download_models()
-EOF
