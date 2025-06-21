@@ -1,10 +1,7 @@
-# In your RunPod SSH session:
-cd /workspace/ourvidz-worker
+# Remove the corrupted file
+rm download_models.py
 
-# Backup the old file
-mv download_models.py download_models_old.py
-
-# Create new file with fixed code
+# Create a clean Python file with ONLY the Python code
 cat > download_models.py << 'EOF'
 # download_models.py - Fixed to handle missing WanVideoPipeline
 import os
@@ -35,7 +32,7 @@ def download_models():
                 cache_dir=f"{model_path}/wan_t2v"
             )
             print("✅ Wan 2.1 T2V downloaded successfully")
-            del wan_t2v_pipeline  # Free memory
+            del wan_t2v_pipeline
         except Exception as e:
             print(f"⚠️ Wan 2.1 T2V download failed: {e}")
     else:
@@ -60,7 +57,7 @@ def download_models():
         )
         print("✅ Mistral 7B v0.1 (ungated) downloaded successfully")
         mistral_success = True
-        del tokenizer, model  # Free memory
+        del tokenizer, model
     except Exception as e:
         print(f"⚠️ Mistral 7B v0.1 download failed: {e}")
         
@@ -78,7 +75,7 @@ def download_models():
             )
             print("✅ Dolphin Mistral 7B (uncensored) downloaded successfully")
             mistral_success = True
-            del tokenizer, model  # Free memory
+            del tokenizer, model
         except Exception as e2:
             print(f"⚠️ Dolphin Mistral download failed: {e2}")
 
