@@ -348,7 +348,7 @@ class VideoWorker:
                 'jobId': job_id,
                 'status': status,
                 'outputUrl': output_url,
-                'errorMessage': error_message
+                'errorMessage': error_message,
                 'enhancedPrompt': enhanced_prompt
             }
             
