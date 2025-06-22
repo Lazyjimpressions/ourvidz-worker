@@ -399,23 +399,24 @@ class VideoWorker:
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def run(self):
-        """Main worker loop with corrected Upstash Redis REST API"""
+        """Main worker loop with non-blocking Redis polling (RPOP)"""
         print("🎬 OurVidz GPU Worker with Wan 2.1 started!")
         print("⏳ Waiting for jobs...")
         
         idle_time = 0
         max_idle_time = 10 * 60   # 10 minutes
+        poll_interval = 5  # Poll every 5 seconds
         
         while True:
             try:
-                # Correct Upstash Redis REST API format
+                # Use non-blocking RPOP (Upstash REST API compatible)
                 response = requests.post(
                     self.upstash_redis_url,
                     headers={
                         'Authorization': f"Bearer {self.upstash_redis_token}",
                         'Content-Type': 'application/json'
                     },
-                    json=["BRPOP", "job-queue", "30"]
+                    json=["RPOP", "job-queue"]
                 )
                 
                 if response.status_code == 200:
@@ -424,19 +425,23 @@ class VideoWorker:
                         # Job found - reset idle timer
                         idle_time = 0
                         
-                        queue_name, job_json = result['result']
+                        job_json = result['result']
                         job_data = json.loads(job_json)
+                        print(f"📥 Received job: {job_data.get('jobType', 'unknown')} - {job_data.get('jobId', 'no-id')}")
                         self.process_job(job_data)
                     else:
-                        # No jobs - increment idle time
-                        idle_time += 30
-                        if idle_time % 60 == 0:  # Log every minute
+                        # No jobs - increment idle time and wait
+                        idle_time += poll_interval
+                        time.sleep(poll_interval)
+                        
+                        # Log idle status every minute
+                        if idle_time % 60 == 0:
                             minutes_idle = idle_time // 60
                             print(f"⏳ Idle for {minutes_idle} minutes (shutdown at {max_idle_time//60})")
                 else:
                     print(f"⚠️ Redis connection issue: {response.status_code} - {response.text}")
-                    time.sleep(30)
-                    idle_time += 30
+                    time.sleep(poll_interval)
+                    idle_time += poll_interval
                     
                 # Auto-shutdown after max idle time
                 if idle_time >= max_idle_time:
@@ -445,8 +450,8 @@ class VideoWorker:
                     
             except Exception as e:
                 print(f"❌ Worker error: {e}")
-                time.sleep(30)
-                idle_time += 30
+                time.sleep(poll_interval)
+                idle_time += poll_interval
 
 if __name__ == "__main__":
     # Environment variable validation
