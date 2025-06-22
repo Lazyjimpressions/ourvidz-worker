@@ -462,13 +462,12 @@ class VideoWorker:
                     continue
                 
                 # Use non-blocking RPOP (Upstash REST API compatible)
-                response = requests.post(
-                    self.upstash_redis_url,
+                response = requests.get(
+                    f"{self.upstash_redis_url}/rpop/job_queue",
                     headers={
-                        'Authorization': f"Bearer {self.upstash_redis_token}",
-                        'Content-Type': 'application/json'
+                        'Authorization': f"Bearer {self.upstash_redis_token}"
                     },
-                    json=["RPOP", "job-queue"]
+                    timeout=10
                 )
                 
                 if response.status_code == 200:
