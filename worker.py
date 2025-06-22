@@ -337,7 +337,7 @@ class VideoWorker:
             print(f"❌ Supabase upload error: {e}")
             raise
 
-    def notify_completion(self, job_id: str, status: str, output_url: str = None, error_message: str = None):
+    def notify_completion(self, job_id: str, status: str, output_url: str = None, error_message: str = None, enhanced_prompt: str = None):
         """Notify Supabase of job completion"""
         if not self.environment_valid:
             print(f"⚠️ Cannot send callback: invalid environment (job {job_id})")
@@ -349,6 +349,7 @@ class VideoWorker:
                 'status': status,
                 'outputUrl': output_url,
                 'errorMessage': error_message
+                'enhancedPrompt': enhanced_prompt
             }
             
             response = requests.post(
@@ -380,13 +381,12 @@ class VideoWorker:
                 # Enhance the prompt
                 original_prompt = job_data.get('prompt', '')
                 character_desc = job_data.get('characterDescription', '')
-                
+    
                 enhanced_prompt = self.enhance_prompt(original_prompt, character_desc)
                 print(f"✅ Enhanced prompt: {enhanced_prompt[:100]}...")
-                
-                # For now, we complete the enhance job immediately
-                # TODO: Store enhanced prompt in database
-                self.notify_completion(job_id, 'completed')
+    
+                # Send enhanced prompt in callback
+                self.notify_completion(job_id, 'completed', output_url=None, error_message=None, enhanced_prompt=enhanced_prompt)
                 
             elif job_type == 'preview':
                 # Generate preview image
