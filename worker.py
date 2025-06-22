@@ -399,22 +399,23 @@ class VideoWorker:
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def run(self):
-        """Main worker loop with Redis REST API polling"""
+        """Main worker loop with corrected Upstash Redis REST API"""
         print("🎬 OurVidz GPU Worker with Wan 2.1 started!")
         print("⏳ Waiting for jobs...")
         
         idle_time = 0
-        idle_check_interval = 60  # Check every minute
         max_idle_time = 10 * 60   # 10 minutes
         
         while True:
             try:
-                # Poll Redis queue via REST API
-                response = requests.get(
-                    f"{self.upstash_redis_url}/brpop/job-queue/30",
+                # Correct Upstash Redis REST API format
+                response = requests.post(
+                    self.upstash_redis_url,
                     headers={
-                        'Authorization': f"Bearer {self.upstash_redis_token}"
-                    }
+                        'Authorization': f"Bearer {self.upstash_redis_token}",
+                        'Content-Type': 'application/json'
+                    },
+                    json=["BRPOP", "job-queue", "30"]
                 )
                 
                 if response.status_code == 200:
@@ -433,7 +434,7 @@ class VideoWorker:
                             minutes_idle = idle_time // 60
                             print(f"⏳ Idle for {minutes_idle} minutes (shutdown at {max_idle_time//60})")
                 else:
-                    print(f"⚠️ Redis connection issue: {response.status_code}")
+                    print(f"⚠️ Redis connection issue: {response.status_code} - {response.text}")
                     time.sleep(30)
                     idle_time += 30
                     
