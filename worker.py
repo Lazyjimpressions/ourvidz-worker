@@ -450,11 +450,22 @@ class VideoWorker:
                 raise Exception(f"File is empty: {file_path}")
             
             print(f"📊 File size: {file_size / 1024 / 1024:.1f}MB")
+
+            # Determine content type based on file extension
+            content_type = 'application/octet-stream'  # Default
+            if file_path.lower().endswith('.png'):
+                content_type = 'image/png'
+            elif file_path.lower().endswith('.jpg') or file_path.lower().endswith('.jpeg'):
+                content_type = 'image/jpeg'
+            elif file_path.lower().endswith('.mp4'):
+                content_type = 'video/mp4'
             
+            print(f"📋 Content-Type: {content_type}")
+
             with open(file_path, 'rb') as file:
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                    files={'file': file},
+                    files={'file': (os.path.basename(file_path), file, content_type)},
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
                     }
