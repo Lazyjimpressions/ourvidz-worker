@@ -1,4 +1,4 @@
-# worker.py - Updated with real Wan 2.1 integration and resilience
+# worker.py - Updated with enhanced file debugging and resilience
 import os
 import json
 import time
@@ -6,6 +6,7 @@ import torch
 import requests
 import subprocess
 import uuid
+import glob
 from PIL import Image
 from typing import Optional, List
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -117,16 +118,130 @@ class VideoWorker:
         print(f"📝 Enhanced prompt: {enhanced}")
         return enhanced
 
-    def generate_wan_video(self, prompt: str, output_filename: str, size: str = "832*480") -> Optional[str]:
-        """Generate video using real Wan 2.1"""
+    def debug_generated_files(self, output_filename: str, before_generation: bool = True):
+        """Debug what files exist before and after generation"""
+        timestamp = "BEFORE" if before_generation else "AFTER"
+        print(f"🔍 {timestamp} GENERATION - File Debug:")
+        
+        # List all files in Wan2.1 directory
+        try:
+            all_files = os.listdir(self.wan_path)
+            mp4_files = [f for f in all_files if f.endswith('.mp4')]
+            
+            print(f"📁 Wan2.1 directory: {self.wan_path}")
+            print(f"📊 Total files: {len(all_files)}")
+            print(f"🎬 MP4 files: {len(mp4_files)}")
+            
+            if mp4_files:
+                print("🎥 MP4 files found:")
+                for mp4 in mp4_files[:10]:  # Show first 10
+                    file_path = os.path.join(self.wan_path, mp4)
+                    file_size = os.path.getsize(file_path) / 1024 / 1024  # MB
+                    file_time = os.path.getctime(file_path)
+                    print(f"   📄 {mp4} ({file_size:.1f}MB, created: {time.ctime(file_time)})")
+            else:
+                print("❌ No MP4 files found")
+                
+            # Show recent files (last 5 minutes)
+            recent_files = []
+            current_time = time.time()
+            for file in all_files:
+                file_path = os.path.join(self.wan_path, file)
+                if os.path.isfile(file_path):
+                    file_time = os.path.getctime(file_path)
+                    if current_time - file_time < 300:  # 5 minutes
+                        recent_files.append((file, file_time))
+            
+            if recent_files:
+                print(f"⏰ Recent files (last 5 min): {len(recent_files)}")
+                for file, file_time in recent_files[:5]:
+                    print(f"   📄 {file} (created: {time.ctime(file_time)})")
+                    
+        except Exception as e:
+            print(f"❌ Debug error: {e}")
+
+    def find_generated_video_file(self, output_filename: str) -> List[str]:
+        """Smart file finding with multiple strategies"""
+        potential_files = []
+        
+        try:
+            print(f"🔍 Searching for generated file with base name: {output_filename}")
+            
+            # Strategy 1: Exact filename match
+            exact_patterns = [
+                f"{output_filename}.mp4",
+                f"{output_filename}_*.mp4",
+                f"*{output_filename}*.mp4"
+            ]
+            
+            for pattern in exact_patterns:
+                full_pattern = os.path.join(self.wan_path, pattern)
+                matches = glob.glob(full_pattern)
+                if matches:
+                    print(f"✅ Strategy 1 found {len(matches)} files with pattern: {pattern}")
+                    potential_files.extend(matches)
+            
+            # Strategy 2: Recent MP4 files (last 2 minutes)
+            if not potential_files:
+                print("🔄 Strategy 2: Looking for recent MP4 files...")
+                current_time = time.time()
+                all_mp4s = glob.glob(os.path.join(self.wan_path, "*.mp4"))
+                
+                recent_mp4s = []
+                for mp4_file in all_mp4s:
+                    file_time = os.path.getctime(mp4_file)
+                    if current_time - file_time < 120:  # 2 minutes
+                        recent_mp4s.append((mp4_file, file_time))
+                
+                if recent_mp4s:
+                    # Sort by creation time (newest first)
+                    recent_mp4s.sort(key=lambda x: x[1], reverse=True)
+                    potential_files = [f[0] for f in recent_mp4s]
+                    print(f"✅ Strategy 2 found {len(potential_files)} recent MP4 files")
+            
+            # Strategy 3: Any MP4 file (last resort)
+            if not potential_files:
+                print("🔄 Strategy 3: Looking for any MP4 files...")
+                all_mp4s = glob.glob(os.path.join(self.wan_path, "*.mp4"))
+                if all_mp4s:
+                    # Sort by modification time (newest first)
+                    all_mp4s.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                    potential_files = all_mp4s[:3]  # Take 3 most recent
+                    print(f"✅ Strategy 3 found {len(potential_files)} MP4 files")
+            
+            # Validate files exist and have content
+            valid_files = []
+            for file_path in potential_files:
+                if os.path.exists(file_path):
+                    file_size = os.path.getsize(file_path)
+                    if file_size > 1024:  # At least 1KB
+                        valid_files.append(file_path)
+                        print(f"✅ Valid file: {os.path.basename(file_path)} ({file_size/1024/1024:.1f}MB)")
+                    else:
+                        print(f"⚠️ File too small: {os.path.basename(file_path)} ({file_size}B)")
+                else:
+                    print(f"❌ File not found: {file_path}")
+            
+            return valid_files
+            
+        except Exception as e:
+            print(f"❌ File search error: {e}")
+            return []
+
+    def generate_wan_video_with_debug(self, prompt: str, output_filename: str, size: str = "832*480") -> Optional[str]:
+        """Enhanced version with file debugging"""
         if not self.wan_available:
             print("❌ Wan 2.1 not available, cannot generate video")
             return None
             
         try:
-            print(f"🎬 Starting Wan 2.1 video generation...")
+            print(f"🎬 Starting Wan 2.1 video generation with debug...")
             print(f"📝 Prompt: {prompt}")
             print(f"📐 Size: {size}")
+            print(f"📁 Output filename: {output_filename}")
+            
+            # Debug BEFORE generation
+            self.debug_generated_files(output_filename, before_generation=True)
             
             # Prepare command
             cmd = [
@@ -141,7 +256,6 @@ class VideoWorker:
             # Run generation in Wan2.1 directory
             print(f"🔧 Running: {' '.join(cmd)}")
             
-            # Change to Wan directory and run
             result = subprocess.run(
                 cmd,
                 cwd=self.wan_path,
@@ -150,27 +264,25 @@ class VideoWorker:
                 timeout=600  # 10 minute timeout
             )
             
+            print(f"📤 Wan 2.1 process completed with return code: {result.returncode}")
+            
+            # Debug AFTER generation
+            self.debug_generated_files(output_filename, before_generation=False)
+            
             if result.returncode == 0:
                 print("✅ Wan 2.1 generation completed successfully")
                 
-                # Find the generated video file
-                # Wan 2.1 generates files with timestamp naming
-                import glob
-                pattern = os.path.join(self.wan_path, f"*{output_filename}*.mp4")
-                generated_files = glob.glob(pattern)
+                # Enhanced file finding logic
+                potential_files = self.find_generated_video_file(output_filename)
                 
-                if not generated_files:
-                    # Try finding any recent MP4 file
-                    pattern = os.path.join(self.wan_path, "*.mp4")
-                    generated_files = glob.glob(pattern)
-                    
-                if generated_files:
-                    # Get the most recent file
-                    latest_file = max(generated_files, key=os.path.getctime)
+                if potential_files:
+                    latest_file = potential_files[0]  # Already sorted by creation time
                     print(f"✅ Found generated video: {latest_file}")
                     return latest_file
                 else:
-                    print("❌ Generated video file not found")
+                    print("❌ Generated video file not found despite successful generation")
+                    print(f"stdout: {result.stdout}")
+                    print(f"stderr: {result.stderr}")
                     return None
                     
             else:
@@ -187,28 +299,36 @@ class VideoWorker:
             return None
 
     def generate_preview(self, prompt: str) -> Optional[str]:
-        """Generate preview image using Wan 2.1 (first frame of video)"""
+        """Generate preview image using Wan 2.1 with enhanced debugging"""
         print("🖼️ Generating preview...")
         
         if self.wan_available:
             print("🎥 Using Wan 2.1 for preview generation")
-            # Generate a short video and extract first frame
             output_filename = f"preview_{uuid.uuid4().hex[:8]}"
-            video_path = self.generate_wan_video(prompt, output_filename, "832*480")
+            video_path = self.generate_wan_video_with_debug(prompt, output_filename, "832*480")
             
             if video_path:
                 try:
                     # Extract first frame using ffmpeg
                     preview_path = video_path.replace('.mp4', '_preview.png')
-                    subprocess.run([
+                    
+                    print(f"🎞️ Extracting frame from: {video_path}")
+                    print(f"🖼️ Saving preview to: {preview_path}")
+                    
+                    result = subprocess.run([
                         'ffmpeg', '-i', video_path, '-vf', 'select=eq(n\\,0)', 
                         '-q:v', '3', '-y', preview_path
-                    ], check=True, capture_output=True)
+                    ], capture_output=True, text=True)
                     
-                    print(f"✅ Preview extracted: {preview_path}")
-                    return preview_path
-                    
-                except subprocess.CalledProcessError as e:
+                    if result.returncode == 0 and os.path.exists(preview_path):
+                        file_size = os.path.getsize(preview_path) / 1024  # KB
+                        print(f"✅ Preview extracted successfully: {preview_path} ({file_size:.1f}KB)")
+                        return preview_path
+                    else:
+                        print(f"❌ FFmpeg failed: {result.stderr}")
+                        return None
+                        
+                except Exception as e:
                     print(f"❌ Failed to extract preview frame: {e}")
         
         # Fallback: create placeholder preview
@@ -263,16 +383,17 @@ class VideoWorker:
             return None
 
     def generate_video(self, prompt: str) -> Optional[str]:
-        """Generate final video using Wan 2.1"""
+        """Generate final video using Wan 2.1 with enhanced debugging"""
         print("🎬 Generating final video...")
         
         if self.wan_available:
             print("🎥 Using Wan 2.1 for video generation")
             output_filename = f"video_{uuid.uuid4().hex[:8]}"
-            video_path = self.generate_wan_video(prompt, output_filename, "832*480")
+            video_path = self.generate_wan_video_with_debug(prompt, output_filename, "832*480")
             
             if video_path:
-                print(f"✅ Video generated successfully: {video_path}")
+                file_size = os.path.getsize(video_path) / 1024 / 1024  # MB
+                print(f"✅ Video generated successfully: {video_path} ({file_size:.1f}MB)")
                 return video_path
         
         # Fallback: create placeholder video
@@ -316,6 +437,19 @@ class VideoWorker:
             return f"placeholder:///{storage_path}"
             
         try:
+            print(f"📤 Uploading file: {file_path}")
+            print(f"📁 Storage path: {storage_path}")
+            
+            # Verify file exists and has content
+            if not os.path.exists(file_path):
+                raise Exception(f"File does not exist: {file_path}")
+            
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                raise Exception(f"File is empty: {file_path}")
+            
+            print(f"📊 File size: {file_size / 1024 / 1024:.1f}MB")
+            
             with open(file_path, 'rb') as file:
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
@@ -352,6 +486,10 @@ class VideoWorker:
                 'enhancedPrompt': enhanced_prompt
             }
             
+            print(f"📞 Sending callback for job {job_id}: {status}")
+            if enhanced_prompt:
+                print(f"📝 Enhanced prompt in callback: {enhanced_prompt[:100]}...")
+            
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
                 json=callback_data,
@@ -381,16 +519,23 @@ class VideoWorker:
                 # Enhance the prompt
                 original_prompt = job_data.get('prompt', '')
                 character_desc = job_data.get('characterDescription', '')
-    
+                
+                if not original_prompt.strip():
+                    print("⚠️ Empty prompt detected, using fallback")
+                    original_prompt = "person walking"
+                
                 enhanced_prompt = self.enhance_prompt(original_prompt, character_desc)
                 print(f"✅ Enhanced prompt: {enhanced_prompt[:100]}...")
-    
+                
                 # Send enhanced prompt in callback
                 self.notify_completion(job_id, 'completed', output_url=None, error_message=None, enhanced_prompt=enhanced_prompt)
                 
             elif job_type == 'preview':
                 # Generate preview image
                 prompt = job_data.get('prompt', 'woman walking')
+                if not prompt.strip():
+                    prompt = "woman walking"
+                    
                 preview_path = self.generate_preview(prompt)
                 
                 if preview_path:
@@ -409,6 +554,9 @@ class VideoWorker:
             elif job_type == 'video':
                 # Generate final video
                 prompt = job_data.get('prompt', 'woman walking')
+                if not prompt.strip():
+                    prompt = "woman walking"
+                    
                 video_path = self.generate_video(prompt)
                 
                 if video_path:
@@ -439,7 +587,7 @@ class VideoWorker:
         print("🎬 OurVidz GPU Worker started!")
         
         if self.wan_available:
-            print("🎥 Running with Wan 2.1 support")
+            print("🎥 Running with Wan 2.1 support and enhanced file debugging")
         else:
             print("⚠️ Running in placeholder mode")
             
