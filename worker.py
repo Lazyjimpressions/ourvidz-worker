@@ -250,7 +250,7 @@ class VideoWorker:
                 "--size", size,
                 "--ckpt_dir", self.wan_model_path,
                 "--prompt", prompt,
-                "--save_file", output_filename
+                "--save_file", f"{output_filename}.mp4"
             ]
             
             # Run generation in Wan2.1 directory
@@ -373,7 +373,8 @@ class VideoWorker:
             
             # Save
             output_path = f"/tmp/preview_{uuid.uuid4().hex[:8]}.png"
-            img.save(output_path)
+            img.save(output_path, "PNG")
+            print(f"📊 Placeholder file size: {os.path.getsize(output_path)} bytes")
             
             print(f"✅ Placeholder preview created: {output_path}")
             return output_path
