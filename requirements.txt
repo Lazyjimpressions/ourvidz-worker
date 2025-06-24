@@ -1,8 +1,19 @@
+# requirements.txt - Enhanced Multi-Model Setup (Updated)
+
+# Core PyTorch and CUDA (your current versions)
 torch>=2.4.1
 torchvision>=0.19.1
+torchaudio>=2.0.0
+
+# Diffusers and Transformers (your current versions)
 diffusers>=0.24.0
 transformers>=4.36.0
 accelerate>=0.25.0
+
+# HuggingFace Hub (your current version)
+huggingface_hub>=0.19.0
+
+# Core worker dependencies (your current versions)
 redis>=5.0.1
 requests>=2.31.0
 pillow>=10.1.0
@@ -10,4 +21,24 @@ opencv-python>=4.8.1
 numpy>=1.24.0
 pydantic>=2.0.0
 safetensors>=0.4.0
-huggingface-hub>=0.19.0
+
+# Additional dependencies for enhanced functionality
+pathlib2>=2.3.7
+python-dotenv>=1.0.0
+
+# Optional: Faster tokenizers (if not already installed)
+tokenizers>=0.15.0
+
+# Optional: Better image/video processing
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.8
+
+# Optional: Progress bars for downloads
+tqdm>=4.65.0
+
+# Memory profiling (optional, for debugging)
+psutil>=5.9.0
+
+# For potential future audio integration
+librosa>=0.10.0
+soundfile>=0.12.0
