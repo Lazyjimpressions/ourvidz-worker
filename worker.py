@@ -461,12 +461,13 @@ class VideoWorker:
             print(f"📋 Content-Type: {content_type}")
 
             with open(file_path, 'rb') as file:
+                # Use correct headers format for Supabase REST API
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
                     files={'file': (os.path.basename(file_path), file, content_type)},
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
-                        'upsert': 'true'  # Allow overwriting existing files
+                        'x-upsert': 'true'  # Correct header format for REST API
                     }
                 )
             
