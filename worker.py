@@ -1,4 +1,4 @@
-# worker.py - SUPER FAST optimized version
+# worker.py - UNIFIED configuration aligned with frontend
 import os
 import json
 import time
@@ -12,8 +12,8 @@ import cv2
 
 class VideoWorker:
     def __init__(self):
-        """Initialize optimized OurVidz worker"""
-        print("🚀 OurVidz Worker initialized (OPTIMIZED)")
+        """Initialize optimized OurVidz worker with UNIFIED configuration"""
+        print("🚀 OurVidz Worker initialized (UNIFIED CONFIG)")
         
         # Check dependencies
         self.ffmpeg_available = shutil.which('ffmpeg') is not None
@@ -26,43 +26,44 @@ class VideoWorker:
         self.wan_available = self.check_wan_installation()
         print(f"🎥 Wan 2.1 Available: {self.wan_available}")
         
-        # Optimized sizes and parameters for each job type
+        # UNIFIED job configurations (aligned with frontend)
         self.job_configs = {
             'image_fast': {
-                'task': 't2i-14B',           # Direct image generation (14B for quality)
-                'size': '480*832',           # Portrait, small
-                'sample_steps': 10,          # FAST: Minimal steps
+                'task': 't2i-14B',           # Direct image generation
+                'size': '832*480',           # Landscape (changed from 480*832)
+                'sample_steps': 10,          # Fast generation
                 'offload_model': True,       # Memory optimization
-                'expected_time': '10-30 seconds'
+                'expected_time': '15-45 seconds'  # Realistic timing
             },
             'image_high': {
-                'task': 't2i-14B',           # Direct image generation (14B for best quality)
-                'size': '1024*1024',         # Square, high-res
-                'sample_steps': 25,          # QUALITY: More steps for premium
+                'task': 't2i-14B',           # Direct image generation
+                'size': '1280*720',          # 720p HD (changed from 1024*1024)
+                'sample_steps': 25,          # Quality generation
                 'offload_model': True,       # Memory optimization
-                'expected_time': '45-90 seconds'
+                'expected_time': '30-60 seconds'  # Realistic timing
             },
             'video_fast': {
-                'task': 't2v-1.3B',          # FAST video generation (1.3B for speed)
-                'size': '832*480',           # Landscape, standard
+                'task': 't2v-1.3B',          # Fast video model
+                'size': '832*480',           # Standard definition
                 'frame_num': 17,             # 1 second (4n+1 = 17 frames)
-                'sample_steps': 15,          # FAST: Fewer steps
+                'sample_steps': 15,          # Balanced speed/quality
                 'offload_model': True,       # Memory optimization
-                'expected_time': '1-2 minutes'
+                'expected_time': '2-4 minutes'  # Realistic timing
             },
             'video_high': {
-                'task': 't2v-14B',           # PREMIUM video generation (14B for quality)
-                'size': '1280*720',          # HD landscape
+                'task': 't2v-14B',           # Premium video model
+                'size': '1280*720',          # HD quality
                 'frame_num': 33,             # 2 seconds (4n+1 = 33 frames)
-                'sample_steps': 30,          # QUALITY: More steps for premium
+                'sample_steps': 30,          # High quality
                 'offload_model': True,       # Memory optimization
-                'expected_time': '8-12 minutes'
+                'expected_time': '8-15 minutes'  # Realistic timing
             }
         }
         
-        print("⚡ OPTIMIZED configurations:")
+        print("⚡ UNIFIED configurations (Frontend/Backend Aligned):")
         for job_type, config in self.job_configs.items():
-            print(f"   🎯 {job_type}: {config['task']} | {config['size']} | {config['expected_time']}")
+            size_display = config['size'].replace('*', 'x')
+            print(f"   🎯 {job_type}: {config['task']} | {size_display} | {config['expected_time']}")
         
         # Environment variables
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -70,7 +71,7 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
-        print("🎬 SUPER FAST OurVidz Worker started!")
+        print("🎬 UNIFIED OurVidz Worker started!")
 
     def detect_gpu(self):
         """Detect GPU"""
@@ -103,7 +104,7 @@ class VideoWorker:
             return False
 
     def generate_optimized(self, prompt, job_type):
-        """OPTIMIZED generation based on job type"""
+        """OPTIMIZED generation with UNIFIED configuration"""
         if job_type not in self.job_configs:
             print(f"❌ Unknown job type: {job_type}")
             return None
@@ -112,9 +113,9 @@ class VideoWorker:
         job_id = str(uuid.uuid4())[:8]
         
         try:
-            print(f"⚡ OPTIMIZED {job_type} generation:")
+            print(f"⚡ UNIFIED {job_type} generation:")
             print(f"   🎯 Task: {config['task']}")
-            print(f"   📐 Size: {config['size']}")
+            print(f"   📐 Size: {config['size'].replace('*', 'x')}")
             print(f"   ⏱️ Expected time: {config['expected_time']}")
             print(f"   📝 Prompt: {prompt}")
             
@@ -149,7 +150,7 @@ class VideoWorker:
             os.chdir("/workspace/Wan2.1")
             start_time = time.time()
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 15 minute timeout
             
             generation_time = time.time() - start_time
             print(f"📤 Generation completed in {generation_time:.1f}s (return code: {result.returncode})")
@@ -167,8 +168,8 @@ class VideoWorker:
                 print(f"✅ Generated: {output_path} ({file_size:.1f}MB in {generation_time:.1f}s)")
                 return output_path
             else:
-                print(f"❌ Output file not found: {output_path}")
-                # List files for debugging
+                print(f"❌ Expected output not found: {output_path}")
+                # Search for alternative files with job_id
                 try:
                     files = [f for f in os.listdir("/workspace/Wan2.1") if job_id in f]
                     print(f"   📂 Found files with job_id: {files}")
@@ -182,49 +183,65 @@ class VideoWorker:
                 return None
                 
         except subprocess.TimeoutExpired:
-            print(f"⏰ Generation timed out after 10 minutes")
+            print(f"⏰ Generation timed out after 15 minutes")
             return None
         except Exception as e:
             print(f"❌ Generation failed: {e}")
             return None
 
     def upload_to_supabase(self, file_path, job_type, user_id, job_id):
-        """Upload to Supabase storage"""
+        """Upload to Supabase storage with user-scoped paths"""
         try:
             if not os.path.exists(file_path):
+                print(f"❌ File does not exist: {file_path}")
                 return None
                 
             file_size = os.path.getsize(file_path) / (1024 * 1024)
-            print(f"📤 Uploading {file_size:.1f}MB...")
+            print(f"📤 Uploading {file_size:.1f}MB to Supabase...")
             
-            # Determine bucket and extension
+            # Determine bucket and extension based on job type
             if 'image' in job_type:
-                bucket = job_type
+                bucket = job_type  # image_fast or image_high
                 extension = "png"
             else:
-                bucket = job_type
+                bucket = job_type  # video_fast or video_high
                 extension = "mp4"
             
-            # Create filename
+            # Create user-scoped filename with timestamp
             timestamp = int(time.time())
             filename = f"job_{job_id}_{timestamp}_{job_type}.{extension}"
             user_path = f"{user_id}/{filename}"
             storage_path = f"{bucket}/{user_path}"
             
-            # Upload
+            print(f"🗂️ Bucket: {bucket}")
+            print(f"📁 User path: {user_path}")
+            
+            # Determine content type
+            content_type = 'application/octet-stream'
+            if file_path.lower().endswith('.png'):
+                content_type = 'image/png'
+            elif file_path.lower().endswith('.jpg') or file_path.lower().endswith('.jpeg'):
+                content_type = 'image/jpeg'
+            elif file_path.lower().endswith('.mp4'):
+                content_type = 'video/mp4'
+            
+            # Upload to Supabase
             with open(file_path, 'rb') as file:
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                    files={'file': file},
-                    headers={'Authorization': f"Bearer {self.supabase_service_key}"},
-                    timeout=60
+                    files={'file': (os.path.basename(file_path), file, content_type)},
+                    headers={
+                        'Authorization': f"Bearer {self.supabase_service_key}",
+                        'x-upsert': 'true'
+                    },
+                    timeout=120  # 2 minute timeout for uploads
                 )
             
-            if response.status_code == 200:
-                print(f"✅ Uploaded: {storage_path}")
-                return user_path
+            if response.status_code in [200, 201]:
+                print(f"✅ Uploaded to: {storage_path}")
+                return user_path  # Return user-scoped path for database
             else:
-                print(f"❌ Upload failed: {response.status_code}")
+                print(f"❌ Upload failed: {response.status_code} - {response.text}")
                 return None
                 
         except Exception as e:
@@ -232,7 +249,7 @@ class VideoWorker:
             return None
 
     def notify_completion(self, job_id, status, file_path=None, error_message=None):
-        """Send completion callback"""
+        """Send completion callback to Supabase"""
         try:
             callback_data = {
                 'jobId': job_id,
@@ -240,6 +257,10 @@ class VideoWorker:
                 'filePath': file_path,
                 'errorMessage': error_message
             }
+            
+            print(f"📞 Sending callback for job {job_id}: {status}")
+            if file_path:
+                print(f"📁 File path: {file_path}")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -252,26 +273,39 @@ class VideoWorker:
             )
             
             if response.status_code == 200:
-                print(f"✅ Callback sent for job {job_id}")
+                print(f"✅ Callback sent successfully for job {job_id}")
             else:
-                print(f"❌ Callback failed: {response.status_code}")
+                print(f"❌ Callback failed: {response.status_code} - {response.text}")
                 
         except Exception as e:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process a job with optimized generation"""
+        """Process job with UNIFIED configuration"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
-        prompt = job_data.get('prompt')
+        prompt = job_data.get('prompt', 'person walking')
         user_id = job_data.get('userId')
         
-        print(f"\n📥 FAST Processing: {job_type} - {job_id}")
+        print(f"\n📥 UNIFIED Processing: {job_type} - {job_id}")
+        print(f"👤 User: {user_id}")
+        
+        # Validate required fields
+        if not job_id or not job_type or not user_id:
+            error_msg = f"Missing required fields: jobId={job_id}, jobType={job_type}, userId={user_id}"
+            print(f"❌ {error_msg}")
+            self.notify_completion(job_id or 'unknown', 'failed', error_message=error_msg)
+            return
         
         # Show expected performance
         if job_type in self.job_configs:
             expected_time = self.job_configs[job_type]['expected_time']
             print(f"⏱️ Expected completion: {expected_time}")
+        else:
+            error_msg = f"Unknown job type: {job_type}. Supported: {list(self.job_configs.keys())}"
+            print(f"❌ {error_msg}")
+            self.notify_completion(job_id, 'failed', error_message=error_msg)
+            return
         
         try:
             if self.wan_available:
@@ -281,31 +315,35 @@ class VideoWorker:
                 raise Exception("Wan 2.1 not available")
             
             if output_path and os.path.exists(output_path):
+                # Upload to Supabase with user-scoped path
                 file_path = self.upload_to_supabase(output_path, job_type, user_id, job_id)
                 
                 if file_path:
-                    print(f"🎉 FAST job {job_id} completed!")
+                    print(f"🎉 UNIFIED job {job_id} completed successfully!")
                     self.notify_completion(job_id, 'completed', file_path)
                 else:
-                    raise Exception("Upload failed")
+                    raise Exception("Upload to Supabase failed")
                 
-                # Cleanup
+                # Cleanup local file
                 try:
                     os.remove(output_path)
+                    print(f"🧹 Cleaned up: {output_path}")
                 except:
                     pass
             else:
-                raise Exception("Generation failed")
+                raise Exception("Generation failed - no output file created")
                 
         except Exception as e:
-            print(f"❌ Job {job_id} failed: {e}")
-            self.notify_completion(job_id, 'failed', error_message=str(e))
+            error_msg = str(e)
+            print(f"❌ Job {job_id} failed: {error_msg}")
+            self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
-        """Poll for jobs"""
+        """Poll Redis queue for jobs (FIXED: job_queue not job-queue)"""
         try:
+            # FIXED: Use job_queue (underscore) instead of job-queue (hyphen)
             response = requests.get(
-                f"{self.redis_url}/rpop/job-queue",
+                f"{self.redis_url}/rpop/job_queue",  # ← CORRECTED
                 headers={'Authorization': f"Bearer {self.redis_token}"},
                 timeout=10
             )
@@ -314,32 +352,71 @@ class VideoWorker:
                 result = response.json()
                 if result.get('result'):
                     return json.loads(result['result'])
-            return None
+                else:
+                    return None  # No jobs in queue
+            else:
+                print(f"⚠️ Redis error: {response.status_code} - {response.text}")
+                return None
                 
         except Exception as e:
-            print(f"❌ Queue error: {e}")
+            print(f"❌ Queue polling error: {e}")
             return None
 
     def run(self):
-        """Main loop"""
-        print("⏳ Waiting for FAST jobs...")
+        """Main worker loop with idle shutdown"""
+        print("⏳ Waiting for UNIFIED jobs...")
+        
+        idle_time = 0
+        max_idle_time = 10 * 60  # 10 minutes
+        poll_interval = 5  # 5 seconds
         
         while True:
             try:
                 job_data = self.poll_queue()
                 
                 if job_data:
+                    # Reset idle timer when job received
+                    idle_time = 0
                     self.process_job(job_data)
+                    print("⏳ Waiting for next job...")
                 else:
-                    print("💤 No jobs...")
-                    time.sleep(5)
+                    # Increment idle time
+                    idle_time += poll_interval
+                    
+                    # Log idle status every minute
+                    if idle_time % 60 == 0 and idle_time > 0:
+                        minutes_idle = idle_time // 60
+                        max_minutes = max_idle_time // 60
+                        print(f"💤 Idle for {minutes_idle}/{max_minutes} minutes...")
+                    
+                    # Shutdown after max idle time
+                    if idle_time >= max_idle_time:
+                        print(f"🛑 Shutting down after {max_idle_time//60} minutes of inactivity")
+                        break
+                    
+                    time.sleep(poll_interval)
                     
             except KeyboardInterrupt:
+                print("👋 Worker stopped by user")
                 break
             except Exception as e:
                 print(f"❌ Worker error: {e}")
-                time.sleep(30)
+                time.sleep(30)  # Wait longer on errors
 
 if __name__ == "__main__":
+    # Validate environment variables
+    required_vars = [
+        'SUPABASE_URL',
+        'SUPABASE_SERVICE_KEY', 
+        'UPSTASH_REDIS_REST_URL',
+        'UPSTASH_REDIS_REST_TOKEN'
+    ]
+    
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        print(f"⚠️ Missing environment variables: {', '.join(missing_vars)}")
+        print("🔄 Worker will start but may have limited functionality")
+    
+    print("🚀 Starting UNIFIED OurVidz Worker...")
     worker = VideoWorker()
     worker.run()
