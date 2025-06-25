@@ -1,4 +1,4 @@
-# worker.py - Clean, Complete, Audited Version
+# worker.py - Fixed with Valid Wan 2.1 Sizes
 import os
 import json
 import time
@@ -157,7 +157,7 @@ class VideoWorker:
             return []
 
     def generate_wan_video_with_debug(self, prompt: str, output_filename: str, size: str = "832*480") -> Optional[str]:
-        """Enhanced version with file debugging"""
+        """Enhanced version with file debugging - FIXED SIZES"""
         if not self.wan_available:
             print("❌ Wan 2.1 not available, cannot generate video")
             return None
@@ -218,13 +218,15 @@ class VideoWorker:
             return None
 
     def generate_image_fast(self, prompt: str) -> Optional[str]:
-        """Generate fast/low-res image for previews and storyboarding (2-3 seconds)"""
+        """Generate fast/low-res image using VALID Wan 2.1 size (480*832)"""
         print("🖼️ Generating fast image (low res)...")
         
         if self.wan_available:
-            print("🎥 Using Wan 2.1 T2V for fast image generation (512x768)")
+            print("🎥 Using Wan 2.1 T2V for fast image generation (480x832)")
             output_filename = f"image_fast_{uuid.uuid4().hex[:8]}"
-            video_path = self.generate_wan_video_with_debug(prompt, output_filename, "512*768")
+            
+            # FIXED: Use valid Wan 2.1 size
+            video_path = self.generate_wan_video_with_debug(prompt, output_filename, "480*832")
             
             if video_path:
                 try:
@@ -251,15 +253,17 @@ class VideoWorker:
         
         # Fallback: create placeholder image
         print("🖼️ Creating placeholder fast image")
-        return self.create_placeholder_image(prompt, size=(512, 768), image_type="Fast Image")
+        return self.create_placeholder_image(prompt, size=(480, 832), image_type="Fast Image")
 
     def generate_image_high(self, prompt: str) -> Optional[str]:
-        """Generate high-res image for characters and premium content (3-4 seconds)"""
+        """Generate high-res image using VALID Wan 2.1 size (1024*1024)"""
         print("🖼️ Generating high-res image...")
         
         if self.wan_available:
             print("🎥 Using Wan 2.1 T2V for high-res image generation (1024x1024)")
             output_filename = f"image_high_{uuid.uuid4().hex[:8]}"
+            
+            # FIXED: Use valid Wan 2.1 size
             video_path = self.generate_wan_video_with_debug(prompt, output_filename, "1024*1024")
             
             if video_path:
@@ -290,12 +294,14 @@ class VideoWorker:
         return self.create_placeholder_image(prompt, size=(1024, 1024), image_type="High-Res Image")
 
     def generate_video_fast(self, prompt: str) -> Optional[str]:
-        """Generate fast/low-res video for standard content (4-6 minutes)"""
+        """Generate fast/low-res video using VALID Wan 2.1 size (832*480)"""
         print("🎬 Generating fast video (standard quality)...")
         
         if self.wan_available:
             print("🎥 Using Wan 2.1 T2V-1.3B for fast video generation (832x480)")
             output_filename = f"video_fast_{uuid.uuid4().hex[:8]}"
+            
+            # FIXED: Use valid Wan 2.1 size
             video_path = self.generate_wan_video_with_debug(prompt, output_filename, "832*480")
             
             if video_path:
@@ -307,13 +313,14 @@ class VideoWorker:
         return self.create_placeholder_video(prompt, size="832x480", video_type="Fast Video")
 
     def generate_video_high(self, prompt: str) -> Optional[str]:
-        """Generate high-res video for premium content (6-8 minutes)"""
+        """Generate high-res video using VALID Wan 2.1 size (1280*720)"""
         print("🎬 Generating high-res video (premium quality)...")
         
         if self.wan_available:
-            print("🎥 Using Wan 2.1 T2V-14B for high-res video generation (1280x720)")
-            # Note: This would use the 14B model when available
+            print("🎥 Using Wan 2.1 T2V for high-res video generation (1280x720)")
             output_filename = f"video_high_{uuid.uuid4().hex[:8]}"
+            
+            # FIXED: Use valid Wan 2.1 size
             video_path = self.generate_wan_video_with_debug(prompt, output_filename, "1280*720")
             
             if video_path:
@@ -525,7 +532,7 @@ class VideoWorker:
                 self.notify_completion(job_id, 'completed', file_path=None, error_message=None, enhanced_prompt=enhanced_prompt)
                 
             elif job_type == 'image_fast':
-                # Fast/low-res images for previews and storyboarding (2-3 seconds)
+                # Fast/low-res images (480x832) for previews and storyboarding
                 prompt = job_data.get('prompt', 'woman walking')
                 if not prompt.strip():
                     prompt = "woman walking"
@@ -545,7 +552,7 @@ class VideoWorker:
                     raise Exception("Failed to generate fast image")
                     
             elif job_type == 'image_high':
-                # High-res images for characters and premium content (3-4 seconds)
+                # High-res images (1024x1024) for characters and premium content
                 prompt = job_data.get('prompt', 'woman walking')
                 if not prompt.strip():
                     prompt = "woman walking"
@@ -565,7 +572,7 @@ class VideoWorker:
                     raise Exception("Failed to generate high-res image")
                     
             elif job_type == 'video_fast':
-                # Fast/standard video generation (4-6 minutes)
+                # Fast/standard video generation (832x480)
                 prompt = job_data.get('prompt', 'woman walking')
                 if not prompt.strip():
                     prompt = "woman walking"
@@ -585,7 +592,7 @@ class VideoWorker:
                     raise Exception("Failed to generate fast video")
                     
             elif job_type == 'video_high':
-                # High-res/premium video generation (6-8 minutes)
+                # High-res/premium video generation (1280x720)
                 prompt = job_data.get('prompt', 'woman walking')
                 if not prompt.strip():
                     prompt = "woman walking"
@@ -634,7 +641,11 @@ class VideoWorker:
         print("🎬 OurVidz GPU Worker started!")
         
         if self.wan_available:
-            print("🎥 Running with Wan 2.1 support")
+            print("🎥 Running with Wan 2.1 support and VALID sizes:")
+            print("   📐 image_fast: 480x832 (portrait)")
+            print("   📐 image_high: 1024x1024 (square)")
+            print("   📐 video_fast: 832x480 (landscape)")
+            print("   📐 video_high: 1280x720 (HD landscape)")
         else:
             print("⚠️ Running in placeholder mode")
             
