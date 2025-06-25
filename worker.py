@@ -1,4 +1,4 @@
-# worker.py - UNIFIED configuration aligned with frontend
+# worker.py - CORRECTED with proper model paths and optimizations
 import os
 import json
 import time
@@ -12,8 +12,8 @@ import cv2
 
 class VideoWorker:
     def __init__(self):
-        """Initialize optimized OurVidz worker with UNIFIED configuration"""
-        print("🚀 OurVidz Worker initialized (UNIFIED CONFIG)")
+        """Initialize optimized OurVidz worker with CORRECTED model paths"""
+        print("🚀 OurVidz Worker initialized (CORRECTED MODELS)")
         
         # Check dependencies
         self.ffmpeg_available = shutil.which('ffmpeg') is not None
@@ -26,44 +26,53 @@ class VideoWorker:
         self.wan_available = self.check_wan_installation()
         print(f"🎥 Wan 2.1 Available: {self.wan_available}")
         
-        # UNIFIED job configurations (aligned with frontend)
+        # CORRECTED job configurations with proper model paths
         self.job_configs = {
             'image_fast': {
-                'task': 't2i-14B',           # Direct image generation
-                'size': '832*480',           # Landscape (changed from 480*832)
-                'sample_steps': 10,          # Fast generation
-                'offload_model': True,       # Memory optimization
-                'expected_time': '15-45 seconds'  # Realistic timing
+                'task': 't2i-14B',
+                'size': '832*480',
+                'model_path': '/workspace/models/wan2.1-t2v-14b',  # CORRECTED: 14B model
+                'sample_steps': 5,           # Reduced for speed
+                'sample_guide_scale': 5.0,   # Lower guidance for speed
+                'offload_model': False,      # Keep in VRAM for speed
+                'expected_time': '15-45 seconds'
             },
             'image_high': {
-                'task': 't2i-14B',           # Direct image generation
-                'size': '1280*720',          # 720p HD (changed from 1024*1024)
-                'sample_steps': 25,          # Quality generation
-                'offload_model': True,       # Memory optimization
-                'expected_time': '30-60 seconds'  # Realistic timing
+                'task': 't2i-14B',
+                'size': '1280*720',
+                'model_path': '/workspace/models/wan2.1-t2v-14b',  # CORRECTED: 14B model
+                'sample_steps': 15,          # Balanced quality/speed
+                'sample_guide_scale': 7.5,   # Standard guidance
+                'offload_model': True,       # Offload for memory
+                'expected_time': '30-60 seconds'
             },
             'video_fast': {
-                'task': 't2v-1.3B',          # Fast video model
-                'size': '832*480',           # Standard definition
+                'task': 't2v-1.3B',
+                'size': '832*480',
+                'model_path': '/workspace/models/wan2.1-t2v-1.3b',  # CORRECT: 1.3B model
                 'frame_num': 17,             # 1 second (4n+1 = 17 frames)
-                'sample_steps': 15,          # Balanced speed/quality
-                'offload_model': True,       # Memory optimization
-                'expected_time': '2-4 minutes'  # Realistic timing
+                'sample_steps': 10,          # Reduced for speed
+                'sample_guide_scale': 6.0,   # Balanced guidance
+                'offload_model': False,      # Keep in VRAM for speed
+                'expected_time': '2-4 minutes'
             },
             'video_high': {
-                'task': 't2v-14B',           # Premium video model
-                'size': '1280*720',          # HD quality
+                'task': 't2v-14B',
+                'size': '1280*720',
+                'model_path': '/workspace/models/wan2.1-t2v-14b',  # CORRECT: 14B model
                 'frame_num': 33,             # 2 seconds (4n+1 = 33 frames)
-                'sample_steps': 30,          # High quality
-                'offload_model': True,       # Memory optimization
-                'expected_time': '8-15 minutes'  # Realistic timing
+                'sample_steps': 20,          # Quality generation
+                'sample_guide_scale': 7.5,   # High guidance for quality
+                'offload_model': True,       # Offload OK for quality
+                'expected_time': '8-15 minutes'
             }
         }
         
-        print("⚡ UNIFIED configurations (Frontend/Backend Aligned):")
+        print("⚡ CORRECTED configurations (Proper Model Paths):")
         for job_type, config in self.job_configs.items():
             size_display = config['size'].replace('*', 'x')
-            print(f"   🎯 {job_type}: {config['task']} | {size_display} | {config['expected_time']}")
+            model_name = config['model_path'].split('/')[-1]
+            print(f"   🎯 {job_type}: {config['task']} | {model_name} | {size_display} | {config['expected_time']}")
         
         # Environment variables
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -71,7 +80,7 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
-        print("🎬 UNIFIED OurVidz Worker started!")
+        print("🎬 CORRECTED OurVidz Worker started!")
 
     def detect_gpu(self):
         """Detect GPU"""
@@ -87,24 +96,39 @@ class VideoWorker:
             print(f"⚠️ GPU detection failed: {e}")
 
     def check_wan_installation(self):
-        """Check Wan 2.1 installation"""
+        """Check both 1.3B and 14B models are available"""
         try:
             wan_dir = Path("/workspace/Wan2.1")
             generate_script = wan_dir / "generate.py"
-            model_dir = Path("/workspace/models/wan2.1-t2v-1.3b")
             
-            if wan_dir.exists() and generate_script.exists() and model_dir.exists():
-                return True
-            else:
-                print("❌ Wan 2.1 installation incomplete")
+            model_1_3b = Path("/workspace/models/wan2.1-t2v-1.3b")
+            model_14b = Path("/workspace/models/wan2.1-t2v-14b")
+            
+            if not wan_dir.exists():
+                print("❌ Wan2.1 directory not found")
                 return False
+                
+            if not generate_script.exists():
+                print("❌ generate.py not found")
+                return False
+                
+            if not model_1_3b.exists():
+                print("❌ 1.3B model directory not found")
+                return False
+                
+            if not model_14b.exists():
+                print("❌ 14B model directory not found")
+                return False
+                
+            print("✅ Both 1.3B and 14B models verified")
+            return True
                 
         except Exception as e:
             print(f"❌ Error checking Wan installation: {e}")
             return False
 
     def generate_optimized(self, prompt, job_type):
-        """OPTIMIZED generation with UNIFIED configuration"""
+        """CORRECTED generation with proper model paths"""
         if job_type not in self.job_configs:
             print(f"❌ Unknown job type: {job_type}")
             return None
@@ -113,9 +137,11 @@ class VideoWorker:
         job_id = str(uuid.uuid4())[:8]
         
         try:
-            print(f"⚡ UNIFIED {job_type} generation:")
+            print(f"⚡ CORRECTED {job_type} generation:")
             print(f"   🎯 Task: {config['task']}")
+            print(f"   📁 Model: {config['model_path'].split('/')[-1]}")
             print(f"   📐 Size: {config['size'].replace('*', 'x')}")
+            print(f"   🔧 Steps: {config['sample_steps']}")
             print(f"   ⏱️ Expected time: {config['expected_time']}")
             print(f"   📝 Prompt: {prompt}")
             
@@ -125,26 +151,30 @@ class VideoWorker:
             else:
                 output_filename = f"{job_type}_{job_id}.mp4"  # Video output
             
-            # Build optimized command
+            # Build CORRECTED command with proper model path
             cmd = [
                 "python", "generate.py",
                 "--task", config['task'],
                 "--size", config['size'],
-                "--ckpt_dir", "/workspace/models/wan2.1-t2v-1.3b",
+                "--ckpt_dir", config['model_path'],  # ← CORRECTED: Use job-specific model
                 "--prompt", prompt,
                 "--save_file", output_filename,
                 "--sample_steps", str(config['sample_steps'])
             ]
             
+            # Add guidance scale for better speed/quality balance
+            if 'sample_guide_scale' in config:
+                cmd.extend(["--sample_guide_scale", str(config['sample_guide_scale'])])
+            
             # Add frame_num for video tasks
             if 'frame_num' in config:
                 cmd.extend(["--frame_num", str(config['frame_num'])])
             
-            # Add memory optimization
+            # Conditional memory optimization (False for fast jobs)
             if config.get('offload_model'):
                 cmd.extend(["--offload_model", "True"])
             
-            print(f"🔧 Command: {' '.join(cmd)}")
+            print(f"🔧 CORRECTED Command: {' '.join(cmd)}")
             
             # Run generation with timing
             os.chdir("/workspace/Wan2.1")
@@ -281,13 +311,13 @@ class VideoWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process job with UNIFIED configuration"""
+        """Process job with CORRECTED model paths"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
         prompt = job_data.get('prompt', 'person walking')
         user_id = job_data.get('userId')
         
-        print(f"\n📥 UNIFIED Processing: {job_type} - {job_id}")
+        print(f"\n📥 CORRECTED Processing: {job_type} - {job_id}")
         print(f"👤 User: {user_id}")
         
         # Validate required fields
@@ -300,7 +330,9 @@ class VideoWorker:
         # Show expected performance
         if job_type in self.job_configs:
             expected_time = self.job_configs[job_type]['expected_time']
+            model_name = self.job_configs[job_type]['model_path'].split('/')[-1]
             print(f"⏱️ Expected completion: {expected_time}")
+            print(f"🤖 Using model: {model_name}")
         else:
             error_msg = f"Unknown job type: {job_type}. Supported: {list(self.job_configs.keys())}"
             print(f"❌ {error_msg}")
@@ -319,7 +351,7 @@ class VideoWorker:
                 file_path = self.upload_to_supabase(output_path, job_type, user_id, job_id)
                 
                 if file_path:
-                    print(f"🎉 UNIFIED job {job_id} completed successfully!")
+                    print(f"🎉 CORRECTED job {job_id} completed successfully!")
                     self.notify_completion(job_id, 'completed', file_path)
                 else:
                     raise Exception("Upload to Supabase failed")
@@ -339,11 +371,11 @@ class VideoWorker:
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
-        """Poll Redis queue for jobs (FIXED: job_queue not job-queue)"""
+        """Poll Redis queue for jobs (CORRECTED: job_queue not job-queue)"""
         try:
-            # FIXED: Use job_queue (underscore) instead of job-queue (hyphen)
+            # CORRECTED: Use job_queue (underscore) instead of job-queue (hyphen)
             response = requests.get(
-                f"{self.redis_url}/rpop/job_queue",  # ← CORRECTED
+                f"{self.redis_url}/rpop/job_queue",
                 headers={'Authorization': f"Bearer {self.redis_token}"},
                 timeout=10
             )
@@ -364,7 +396,16 @@ class VideoWorker:
 
     def run(self):
         """Main worker loop with idle shutdown"""
-        print("⏳ Waiting for UNIFIED jobs...")
+        print("⏳ Waiting for CORRECTED jobs...")
+        
+        if self.wan_available:
+            print("⚡ Running with CORRECTED model paths:")
+            for job_type, config in self.job_configs.items():
+                model_name = config['model_path'].split('/')[-1]
+                size_display = config['size'].replace('*', 'x')
+                print(f"   🎯 {job_type}: {config['task']} → {model_name} | {size_display}")
+        else:
+            print("⚠️ Wan 2.1 not available - worker will fail jobs")
         
         idle_time = 0
         max_idle_time = 10 * 60  # 10 minutes
@@ -417,6 +458,6 @@ if __name__ == "__main__":
         print(f"⚠️ Missing environment variables: {', '.join(missing_vars)}")
         print("🔄 Worker will start but may have limited functionality")
     
-    print("🚀 Starting UNIFIED OurVidz Worker...")
+    print("🚀 Starting CORRECTED OurVidz Worker...")
     worker = VideoWorker()
     worker.run()
