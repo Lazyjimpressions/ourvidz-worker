@@ -77,14 +77,22 @@ class VideoWorker:
     def detect_gpu(self):
         """Detect GPU and memory"""
         try:
-            result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,memory.free', '--format=csv,noheader,nounits'], 
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,memory.free,memory.used', '--format=csv,noheader,nounits'], 
                                   capture_output=True, text=True)
             if result.returncode == 0:
                 gpu_info = result.stdout.strip().split(', ')
                 gpu_name = gpu_info[0]
                 gpu_memory_total = gpu_info[1]
-                gpu_memory_free = gpu_info[2]
-                print(f"🔥 GPU: {gpu_name} ({gpu_memory_total}GB total, {gpu_memory_free}GB free)")
+                gpu_memory_free = gpu_info[2] 
+                gpu_memory_used = gpu_info[3]
+                print(f"🔥 GPU: {gpu_name} ({gpu_memory_total}GB total)")
+                print(f"💾 VRAM: {gpu_memory_used}MB used, {gpu_memory_free}MB free")
+                
+                # If already using significant VRAM, model might be loaded
+                if int(gpu_memory_used) > 5000:
+                    print("⚡ Significant VRAM usage detected - model may already be loaded")
+                    self.model_loaded = True
+                    
         except Exception as e:
             print(f"⚠️ GPU detection failed: {e}")
 
@@ -115,7 +123,7 @@ class VideoWorker:
             return False
 
     def preload_model(self):
-        """Load model once on startup and keep in VRAM"""
+        """Load model once on startup using minimal generation"""
         if self.model_loaded:
             print("✅ Model already loaded")
             return
@@ -127,24 +135,24 @@ class VideoWorker:
             # Change to Wan2.1 directory for model loading
             os.chdir("/workspace/Wan2.1")
             
-            # Run a dummy generation to load model into VRAM
+            # Run minimal generation to load model into VRAM
+            # Use smallest possible settings to minimize initial load time
             dummy_cmd = [
                 "python", "generate.py",
                 "--task", "t2v-1.3B",
-                "--size", "832*480",
+                "--size", "480*832",  # Smallest size
                 "--ckpt_dir", self.model_path,
-                "--prompt", "test",  # Minimal prompt
-                "--save_file", "dummy_preload.mp4",
-                "--sample_steps", "1",  # Minimal steps for loading
-                "--sample_guide_scale", "6.0",
-                "--frame_num", "1",
-                "--preload_only"  # If this flag exists
+                "--prompt", "a",  # Minimal prompt
+                "--save_file", "preload_dummy.mp4",
+                "--sample_steps", "1",  # Minimum steps
+                "--sample_guide_scale", "3.0",  # Lower guidance
+                "--frame_num", "1"  # Single frame
             ]
             
             print(f"🔧 Preload command: {' '.join(dummy_cmd)}")
             
-            # Run with longer timeout for initial load
-            result = subprocess.run(dummy_cmd, capture_output=True, text=True, timeout=300)
+            # Run with timeout for initial load
+            result = subprocess.run(dummy_cmd, capture_output=True, text=True, timeout=180)
             
             load_time = time.time() - start_time
             
@@ -154,20 +162,37 @@ class VideoWorker:
                 
                 # Clean up dummy file
                 try:
-                    os.remove("/workspace/Wan2.1/dummy_preload.mp4")
-                except:
-                    pass
+                    dummy_file = "/workspace/Wan2.1/preload_dummy.mp4"
+                    if os.path.exists(dummy_file):
+                        os.remove(dummy_file)
+                        print("🧹 Cleaned up preload dummy file")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Cleanup failed: {cleanup_error}")
             else:
-                print(f"⚠️ Preload failed (will load per-job): {result.stderr}")
-                # Don't set model_loaded = True, will load per job
+                print(f"⚠️ Preload failed, will load per-job:")
+                print(f"   Return code: {result.returncode}")
+                print(f"   Error: {result.stderr[:200]}...")
+                # Model will load per-job instead
                 
         except subprocess.TimeoutExpired:
-            print("⏰ Model preload timed out (will load per-job)")
+            print("⏰ Model preload timed out after 3 minutes, will load per-job")
         except Exception as e:
             print(f"❌ Preload error (will load per-job): {e}")
 
+    def check_gpu_memory(self):
+        """Check GPU memory usage to see if model is loaded"""
+        try:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                memory_used = int(result.stdout.strip())
+                return memory_used
+        except:
+            pass
+        return 0
+
     def generate_optimized(self, prompt, job_type):
-        """FAST generation with persistent model"""
+        """FAST generation with persistent model monitoring"""
         if job_type not in self.job_configs:
             print(f"❌ Unknown job type: {job_type}")
             return None
@@ -176,17 +201,21 @@ class VideoWorker:
         job_id = str(uuid.uuid4())[:8]
         
         try:
+            # Check memory before generation
+            memory_before = self.check_gpu_memory()
+            model_likely_loaded = memory_before > 5000  # >5GB suggests model is loaded
+            
             print(f"⚡ PERSISTENT {job_type} generation:")
             print(f"   📐 Size: {config['size'].replace('*', 'x')}")
             print(f"   🎞️ Frames: {config['frame_num']} ({'image' if config['frame_num'] == 1 else 'video'})")
             print(f"   🔧 Steps: {config['sample_steps']}")
             print(f"   ⏱️ Expected time: {config['expected_time']}")
             print(f"   📝 Prompt: {prompt}")
-            print(f"   🧠 Model status: {'LOADED' if self.model_loaded else 'WILL LOAD'}")
+            print(f"   🧠 Model status: {'LIKELY LOADED' if model_likely_loaded else 'COLD START'} ({memory_before}MB VRAM)")
             
             output_filename = f"{job_type}_{job_id}.mp4"
             
-            # Build command - same as before but model should already be loaded
+            # Build optimized command
             cmd = [
                 "python", "generate.py",
                 "--task", "t2v-1.3B",
@@ -199,32 +228,36 @@ class VideoWorker:
                 "--frame_num", str(config['frame_num'])
             ]
             
-            # If model is persistent, this should be much faster
+            # Adjust timeout based on whether model is likely loaded
+            timeout = 90 if model_likely_loaded else 180
+            
             os.chdir("/workspace/Wan2.1")
             start_time = time.time()
             
-            # Shorter timeout since model should be loaded
-            timeout = 120 if self.model_loaded else 300
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             
             generation_time = time.time() - start_time
+            memory_after = self.check_gpu_memory()
             
-            if self.model_loaded:
-                print(f"📤 PERSISTENT generation completed in {generation_time:.1f}s (model was preloaded)")
-            else:
-                print(f"📤 COLD generation completed in {generation_time:.1f}s (included model loading)")
+            status = "WARM" if model_likely_loaded else "COLD"
+            print(f"📤 {status} generation completed in {generation_time:.1f}s")
+            print(f"   🧠 VRAM: {memory_before}MB → {memory_after}MB")
+            
+            # Update model loaded status based on results
+            if generation_time < 60 and memory_after > 5000:
+                self.model_loaded = True
+                print("   ✅ Model appears to be persistent in VRAM")
             
             if result.returncode != 0:
                 print(f"❌ Generation failed:")
                 print(f"   stderr: {result.stderr}")
-                print(f"   stdout: {result.stdout}")
                 return None
             
             # Process output file
             video_path = f"/workspace/Wan2.1/{output_filename}"
             if os.path.exists(video_path):
                 file_size = os.path.getsize(video_path) / (1024 * 1024)
-                print(f"✅ Generated: {video_path} ({file_size:.1f}MB in {generation_time:.1f}s)")
+                print(f"✅ Generated: {video_path} ({file_size:.1f}MB)")
                 
                 # For image jobs, extract frame
                 if 'image' in job_type:
@@ -245,7 +278,7 @@ class VideoWorker:
                 return None
                 
         except subprocess.TimeoutExpired:
-            print(f"⏰ Generation timed out")
+            print(f"⏰ Generation timed out after {timeout}s")
             return None
         except Exception as e:
             print(f"❌ Generation failed: {e}")
