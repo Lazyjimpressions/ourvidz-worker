@@ -392,16 +392,18 @@ class VideoWorker:
             except:
                 return None
 
-    def upload_to_supabase(self, file_path: str, storage_path: str) -> str:
-        """Upload file to Supabase storage with unique naming"""
+    def upload_to_supabase(self, file_path: str, job_id: str, user_id: str, job_type: str) -> str:
+        """Upload file to PRIVATE Supabase bucket with user-scoped paths"""
         if not self.environment_valid:
             print("❌ Cannot upload to Supabase: invalid environment")
-            return f"placeholder:///{storage_path}"
+            return None
             
         try:
             print(f"📤 Uploading file: {file_path}")
-            print(f"📁 Storage path: {storage_path}")
+            print(f"👤 User ID: {user_id}")
+            print(f"🏷️ Job Type: {job_type}")
             
+            # Verify file exists and has content
             if not os.path.exists(file_path):
                 raise Exception(f"File does not exist: {file_path}")
             
@@ -411,6 +413,19 @@ class VideoWorker:
             
             print(f"📊 File size: {file_size / 1024 / 1024:.1f}MB")
 
+            # Generate user-scoped file path for private bucket
+            timestamp = int(time.time())
+            extension = 'png' if job_type.startswith('image') else 'mp4'
+            user_scoped_path = f"{user_id}/job_{job_id}_{timestamp}_{job_type}.{extension}"
+            
+            # Use job_type as bucket name (image_fast, image_high, video_fast, video_high)
+            bucket_name = job_type
+            storage_path = user_scoped_path  # No bucket prefix needed in path
+            
+            print(f"🗂️ Private bucket: {bucket_name}")
+            print(f"📁 User-scoped path: {user_scoped_path}")
+
+            # Determine content type
             content_type = 'application/octet-stream'
             if file_path.lower().endswith('.png'):
                 content_type = 'image/png'
@@ -419,9 +434,10 @@ class VideoWorker:
             elif file_path.lower().endswith('.mp4'):
                 content_type = 'video/mp4'
 
+            # Upload to PRIVATE bucket
             with open(file_path, 'rb') as file:
                 response = requests.post(
-                    f"{self.supabase_url}/storage/v1/object/{storage_path}",
+                    f"{self.supabase_url}/storage/v1/object/{bucket_name}/{storage_path}",
                     files={'file': (os.path.basename(file_path), file, content_type)},
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
@@ -430,9 +446,11 @@ class VideoWorker:
                 )
             
             if response.status_code in [200, 201]:
-                public_url = f"{self.supabase_url}/storage/v1/object/public/{storage_path}"
-                print(f"✅ File uploaded to: {public_url}")
-                return public_url
+                # Return ONLY the file path, NOT the full URL
+                # Frontend will generate signed URLs for authorized access
+                print(f"✅ File uploaded to PRIVATE bucket: {bucket_name}/{user_scoped_path}")
+                print(f"🔒 File path for database: {user_scoped_path}")
+                return user_scoped_path  # Return path only, not URL
             else:
                 print(f"❌ Upload failed: {response.status_code} - {response.text}")
                 raise Exception(f"Upload failed: {response.text}")
@@ -441,8 +459,8 @@ class VideoWorker:
             print(f"❌ Supabase upload error: {e}")
             raise
 
-    def notify_completion(self, job_id: str, status: str, output_url: str = None, error_message: str = None, enhanced_prompt: str = None):
-        """Notify Supabase of job completion"""
+    def notify_completion(self, job_id: str, status: str, file_path: str = None, error_message: str = None, enhanced_prompt: str = None):
+        """Notify Supabase of job completion with file PATH (not URL)"""
         if not self.environment_valid:
             print(f"⚠️ Cannot send callback: invalid environment (job {job_id})")
             return
@@ -451,12 +469,14 @@ class VideoWorker:
             callback_data = {
                 'jobId': job_id,
                 'status': status,
-                'outputUrl': output_url,
+                'filePath': file_path,  # Store file path, not URL
                 'errorMessage': error_message,
                 'enhancedPrompt': enhanced_prompt
             }
             
             print(f"📞 Sending callback for job {job_id}: {status}")
+            if file_path:
+                print(f"📁 File path in callback: {file_path}")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -476,15 +496,21 @@ class VideoWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data: dict):
-        """Process a single job with modular job types"""
+        """Process a single job with private bucket uploads and user-scoped paths"""
         job_id = job_data.get('jobId', 'unknown')
         job_type = job_data.get('jobType', 'unknown')
+        user_id = job_data.get('userId', 'unknown')  # Extract user ID from job data
         
-        print(f"🔄 Processing job {job_id} ({job_type})")
+        print(f"🔄 Processing job {job_id} ({job_type}) for user {user_id}")
+        
+        # Validate user_id is present
+        if not user_id or user_id == 'unknown':
+            error_msg = "Missing user_id in job data - required for private bucket access"
+            print(f"❌ {error_msg}")
+            self.notify_completion(job_id, 'failed', error_message=error_msg)
+            return
         
         try:
-            timestamp = int(time.time())
-            
             if job_type == 'enhance':
                 # Legacy support - enhance prompts
                 original_prompt = job_data.get('prompt', '')
@@ -496,7 +522,7 @@ class VideoWorker:
                 enhanced_prompt = self.enhance_prompt(original_prompt, character_desc)
                 print(f"✅ Enhanced prompt: {enhanced_prompt[:100]}...")
                 
-                self.notify_completion(job_id, 'completed', output_url=None, error_message=None, enhanced_prompt=enhanced_prompt)
+                self.notify_completion(job_id, 'completed', file_path=None, error_message=None, enhanced_prompt=enhanced_prompt)
                 
             elif job_type == 'image_fast':
                 # Fast/low-res images for previews and storyboarding (2-3 seconds)
@@ -507,15 +533,14 @@ class VideoWorker:
                 image_path = self.generate_image_fast(prompt)
                 
                 if image_path:
-                    filename = f"{job_id}_{timestamp}_image_fast.png"
-                    storage_path = f"image_fast/{filename}"  # Updated bucket name
-                    upload_url = self.upload_to_supabase(image_path, storage_path)
+                    # Upload to PRIVATE bucket with user-scoped path
+                    file_path = self.upload_to_supabase(image_path, job_id, user_id, job_type)
                     
                     if os.path.exists(image_path):
                         os.remove(image_path)
                         
-                    print(f"✅ Fast image uploaded: {upload_url}")
-                    self.notify_completion(job_id, 'completed', upload_url)
+                    print(f"✅ Fast image uploaded to private bucket: {file_path}")
+                    self.notify_completion(job_id, 'completed', file_path)
                 else:
                     raise Exception("Failed to generate fast image")
                     
@@ -528,15 +553,14 @@ class VideoWorker:
                 image_path = self.generate_image_high(prompt)
                 
                 if image_path:
-                    filename = f"{job_id}_{timestamp}_image_high.png"
-                    storage_path = f"image_high/{filename}"  # Updated bucket name
-                    upload_url = self.upload_to_supabase(image_path, storage_path)
+                    # Upload to PRIVATE bucket with user-scoped path
+                    file_path = self.upload_to_supabase(image_path, job_id, user_id, job_type)
                     
                     if os.path.exists(image_path):
                         os.remove(image_path)
                         
-                    print(f"✅ High-res image uploaded: {upload_url}")
-                    self.notify_completion(job_id, 'completed', upload_url)
+                    print(f"✅ High-res image uploaded to private bucket: {file_path}")
+                    self.notify_completion(job_id, 'completed', file_path)
                 else:
                     raise Exception("Failed to generate high-res image")
                     
@@ -549,15 +573,14 @@ class VideoWorker:
                 video_path = self.generate_video_fast(prompt)
                 
                 if video_path:
-                    filename = f"{job_id}_{timestamp}_video_fast.mp4"
-                    storage_path = f"video_fast/{filename}"  # Updated bucket name
-                    upload_url = self.upload_to_supabase(video_path, storage_path)
+                    # Upload to PRIVATE bucket with user-scoped path
+                    file_path = self.upload_to_supabase(video_path, job_id, user_id, job_type)
                     
                     if os.path.exists(video_path):
                         os.remove(video_path)
                         
-                    print(f"✅ Fast video uploaded: {upload_url}")
-                    self.notify_completion(job_id, 'completed', upload_url)
+                    print(f"✅ Fast video uploaded to private bucket: {file_path}")
+                    self.notify_completion(job_id, 'completed', file_path)
                 else:
                     raise Exception("Failed to generate fast video")
                     
@@ -570,15 +593,14 @@ class VideoWorker:
                 video_path = self.generate_video_high(prompt)
                 
                 if video_path:
-                    filename = f"{job_id}_{timestamp}_video_high.mp4"
-                    storage_path = f"video_high/{filename}"  # Updated bucket name
-                    upload_url = self.upload_to_supabase(video_path, storage_path)
+                    # Upload to PRIVATE bucket with user-scoped path
+                    file_path = self.upload_to_supabase(video_path, job_id, user_id, job_type)
                     
                     if os.path.exists(video_path):
                         os.remove(video_path)
                         
-                    print(f"✅ High-res video uploaded: {upload_url}")
-                    self.notify_completion(job_id, 'completed', upload_url)
+                    print(f"✅ High-res video uploaded to private bucket: {file_path}")
+                    self.notify_completion(job_id, 'completed', file_path)
                 else:
                     raise Exception("Failed to generate high-res video")
                     
