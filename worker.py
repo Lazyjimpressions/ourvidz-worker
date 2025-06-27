@@ -28,7 +28,7 @@ class VideoWorker:
         
         # MODEL PERSISTENCE: Load once, keep in memory
         self.model_loaded = False
-        self.model_path = '/workspace/models/wan2.1-t2v-1.3b'
+        self.model_path = '/tmp/models/wan2.1-t2v-1.3b'
         
         # OPTIMIZED job configurations
         self.job_configs = {
