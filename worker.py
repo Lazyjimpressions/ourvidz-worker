@@ -1,4 +1,4 @@
-# worker.py - Phase 2 Optimized: Resolution + Hardware Optimization
+# worker.py - Hybrid Approach: Existing Job Types + Internal Optimization
 import os
 import json
 import time
@@ -14,8 +14,8 @@ import torch
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized (PHASE 2 OPTIMIZED)")
-        print("⚡ New: Resolution-based speed optimization + Hardware acceleration")
+        print("🚀 OurVidz Worker initialized (HYBRID OPTIMIZATION)")
+        print("🔄 Preserving existing job types with internal speed optimization")
         
         # Create dedicated temp directories for better organization
         self.temp_base = Path("/tmp/ourvidz")
@@ -40,28 +40,60 @@ class VideoWorker:
         self.model_path = str(self.temp_models / 'wan2.1-t2v-1.3b')
         self.model_loaded = False
 
-        # PHASE 2 OPTIMIZATION: Separate resolution and quality controls (user choice preserved)
-        
-        # Resolution options (affects speed through pixel count)
-        self.resolution_configs = {
-            'low': {
-                'size': '480*320',          # ⚡ 50% fewer pixels = ~50% faster
-                'multiplier': 0.5,          # Speed multiplier
-                'description': 'Low (480×320) - Fastest generation'
+        # HYBRID APPROACH: Map existing job types to optimized internal settings
+        self.job_type_mapping = {
+            # Image job types - optimized for speed while maintaining storage buckets
+            'image_fast': {
+                'content_type': 'image',
+                'resolution': 'medium',        # 640×360 (35% speed improvement)
+                'quality': 'fast',             # 12 steps, 6.0 guidance
+                'storage_bucket': 'image_fast',
+                'expected_time': 60,           # Down from 95s baseline
+                'description': 'Medium resolution, fast generation'
             },
+            'image_high': {
+                'content_type': 'image',
+                'resolution': 'high',          # 832×480 (current resolution)
+                'quality': 'high',             # 16 steps, 7.0 guidance  
+                'storage_bucket': 'image_high',
+                'expected_time': 105,          # Optimized quality settings
+                'description': 'High resolution, quality generation'
+            },
+            
+            # Video job types - optimized with same approach
+            'video_fast': {
+                'content_type': 'video',
+                'resolution': 'medium',        # 640×360 (35% speed improvement)
+                'quality': 'fast',             # 12 steps, 6.0 guidance
+                'storage_bucket': 'video_fast',
+                'expected_time': 75,           # Down from 120s baseline
+                'description': 'Medium resolution, fast video'
+            },
+            'video_high': {
+                'content_type': 'video', 
+                'resolution': 'high',          # 832×480 (current resolution)
+                'quality': 'high',             # 16 steps, 7.0 guidance
+                'storage_bucket': 'video_high',
+                'expected_time': 130,          # Optimized quality settings
+                'description': 'High resolution, quality video'
+            }
+        }
+        
+        # Internal resolution configurations
+        self.resolution_configs = {
             'medium': {
-                'size': '640*360',          # ⚡ 33% fewer pixels = ~35% faster  
-                'multiplier': 0.65,         # Speed multiplier
-                'description': 'Medium (640×360) - Balanced speed/quality'
+                'size': '640*360',          # 35% speed improvement
+                'multiplier': 0.65,
+                'description': 'Medium (640×360) - Optimized for speed'
             },
             'high': {
                 'size': '832*480',          # Current resolution
-                'multiplier': 1.0,          # Baseline speed
+                'multiplier': 1.0,
                 'description': 'High (832×480) - Best quality'
             }
         }
         
-        # Quality options (affects AI generation parameters)
+        # Internal quality configurations  
         self.quality_configs = {
             'fast': {
                 'sample_steps': 12,         # Optimized for speed
@@ -74,12 +106,6 @@ class VideoWorker:
                 'description': 'High - Better quality'
             }
         }
-        
-        # Base time estimates (high resolution, high quality = baseline ~95s)
-        self.base_times = {
-            'image': 95,    # Baseline for image generation
-            'video': 120    # Baseline for video generation  
-        }
 
         # Environment variables
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -87,11 +113,13 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        print("🎬 Phase 2 Worker ready")
-        print("⚡ Speed tiers: ultra_fast (45-50s), fast (60-70s), standard (85-95s), high (95-105s)")
+        print("🎬 Hybrid Worker ready")
+        print("📊 Job type mappings:")
+        for job_type, config in self.job_type_mapping.items():
+            print(f"   • {job_type}: {config['expected_time']}s ({config['description']})")
 
     def init_hardware_optimizations(self):
-        """PHASE 2: Initialize hardware optimizations for better performance"""
+        """Initialize hardware optimizations for better performance"""
         print("🔧 Initializing hardware optimizations...")
         
         try:
@@ -144,7 +172,6 @@ class VideoWorker:
         if os.path.exists(network_model_path):
             print("📦 Copying model from network volume to temp storage...")
             try:
-                # Use optimized copy for better performance
                 start_time = time.time()
                 shutil.copytree(network_model_path, self.model_path)
                 copy_time = time.time() - start_time
@@ -159,16 +186,54 @@ class VideoWorker:
         print("❌ Model not found in network volume")
         return False
 
+    def get_job_config(self, job_type):
+        """Get optimized configuration for existing job type"""
+        job_mapping = self.job_type_mapping.get(job_type)
+        if not job_mapping:
+            # Fallback for unknown job types
+            print(f"⚠️ Unknown job type: {job_type}, using defaults")
+            return {
+                'size': '832*480',
+                'frame_num': 1,
+                'sample_steps': 12,
+                'sample_guide_scale': 6.0,
+                'expected_time': 95,
+                'storage_bucket': 'image_fast',
+                'content_type': 'image'
+            }
+        
+        # Get internal configurations
+        resolution_config = self.resolution_configs[job_mapping['resolution']]
+        quality_config = self.quality_configs[job_mapping['quality']]
+        
+        # Determine frame count based on content type
+        if job_mapping['content_type'] == 'image':
+            frame_num = 1
+        elif job_mapping['content_type'] == 'video':
+            frame_num = 17  # ~1 second at 16fps
+        else:
+            frame_num = 1
+            
+        return {
+            'size': resolution_config['size'],
+            'frame_num': frame_num,
+            'sample_steps': quality_config['sample_steps'],
+            'sample_guide_scale': quality_config['sample_guide_scale'],
+            'expected_time': job_mapping['expected_time'],
+            'storage_bucket': job_mapping['storage_bucket'],
+            'content_type': job_mapping['content_type'],
+            'resolution_desc': resolution_config['description'],
+            'quality_desc': quality_config['description']
+        }
+
     def get_expected_time(self, job_type):
         """Get expected generation time for user feedback"""
-        config = self.job_configs.get(job_type, {})
-        return config.get('expected_time', 'unknown')
+        job_mapping = self.job_type_mapping.get(job_type, {})
+        return f"{job_mapping.get('expected_time', 95)}s"
 
     def generate(self, prompt, job_type):
-        """PHASE 2: Enhanced generation with separate resolution and quality controls"""
-        # Parse job type into components
-        content_type, resolution, quality = self.parse_job_type(job_type)
-        config = self.get_job_config(content_type, resolution, quality)
+        """HYBRID: Enhanced generation with internal optimization"""
+        config = self.get_job_config(job_type)
 
         # Ensure model is ready in temp storage
         if not self.ensure_model_ready():
@@ -178,22 +243,22 @@ class VideoWorker:
         memory_before = self.check_gpu_memory()
         warm_start = memory_before > 5000
         
-        expected_time = config.get('expected_time', 'unknown')
+        expected_time = config['expected_time']
         resolution_desc = config.get('resolution_desc', 'unknown')
         quality_desc = config.get('quality_desc', 'unknown')
 
         print(f"⚡ {job_type.upper()} generation ({'WARM' if warm_start else 'COLD'} start)")
         print(f"📝 Prompt: {prompt}")
-        print(f"📐 Resolution: {resolution_desc}")
+        print(f"📐 Internal mapping: {resolution_desc}")
         print(f"⚙️ Quality: {quality_desc}")
         print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
-        print(f"🎯 Expected: {expected_time}")
+        print(f"🎯 Expected: {expected_time}s")
 
         # Use temp processing directory for outputs
         output_filename = f"{job_type}_{job_id}.mp4"
         temp_output_path = self.temp_processing / output_filename
         
-        # PHASE 2: Add memory optimization flags to command
+        # Add memory optimization flags to command
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
@@ -213,7 +278,7 @@ class VideoWorker:
         try:
             start_time = time.time()
             
-            # PHASE 2: Set optimized environment variables for generation
+            # Set optimized environment variables for generation
             env = os.environ.copy()
             env.update({
                 'CUDA_LAUNCH_BLOCKING': '0',           # Non-blocking CUDA
@@ -228,7 +293,7 @@ class VideoWorker:
                 print(f"❌ Generation failed: {result.stderr}")
                 return None
                 
-            print(f"⚡ Generation completed in {generation_time:.1f}s (expected {expected_time})")
+            print(f"⚡ Generation completed in {generation_time:.1f}s (expected {expected_time}s)")
                 
             # Check if file was created in temp location
             if not temp_output_path.exists():
@@ -243,7 +308,7 @@ class VideoWorker:
             
             print(f"✅ Generation completed: {temp_output_path}")
             
-            if content_type == 'image':
+            if config['content_type'] == 'image':
                 return self.extract_frame_from_video(str(temp_output_path), job_id, job_type)
             
             return str(temp_output_path)
@@ -255,7 +320,7 @@ class VideoWorker:
             os.chdir(original_cwd)
 
     def extract_frame_from_video(self, video_path, job_id, job_type):
-        """PHASE 2: Enhanced frame extraction with resolution-aware optimization"""
+        """Enhanced frame extraction with job-type-aware optimization"""
         image_path = self.temp_processing / f"{job_type}_{job_id}.png"
         
         try:
@@ -267,11 +332,8 @@ class VideoWorker:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame_rgb)
                 
-                # Parse job type to get quality setting
-                _, resolution, quality = self.parse_job_type(job_type)
-                
-                # Optimize compression based on quality setting
-                if quality == 'fast':
+                # Optimize compression based on job type
+                if 'fast' in job_type:
                     # Faster compression for quick jobs
                     img.save(str(image_path), "PNG", optimize=True, compress_level=9)
                 else:
@@ -280,8 +342,8 @@ class VideoWorker:
                 
                 # Get file size for logging
                 file_size = os.path.getsize(image_path) / 1024  # KB
-                resolution_config = self.resolution_configs.get(resolution, {})
-                size_desc = resolution_config.get('size', 'unknown')
+                config = self.get_job_config(job_type)
+                size_desc = config.get('size', 'unknown')
                 print(f"📊 Output: {size_desc} resolution, {file_size:.0f}KB")
                 
                 # Clean up video file immediately
@@ -296,8 +358,9 @@ class VideoWorker:
         return None
 
     def optimize_file_for_upload(self, file_path, job_type):
-        """PHASE 2: Quality-aware file optimization"""
-        content_type, resolution, quality = self.parse_job_type(job_type)
+        """Job-type-aware file optimization"""
+        config = self.get_job_config(job_type)
+        content_type = config['content_type']
         
         if content_type == 'image':
             # Images are already optimized during creation
@@ -307,12 +370,11 @@ class VideoWorker:
             optimized_path = str(Path(file_path).with_suffix('.optimized.mp4'))
             
             # Get target resolution from config
-            resolution_config = self.resolution_configs.get(resolution, self.resolution_configs['high'])
-            size = resolution_config['size']
+            size = config['size']
             width, height = size.split('*')
             
             # Quality-based encoding optimization
-            if quality == 'fast':
+            if 'fast' in job_type:
                 preset = 'veryfast'
                 crf = '26'  # Balanced compression
             else:
@@ -349,17 +411,23 @@ class VideoWorker:
         return file_path
 
     def upload_to_supabase(self, file_path, job_type, user_id, job_id):
-        """PHASE 2: Optimized upload with better error handling"""
+        """Upload to the correct storage bucket based on job type"""
         if not os.path.exists(file_path):
             return None
             
         optimized_path = self.optimize_file_for_upload(file_path, job_type)
+        config = self.get_job_config(job_type)
         
-        filename = f"job_{job_id}_{int(time.time())}_{job_type}.{'png' if 'image' in job_type else 'mp4'}"
-        full_path = f"{job_type}/{user_id}/{filename}"
-        content_type = 'image/png' if 'image' in job_type else 'video/mp4'
+        # Use the storage bucket from job type mapping
+        storage_bucket = config['storage_bucket']
+        content_type = config['content_type']
         
-        print(f"📤 Uploading to: {self.supabase_url}/storage/v1/object/{full_path}")
+        filename = f"job_{job_id}_{int(time.time())}_{job_type}.{'png' if content_type == 'image' else 'mp4'}"
+        full_path = f"{storage_bucket}/{user_id}/{filename}"
+        mime_type = 'image/png' if content_type == 'image' else 'video/mp4'
+        
+        print(f"📤 Uploading to bucket: {storage_bucket}")
+        print(f"📤 Full path: {self.supabase_url}/storage/v1/object/{full_path}")
         
         try:
             with open(optimized_path, 'rb') as f:
@@ -376,7 +444,7 @@ class VideoWorker:
                             data=file_data,  # Raw binary data
                             headers={
                                 'Authorization': f"Bearer {self.supabase_service_key}",
-                                'Content-Type': content_type,
+                                'Content-Type': mime_type,
                                 'x-upsert': 'true'
                             },
                             timeout=120
@@ -417,7 +485,7 @@ class VideoWorker:
                 pass
 
     def cleanup_old_temp_files(self):
-        """PHASE 2: More aggressive cleanup for better performance"""
+        """More aggressive cleanup for better performance"""
         try:
             current_time = time.time()
             cleaned_count = 0
@@ -425,7 +493,7 @@ class VideoWorker:
             for temp_dir in [self.temp_outputs, self.temp_processing]:
                 for file_path in temp_dir.glob("*"):
                     if file_path.is_file():
-                        # Clean files older than 20 minutes (more aggressive)
+                        # Clean files older than 20 minutes
                         if (current_time - file_path.stat().st_mtime) > 1200:  # 20 minutes
                             try:
                                 file_path.unlink()
@@ -470,7 +538,7 @@ class VideoWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """PHASE 2: Enhanced job processing with performance tracking"""
+        """Enhanced job processing with hybrid optimization"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
         prompt = job_data.get('prompt')
@@ -532,17 +600,14 @@ class VideoWorker:
         return None
 
     def run(self):
-        """PHASE 2: Enhanced main loop with flexible resolution/quality options"""
+        """Enhanced main loop with hybrid optimization"""
         print("⏳ Waiting for jobs...")
-        print("🎯 Phase 2 Performance Matrix:")
-        print("   Resolution × Quality:")
-        print("   • low + fast:    ~45s  (480×320, 12 steps)")
-        print("   • low + high:    ~50s  (480×320, 16 steps)")
-        print("   • medium + fast: ~60s  (640×360, 12 steps)")
-        print("   • medium + high: ~70s  (640×360, 16 steps)")
-        print("   • high + fast:   ~90s  (832×480, 12 steps)")
-        print("   • high + high:   ~105s (832×480, 16 steps)")
-        print("🎨 Users can choose optimal speed/quality balance!")
+        print("🎯 Hybrid Optimization Active:")
+        print("   • image_fast: 60s (35% faster via medium resolution)")
+        print("   • image_high: 105s (optimized quality settings)")
+        print("   • video_fast: 75s (35% faster via medium resolution)")
+        print("   • video_high: 130s (optimized quality settings)")
+        print("🔧 Zero frontend changes required!")
         
         last_cleanup = time.time()
         job_count = 0
@@ -576,7 +641,7 @@ if __name__ == "__main__":
         print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
         exit(1)
     
-    print("🚀 Starting OurVidz Worker (Phase 2 Optimized)")
-    print("⚡ Resolution-based speed optimization enabled")
+    print("🚀 Starting OurVidz Worker (Hybrid Optimization)")
+    print("🔄 Existing job types preserved with internal speed optimization")
     worker = VideoWorker()
     worker.run()
