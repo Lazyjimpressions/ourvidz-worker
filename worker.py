@@ -1,4 +1,4 @@
-# worker.py - Enhanced GPU Performance Monitoring and Activation
+# worker.py - Complete Enhanced GPU Performance Worker with Fixes
 import os
 import json
 import time
@@ -16,8 +16,8 @@ import torch
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized (ENHANCED GPU PERFORMANCE)")
-        print("⚡ Advanced GPU monitoring and persistent activation enabled")
+        print("🚀 OurVidz Worker initialized (COMPLETE GPU DIAGNOSTICS FIX)")
+        print("⚡ Fixed GPU monitoring with realistic performance expectations")
         
         # Create dedicated temp directories for better organization
         self.temp_base = Path("/tmp/ourvidz")
@@ -40,6 +40,9 @@ class VideoWorker:
         self.generation_active = False
         self.last_gpu_stats = {}
         
+        # Run simple diagnostic first to understand our environment
+        self.simple_gpu_diagnostic()
+        
         # CRITICAL: Force GPU activation before anything else
         self.detect_gpu()
         self.force_gpu_activation()
@@ -50,22 +53,22 @@ class VideoWorker:
         self.model_path = str(self.temp_models / 'wan2.1-t2v-1.3b')
         self.model_loaded = False
 
-        # Job type mapping using supported resolutions
+        # Job type mapping with REALISTIC timing expectations based on actual performance
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
                 'resolution': 'small',            
                 'quality': 'fast',                
                 'storage_bucket': 'image_fast',
-                'expected_time': 35,              
-                'description': 'Small resolution, maximum speed'
+                'expected_time': 90,              # REALISTIC: Based on actual 88s performance
+                'description': 'Small resolution, fastest available speed'
             },
             'image_high': {
                 'content_type': 'image',
                 'resolution': 'standard',         
                 'quality': 'balanced',            
                 'storage_bucket': 'image_high',
-                'expected_time': 50,              
+                'expected_time': 100,             # REALISTIC: Slightly slower for higher quality
                 'description': 'Standard resolution, balanced quality'
             },
             'video_fast': {
@@ -73,7 +76,7 @@ class VideoWorker:
                 'resolution': 'small',            
                 'quality': 'fast',                
                 'storage_bucket': 'video_fast',
-                'expected_time': 45,              
+                'expected_time': 95,              # REALISTIC: Video slightly slower than image
                 'description': 'Small resolution, fast video'
             },
             'video_high': {
@@ -81,7 +84,7 @@ class VideoWorker:
                 'resolution': 'standard',         
                 'quality': 'balanced',            
                 'storage_bucket': 'video_high',
-                'expected_time': 65,              
+                'expected_time': 110,             # REALISTIC: Higher quality video
                 'description': 'Standard resolution, quality video'
             }
         }
@@ -120,15 +123,61 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        print("🎬 Enhanced GPU Performance Worker ready")
-        print("🔥 Advanced GPU monitoring and activation enabled")
+        print("🎬 Complete GPU Diagnostics Worker ready")
+        print("🔥 Fixed GPU monitoring with realistic 90s expectations")
+
+    def simple_gpu_diagnostic(self):
+        """Simple diagnostic to understand GPU environment"""
+        print("🔍 GPU Environment Diagnostic:")
+        
+        try:
+            # Test basic nvidia-smi
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name,clocks.current.graphics', '--format=csv,noheader'], 
+                                   capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                gpu_info = result.stdout.strip().split(', ')
+                print(f"✅ GPU: {gpu_info[0]}")
+                print(f"✅ Current Graphics Clock: {gpu_info[1]}")
+            else:
+                print(f"❌ nvidia-smi basic query failed: {result.stderr}")
+                
+            # Test the problematic query that was failing
+            result = subprocess.run([
+                'nvidia-smi', 
+                '--query-gpu=clocks.current.graphics,clocks.current.memory,power.draw,temperature.gpu,utilization.gpu',
+                '--format=csv,noheader,nounits'
+            ], capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                print("✅ Full GPU stats query working")
+                stats = result.stdout.strip().split(', ')
+                print(f"📊 Stats: {stats[0]}MHz graphics, {stats[1]}MHz memory, {stats[2]}W power")
+            else:
+                print("⚠️ Full GPU stats query failed - will use fallback")
+                
+        except Exception as e:
+            print(f"❌ GPU diagnostic error: {e}")
+        
+        # Test PyTorch CUDA
+        try:
+            if torch.cuda.is_available():
+                device_name = torch.cuda.get_device_name(0)
+                memory_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                print(f"✅ PyTorch CUDA: {device_name}")
+                print(f"✅ Total VRAM: {memory_total:.1f}GB")
+            else:
+                print("❌ PyTorch CUDA not available")
+        except Exception as e:
+            print(f"❌ PyTorch diagnostic error: {e}")
+            
+        print("🔍 Diagnostic complete\n")
 
     def detect_gpu(self):
         """Enhanced GPU detection with comprehensive performance analysis"""
         try:
             result = subprocess.run([
                 'nvidia-smi', 
-                '--query-gpu=name,memory.total,memory.free,memory.used,clocks.current.graphics,clocks.current.memory,power.draw,temperature.gpu,utilization.gpu,performance.state',
+                '--query-gpu=name,memory.total,memory.free,memory.used,clocks.current.graphics,clocks.current.memory,power.draw,temperature.gpu,utilization.gpu',
                 '--format=csv,noheader,nounits'
             ], capture_output=True, text=True, timeout=10)
             
@@ -141,7 +190,6 @@ class VideoWorker:
                 print(f"🔌 Power Draw: {gpu_info[6]}W")
                 print(f"🌡️ Temperature: {gpu_info[7]}°C")
                 print(f"📊 Utilization: {gpu_info[8]}%")
-                print(f"🎛️ Performance State: {gpu_info[9]}")
                 
                 # Store baseline stats
                 self.last_gpu_stats = {
@@ -150,7 +198,6 @@ class VideoWorker:
                     'power_draw': float(gpu_info[6]) if gpu_info[6].replace('.', '').isdigit() else 0,
                     'temperature': float(gpu_info[7]) if gpu_info[7].replace('.', '').isdigit() else 0,
                     'utilization': int(gpu_info[8]) if gpu_info[8].isdigit() else 0,
-                    'performance_state': gpu_info[9]
                 }
                 
                 # Alert if clocks are low
@@ -159,8 +206,94 @@ class VideoWorker:
                     print(f"⚠️ WARNING: Graphics clock {graphics_clock}MHz is very low!")
                     print("🔧 Attempting GPU activation...")
                     
+            else:
+                print("⚠️ Full GPU detection failed, trying basic detection...")
+                # Fallback to basic detection
+                result = subprocess.run(['nvidia-smi', '--query-gpu=name,clocks.current.graphics', '--format=csv,noheader'], 
+                                       capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    gpu_info = result.stdout.strip().split(', ')
+                    print(f"🔥 GPU: {gpu_info[0]}")
+                    print(f"⚡ Graphics Clock: {gpu_info[1]}")
+                else:
+                    print("❌ Even basic GPU detection failed")
+                    
         except Exception as e:
             print(f"⚠️ GPU detection failed: {e}")
+
+    def get_current_gpu_stats(self):
+        """FIXED: GPU statistics with proper fallback handling"""
+        try:
+            # Try comprehensive query first (without performance.state that was failing)
+            result = subprocess.run([
+                'nvidia-smi', 
+                '--query-gpu=clocks.current.graphics,clocks.current.memory,power.draw,temperature.gpu,utilization.gpu',
+                '--format=csv,noheader,nounits'
+            ], capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                stats = result.stdout.strip().split(', ')
+                if len(stats) >= 5:
+                    current_stats = {
+                        'graphics_clock': int(stats[0]) if stats[0].isdigit() else 0,
+                        'memory_clock': int(stats[1]) if stats[1].isdigit() else 0,
+                        'power_draw': float(stats[2]) if stats[2].replace('.', '').isdigit() else 0,
+                        'temperature': float(stats[3]) if stats[3].replace('.', '').isdigit() else 0,
+                        'utilization': int(stats[4]) if stats[4].isdigit() else 0,
+                    }
+                    return current_stats
+            
+            print("⚠️ Full GPU query failed, trying basic clocks...")
+            # Fallback: Try basic clocks only
+            result = subprocess.run([
+                'nvidia-smi', 
+                '--query-gpu=clocks.current.graphics,clocks.current.memory',
+                '--format=csv,noheader,nounits'
+            ], capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                stats = result.stdout.strip().split(', ')
+                if len(stats) >= 2:
+                    basic_stats = {
+                        'graphics_clock': int(stats[0]) if stats[0].isdigit() else 0,
+                        'memory_clock': int(stats[1]) if stats[1].isdigit() else 0,
+                        'power_draw': 0,
+                        'temperature': 0,
+                        'utilization': 0,
+                    }
+                    return basic_stats
+                    
+        except Exception as e:
+            print(f"⚠️ GPU stats error: {e}")
+        
+        return None
+
+    def check_gpu_performance_enhanced(self):
+        """FIXED: GPU performance check with proper error handling"""
+        stats = self.get_current_gpu_stats()
+        if not stats:
+            print("❌ Cannot get GPU stats - assuming medium performance")
+            return "medium"
+        
+        graphics_mhz = stats['graphics_clock']
+        utilization = stats['utilization']
+        power_draw = stats['power_draw']
+        
+        print(f"📊 GPU Status: {graphics_mhz}MHz graphics, {stats['memory_clock']}MHz memory")
+        if power_draw > 0:
+            print(f"🔌 Power: {power_draw}W, Temp: {stats['temperature']}°C, Util: {utilization}%")
+        
+        # Performance classification (more lenient since we know 88s is normal)
+        if graphics_mhz > 2000:
+            return "excellent"
+        elif graphics_mhz > 1500:
+            return "high"
+        elif graphics_mhz > 800:
+            return "medium"
+        elif graphics_mhz > 0:  # Any valid reading is acceptable
+            return "working"
+        else:
+            return "unknown"
 
     def force_gpu_activation(self):
         """Enhanced GPU activation with multiple strategies"""
@@ -191,7 +324,9 @@ class VideoWorker:
                     if i % 5 == 0:
                         print(f"🔥 Activation iteration {i+1}/20...")
                         # Check clocks during activation
-                        self.get_current_gpu_stats()
+                        stats = self.get_current_gpu_stats()
+                        if stats:
+                            print(f"📊 Current clocks: {stats['graphics_clock']}MHz")
                 
                 # Strategy 3: Persistent warmup tensor
                 print("🔥 Strategy 3: Persistent warmup tensor...")
@@ -208,65 +343,16 @@ class VideoWorker:
                 # Final GPU check
                 time.sleep(2)
                 final_stats = self.get_current_gpu_stats()
-                if final_stats and final_stats.get('graphics_clock', 0) > 1500:
+                if final_stats and final_stats.get('graphics_clock', 0) > 1000:
                     print(f"✅ GPU activation successful: {final_stats['graphics_clock']}MHz")
                 else:
-                    print("⚠️ GPU activation may not have achieved high clocks")
+                    print("⚠️ GPU activation completed (clocks may be normal for idle state)")
                 
             else:
                 print("❌ CUDA not available!")
                 
         except Exception as e:
             print(f"⚠️ Enhanced GPU activation failed: {e}")
-
-    def get_current_gpu_stats(self):
-        """Get current GPU statistics with enhanced error handling"""
-        try:
-            result = subprocess.run([
-                'nvidia-smi', 
-                '--query-gpu=clocks.current.graphics,clocks.current.memory,power.draw,temperature.gpu,utilization.gpu,performance.state',
-                '--format=csv,noheader,nounits'
-            ], capture_output=True, text=True, timeout=5)
-            
-            if result.returncode == 0:
-                stats = result.stdout.strip().split(', ')
-                if len(stats) >= 6:
-                    current_stats = {
-                        'graphics_clock': int(stats[0]) if stats[0].isdigit() else 0,
-                        'memory_clock': int(stats[1]) if stats[1].isdigit() else 0,
-                        'power_draw': float(stats[2]) if stats[2].replace('.', '').isdigit() else 0,
-                        'temperature': float(stats[3]) if stats[3].replace('.', '').isdigit() else 0,
-                        'utilization': int(stats[4]) if stats[4].isdigit() else 0,
-                        'performance_state': stats[5] if len(stats) > 5 else 'unknown'
-                    }
-                    return current_stats
-        except Exception as e:
-            print(f"⚠️ GPU stats error: {e}")
-        return None
-
-    def check_gpu_performance_enhanced(self):
-        """Enhanced GPU performance check with detailed analysis"""
-        stats = self.get_current_gpu_stats()
-        if not stats:
-            return "unknown"
-        
-        graphics_mhz = stats['graphics_clock']
-        utilization = stats['utilization']
-        power_draw = stats['power_draw']
-        
-        print(f"📊 GPU Status: {graphics_mhz}MHz graphics, {stats['memory_clock']}MHz memory")
-        print(f"🔌 Power: {power_draw}W, Temp: {stats['temperature']}°C, Util: {utilization}%")
-        print(f"🎛️ Performance State: {stats['performance_state']}")
-        
-        # Enhanced performance classification
-        if graphics_mhz > 2000:
-            return "excellent"
-        elif graphics_mhz > 1500:
-            return "high"
-        elif graphics_mhz > 800:
-            return "medium"
-        else:
-            return "low"
 
     def start_enhanced_gpu_management(self):
         """Start enhanced GPU management with real-time monitoring"""
@@ -293,7 +379,7 @@ class VideoWorker:
                                      f"Util: {stats['utilization']}%, Power: {stats['power_draw']}W")
                                 
                                 # Alert if performance drops during generation
-                                if stats['graphics_clock'] < 1000:
+                                if stats['graphics_clock'] > 0 and stats['graphics_clock'] < 800:
                                     print("⚠️ [GENERATION] GPU clocks dropped! Attempting reactivation...")
                                     self.force_gpu_activation()
                         
@@ -336,7 +422,7 @@ class VideoWorker:
                                  f"Util: {stats['utilization']}% | "
                                  f"Power: {stats['power_draw']}W | "
                                  f"Temp: {stats['temperature']}°C")
-                    time.sleep(2)  # Monitor every 2 seconds during generation
+                    time.sleep(3)  # Monitor every 3 seconds during generation
             except Exception as e:
                 print(f"⚠️ Real-time monitor error: {e}")
             finally:
@@ -400,7 +486,7 @@ class VideoWorker:
             
             # Enhanced GPU performance check before proceeding
             perf_level = self.check_gpu_performance_enhanced()
-            if perf_level in ["low", "medium"]:
+            if perf_level in ["unknown"]:
                 print(f"⚠️ GPU performance {perf_level}, forcing reactivation...")
                 self.force_gpu_activation()
             
@@ -425,7 +511,7 @@ class VideoWorker:
         return False
 
     def get_job_config(self, job_type):
-        """Get configuration using only supported resolutions"""
+        """UPDATED: Get configuration with realistic timing expectations"""
         job_mapping = self.job_type_mapping.get(job_type)
         if not job_mapping:
             return {
@@ -433,7 +519,7 @@ class VideoWorker:
                 'frame_num': 1,
                 'sample_steps': 10,
                 'sample_guide_scale': 6.0,
-                'expected_time': 50,
+                'expected_time': 90,  # REALISTIC default
                 'storage_bucket': 'image_fast',
                 'content_type': 'image'
             }
@@ -458,7 +544,7 @@ class VideoWorker:
     def get_expected_time(self, job_type):
         """Get expected generation time"""
         job_mapping = self.job_type_mapping.get(job_type, {})
-        return f"{job_mapping.get('expected_time', 50)}s"
+        return f"{job_mapping.get('expected_time', 90)}s"
 
     def generate_with_gpu_monitoring(self, prompt, job_type):
         """Enhanced generation with comprehensive GPU monitoring"""
@@ -476,7 +562,7 @@ class VideoWorker:
         perf_level = self.check_gpu_performance_enhanced()
         print(f"🔥 Pre-generation GPU Performance: {perf_level}")
         
-        if perf_level in ["low", "medium", "unknown"]:
+        if perf_level in ["unknown"]:
             print("🔥 Performing pre-generation GPU activation...")
             self.force_gpu_activation()
             time.sleep(2)
@@ -491,7 +577,7 @@ class VideoWorker:
         print(f"📐 Resolution: {config.get('resolution_desc', 'unknown')}")
         print(f"⚙️ Quality: {config.get('quality_desc', 'unknown')}")
         print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
-        print(f"🎯 Expected: {expected_time}s (with enhanced monitoring)")
+        print(f"🎯 Expected: {expected_time}s (realistic expectation based on performance data)")
 
         # Use temp processing directory
         output_filename = f"{job_type}_{job_id}.mp4"
@@ -552,13 +638,16 @@ class VideoWorker:
                 
             print(f"⚡ Generation completed in {generation_time:.1f}s (expected {expected_time}s)")
             
-            # Analyze performance
-            if generation_time > expected_time * 1.5:
-                print(f"⚠️ Generation took {(generation_time/expected_time)*100:.1f}% of expected time")
+            # More realistic performance analysis
+            performance_ratio = generation_time / expected_time
+            if performance_ratio > 1.3:  # More than 30% slower than realistic expectation
+                print(f"⚠️ Generation took {performance_ratio:.1f}x longer than expected")
                 if pre_gen_stats and post_gen_stats:
                     clock_drop = pre_gen_stats['graphics_clock'] - post_gen_stats['graphics_clock']
                     if clock_drop > 500:
                         print(f"⚠️ GPU clocks dropped {clock_drop}MHz during generation")
+            elif performance_ratio < 0.9:  # Faster than expected
+                print(f"🚀 Generation completed {performance_ratio:.1f}x faster than expected!")
                 
             if not temp_output_path.exists():
                 fallback_path = Path(output_filename)
@@ -844,18 +933,20 @@ class VideoWorker:
                     
                     print(f"🎉 Job completed successfully in {duration:.1f}s")
                     
-                    # Performance analysis
+                    # Realistic performance analysis
                     config = self.get_job_config(job_type)
                     expected_duration = config['expected_time']
                     performance_ratio = duration / expected_duration
                     
-                    if performance_ratio > 1.5:
+                    if performance_ratio > 1.3:  # More than 30% slower than realistic expectation
                         print(f"⚠️ Performance: {performance_ratio:.1f}x slower than expected")
                         if pre_job_stats and post_job_stats:
                             clock_change = post_job_stats['graphics_clock'] - pre_job_stats['graphics_clock']
                             print(f"📊 GPU clock change during job: {clock_change:+d}MHz")
-                    elif performance_ratio < 0.8:
+                    elif performance_ratio < 0.8:  # Faster than expected
                         print(f"🚀 Performance: {performance_ratio:.1f}x faster than expected!")
+                    else:
+                        print(f"✅ Performance: {performance_ratio:.1f}x expected time (good performance)")
                     
                     self.notify_completion(job_id, 'completed', supa_path)
                     return
@@ -880,18 +971,122 @@ class VideoWorker:
             print(f"❌ Poll error: {e}")
         return None
 
+    def run_comprehensive_diagnostic(self):
+        """Run comprehensive diagnostic for troubleshooting"""
+        print("\n🔍 COMPREHENSIVE GPU DIAGNOSTIC")
+        print("=" * 50)
+        
+        # Test 1: nvidia-smi availability and queries
+        print("1. Testing nvidia-smi queries...")
+        queries_to_test = [
+            'name',
+            'clocks.current.graphics',
+            'clocks.current.memory',
+            'power.draw',
+            'temperature.gpu',
+            'utilization.gpu',
+        ]
+        
+        working_queries = []
+        for query in queries_to_test:
+            try:
+                result = subprocess.run([
+                    'nvidia-smi', f'--query-gpu={query}', '--format=csv,noheader,nounits'
+                ], capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    value = result.stdout.strip()
+                    print(f"   ✅ {query}: {value}")
+                    working_queries.append(query)
+                else:
+                    print(f"   ❌ {query}: FAILED")
+            except Exception as e:
+                print(f"   ❌ {query}: ERROR - {e}")
+        
+        # Test 2: Combined query (what we actually use)
+        print("\n2. Testing combined GPU stats query...")
+        try:
+            result = subprocess.run([
+                'nvidia-smi', 
+                '--query-gpu=clocks.current.graphics,clocks.current.memory,power.draw,temperature.gpu,utilization.gpu',
+                '--format=csv,noheader,nounits'
+            ], capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                stats = result.stdout.strip().split(', ')
+                print(f"   ✅ Combined query successful: {stats}")
+            else:
+                print(f"   ❌ Combined query failed: {result.stderr}")
+        except Exception as e:
+            print(f"   ❌ Combined query error: {e}")
+        
+        # Test 3: PyTorch performance test
+        print("\n3. Testing PyTorch CUDA performance...")
+        try:
+            if torch.cuda.is_available():
+                device_name = torch.cuda.get_device_name(0)
+                memory_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                memory_allocated = torch.cuda.memory_allocated() / 1024**3
+                
+                print(f"   ✅ Device: {device_name}")
+                print(f"   ✅ VRAM: {memory_allocated:.1f}GB / {memory_total:.1f}GB")
+                
+                # Quick performance test
+                print("   🔥 Running performance test...")
+                start_time = time.time()
+                test_tensor = torch.randn(1000, 1000, device='cuda')
+                for i in range(10):
+                    result = torch.matmul(test_tensor, test_tensor)
+                    torch.cuda.synchronize()
+                test_time = time.time() - start_time
+                print(f"   📊 PyTorch test: {test_time:.2f}s for 10 matrix ops")
+                
+                del test_tensor, result
+                torch.cuda.empty_cache()
+            else:
+                print("   ❌ PyTorch CUDA not available")
+        except Exception as e:
+            print(f"   ❌ PyTorch test error: {e}")
+        
+        # Test 4: Check if model exists and is accessible
+        print("\n4. Testing model availability...")
+        model_paths = [
+            "/workspace/models/wan2.1-t2v-1.3b",
+            str(self.temp_models / 'wan2.1-t2v-1.3b'),
+        ]
+        
+        for model_path in model_paths:
+            if os.path.exists(model_path):
+                try:
+                    model_files = list(Path(model_path).glob("**/*"))
+                    total_size = sum(f.stat().st_size for f in model_files if f.is_file())
+                    print(f"   ✅ Model found: {model_path}")
+                    print(f"   📊 {len(model_files)} files, {total_size/1024**3:.1f}GB total")
+                except Exception as e:
+                    print(f"   ⚠️ Model path exists but error accessing: {e}")
+            else:
+                print(f"   ❌ Model not found: {model_path}")
+        
+        print("\n" + "=" * 50)
+        print("🔍 Diagnostic complete")
+
     def run(self):
         """Enhanced main loop with comprehensive GPU performance monitoring"""
         print("⏳ Waiting for jobs...")
-        print("🎯 Enhanced GPU Performance Targets:")
-        print("   • image_fast: 35s (with persistent GPU activation)")
-        print("   • image_high: 50s (with real-time monitoring)")  
-        print("   • Previous baseline: 93s (with GPU throttling)")
+        print("🎯 UPDATED Realistic Performance Targets:")
+        print("   • image_fast: 90s (based on actual measured performance)")
+        print("   • image_high: 100s (realistic expectation)")  
+        print("   • video_fast: 95s (video processing)")
+        print("   • video_high: 110s (higher quality)")
+        print("📊 Previous unrealistic target was 35s - now using data-driven expectations")
         print("🔥 Enhanced GPU management active:")
+        print("   • Fixed GPU monitoring (no more 'unknown' status)")
         print("   • Real-time monitoring during generation")
         print("   • Persistent activation threads")
-        print("   • Performance state analysis")
-        print("   • Clock drop detection and recovery")
+        print("   • Realistic performance analysis")
+        
+        # Run comprehensive diagnostic on startup
+        self.run_comprehensive_diagnostic()
         
         last_cleanup = time.time()
         last_gpu_check = time.time()
@@ -904,8 +1099,8 @@ class VideoWorker:
                 perf_level = self.check_gpu_performance_enhanced()
                 print(f"🔥 Periodic GPU check: {perf_level} performance")
                 
-                if perf_level in ["low", "medium", "unknown"]:
-                    print("⚠️ GPU performance degraded, performing recovery activation...")
+                if perf_level in ["unknown"]:
+                    print("⚠️ GPU performance unknown, performing recovery activation...")
                     self.force_gpu_activation()
                     time.sleep(2)
                     new_perf = self.check_gpu_performance_enhanced()
@@ -920,9 +1115,12 @@ class VideoWorker:
                     print(f"📊 Performance Report - Jobs processed: {job_count}")
                     print(f"📊 Current GPU: {stats['graphics_clock']}MHz graphics, "
                          f"{stats['memory_clock']}MHz memory")
-                    print(f"📊 Thermal: {stats['temperature']}°C, "
-                         f"Power: {stats['power_draw']}W")
-                    print(f"📊 State: {stats['performance_state']}")
+                    if stats['temperature'] > 0:
+                        print(f"📊 Thermal: {stats['temperature']}°C, "
+                             f"Power: {stats['power_draw']}W")
+                    print(f"📊 Utilization: {stats['utilization']}%")
+                else:
+                    print("📊 Performance Report - GPU stats unavailable")
                 last_performance_report = time.time()
             
             # Cleanup every 10 minutes
@@ -942,16 +1140,16 @@ class VideoWorker:
             if job:
                 job_count += 1
                 print(f"🎯 Processing job #{job_count}")
-                print(f"🔥 Pre-job GPU activation check...")
+                print(f"🔥 Pre-job GPU check...")
                 
-                # Force activation before each job to ensure peak performance
+                # Check GPU state before each job
                 current_perf = self.check_gpu_performance_enhanced()
-                if current_perf != "excellent":
-                    print(f"🔥 Current performance is {current_perf}, activating to excellent...")
+                if current_perf in ["unknown"]:
+                    print(f"🔥 Current performance is {current_perf}, attempting activation...")
                     self.force_gpu_activation()
                 
                 self.process_job(job)
-                print("⏳ Job complete, monitoring GPU state...")
+                print("⏳ Job complete, checking GPU state...")
                 
                 # Check GPU state after job
                 post_job_perf = self.check_gpu_performance_enhanced()
@@ -961,9 +1159,10 @@ class VideoWorker:
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz Enhanced GPU Performance Worker")
-    print("🔥 Advanced GPU monitoring, activation, and performance analysis")
-    print("📊 Real-time generation monitoring and clock drop detection")
+    print("🚀 Starting OurVidz Complete GPU Diagnostics Worker")
+    print("🔥 Fixed GPU monitoring with realistic performance expectations")
+    print("📊 Real-time generation monitoring and comprehensive diagnostics")
+    print("🎯 Updated timing: 90s realistic target (vs previous unrealistic 35s)")
     
     # Handle graceful shutdown
     def signal_handler(signum, frame):
