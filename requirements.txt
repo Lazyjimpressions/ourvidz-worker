@@ -1,9 +1,9 @@
 # requirements.txt - Enhanced Multi-Model Setup (Updated)
 
 # Core PyTorch and CUDA (your current versions)
-torch>=2.4.1
-torchvision>=0.19.1
-torchaudio>=2.0.0
+torch==2.1.0+cu118
+torchvision==0.16.0+cu118
+torchaudio==2.1.0
 
 # Diffusers and Transformers (your current versions)
 diffusers>=0.24.0
