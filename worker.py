@@ -40,84 +40,45 @@ class VideoWorker:
         self.model_path = str(self.temp_models / 'wan2.1-t2v-1.3b')
         self.model_loaded = False
 
-        # PHASE 2 OPTIMIZATION: Resolution-based speed tiers (proven effective)
-        self.job_configs = {
-            # Ultra Fast: 50% fewer pixels = ~50% faster generation
-            'image_ultra_fast': {
-                'size': '480*320',          # ⚡ 50% pixel reduction
-                'frame_num': 1,
-                'sample_steps': 12,         # Keep optimized steps
-                'sample_guide_scale': 6.0,  # Keep optimized guidance
-                'expected_time': '45-50s',  # Target speed
-                'use_case': 'Quick previews, iterations'
+        # PHASE 2 OPTIMIZATION: Separate resolution and quality controls (user choice preserved)
+        
+        # Resolution options (affects speed through pixel count)
+        self.resolution_configs = {
+            'low': {
+                'size': '480*320',          # ⚡ 50% fewer pixels = ~50% faster
+                'multiplier': 0.5,          # Speed multiplier
+                'description': 'Low (480×320) - Fastest generation'
             },
-            
-            # Fast: 33% fewer pixels = ~35% faster generation  
-            'image_fast': {
-                'size': '640*360',          # ⚡ 33% pixel reduction
-                'frame_num': 1,
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
-                'expected_time': '60-70s',  # Target speed
-                'use_case': 'Standard sharing quality'
+            'medium': {
+                'size': '640*360',          # ⚡ 33% fewer pixels = ~35% faster  
+                'multiplier': 0.65,         # Speed multiplier
+                'description': 'Medium (640×360) - Balanced speed/quality'
             },
-            
-            # Standard: Current resolution with optimized parameters
-            'image_standard': {
+            'high': {
                 'size': '832*480',          # Current resolution
-                'frame_num': 1,
-                'sample_steps': 12,         # Keep Phase 1 optimization
-                'sample_guide_scale': 6.0,  # Keep Phase 1 optimization
-                'expected_time': '85-95s',  # Current performance
-                'use_case': 'High quality output'
-            },
-            
-            # High Quality: Maximum supported resolution
-            'image_high': {
-                'size': '832*480',          # ✅ Fixed: Use supported resolution
-                'frame_num': 1,
-                'sample_steps': 16,         # Slightly higher for quality
-                'sample_guide_scale': 7.0,  # Slightly higher for quality
-                'expected_time': '95-105s', # Slight quality increase
-                'use_case': 'Production quality'
-            },
-            
-            # Video modes with resolution optimization
-            'video_ultra_fast': {
-                'size': '480*320',          # ⚡ Ultra fast video
-                'frame_num': 17,            # ~1 second
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
-                'expected_time': '50-60s',
-                'use_case': 'Quick video previews'
-            },
-            
-            'video_fast': {
-                'size': '640*360',          # ⚡ Fast video
-                'frame_num': 17,
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
-                'expected_time': '70-80s',
-                'use_case': 'Standard video quality'
-            },
-            
-            'video_standard': {
-                'size': '832*480',          # Current video resolution
-                'frame_num': 17,
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
-                'expected_time': '90-100s',
-                'use_case': 'High quality video'
-            },
-            
-            'video_high': {
-                'size': '832*480',          # Maximum quality video
-                'frame_num': 33,            # ~2 seconds
-                'sample_steps': 16,
-                'sample_guide_scale': 7.0,
-                'expected_time': '120-140s',
-                'use_case': 'Production video'
+                'multiplier': 1.0,          # Baseline speed
+                'description': 'High (832×480) - Best quality'
             }
+        }
+        
+        # Quality options (affects AI generation parameters)
+        self.quality_configs = {
+            'fast': {
+                'sample_steps': 12,         # Optimized for speed
+                'sample_guide_scale': 6.0,  # Lower guidance for speed
+                'description': 'Fast - Quick generation'
+            },
+            'high': {
+                'sample_steps': 16,         # Higher quality
+                'sample_guide_scale': 7.0,  # Higher guidance for quality
+                'description': 'High - Better quality'
+            }
+        }
+        
+        # Base time estimates (high resolution, high quality = baseline ~95s)
+        self.base_times = {
+            'image': 95,    # Baseline for image generation
+            'video': 120    # Baseline for video generation  
         }
 
         # Environment variables
@@ -204,11 +165,10 @@ class VideoWorker:
         return config.get('expected_time', 'unknown')
 
     def generate(self, prompt, job_type):
-        """PHASE 2: Enhanced generation with resolution optimization"""
-        config = self.job_configs.get(job_type)
-        if not config:
-            print(f"❌ Unknown job type: {job_type}")
-            return None
+        """PHASE 2: Enhanced generation with separate resolution and quality controls"""
+        # Parse job type into components
+        content_type, resolution, quality = self.parse_job_type(job_type)
+        config = self.get_job_config(content_type, resolution, quality)
 
         # Ensure model is ready in temp storage
         if not self.ensure_model_ready():
@@ -219,12 +179,15 @@ class VideoWorker:
         warm_start = memory_before > 5000
         
         expected_time = config.get('expected_time', 'unknown')
-        use_case = config.get('use_case', 'general')
+        resolution_desc = config.get('resolution_desc', 'unknown')
+        quality_desc = config.get('quality_desc', 'unknown')
 
         print(f"⚡ {job_type.upper()} generation ({'WARM' if warm_start else 'COLD'} start)")
         print(f"📝 Prompt: {prompt}")
-        print(f"⚙️ Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
-        print(f"🎯 Expected: {expected_time} ({use_case})")
+        print(f"📐 Resolution: {resolution_desc}")
+        print(f"⚙️ Quality: {quality_desc}")
+        print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
+        print(f"🎯 Expected: {expected_time}")
 
         # Use temp processing directory for outputs
         output_filename = f"{job_type}_{job_id}.mp4"
@@ -280,7 +243,7 @@ class VideoWorker:
             
             print(f"✅ Generation completed: {temp_output_path}")
             
-            if 'image' in job_type:
+            if content_type == 'image':
                 return self.extract_frame_from_video(str(temp_output_path), job_id, job_type)
             
             return str(temp_output_path)
@@ -292,7 +255,7 @@ class VideoWorker:
             os.chdir(original_cwd)
 
     def extract_frame_from_video(self, video_path, job_id, job_type):
-        """PHASE 2: Enhanced frame extraction with resolution-specific optimization"""
+        """PHASE 2: Enhanced frame extraction with resolution-aware optimization"""
         image_path = self.temp_processing / f"{job_type}_{job_id}.png"
         
         try:
@@ -304,23 +267,22 @@ class VideoWorker:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame_rgb)
                 
-                # PHASE 2: Resolution-specific optimization
-                config = self.job_configs.get(job_type, {})
-                resolution = config.get('size', '832*480')
+                # Parse job type to get quality setting
+                _, resolution, quality = self.parse_job_type(job_type)
                 
-                if 'ultra_fast' in job_type:
-                    # Aggressive compression for ultra fast mode
+                # Optimize compression based on quality setting
+                if quality == 'fast':
+                    # Faster compression for quick jobs
                     img.save(str(image_path), "PNG", optimize=True, compress_level=9)
-                elif 'fast' in job_type:
-                    # Balanced compression for fast mode  
-                    img.save(str(image_path), "PNG", optimize=True, compress_level=7)
                 else:
-                    # Quality compression for standard/high modes
+                    # Better compression for quality jobs
                     img.save(str(image_path), "PNG", optimize=True, compress_level=6)
                 
                 # Get file size for logging
                 file_size = os.path.getsize(image_path) / 1024  # KB
-                print(f"📊 Output: {resolution} resolution, {file_size:.0f}KB")
+                resolution_config = self.resolution_configs.get(resolution, {})
+                size_desc = resolution_config.get('size', 'unknown')
+                print(f"📊 Output: {size_desc} resolution, {file_size:.0f}KB")
                 
                 # Clean up video file immediately
                 try:
@@ -334,26 +296,25 @@ class VideoWorker:
         return None
 
     def optimize_file_for_upload(self, file_path, job_type):
-        """PHASE 2: Resolution-aware file optimization"""
-        if 'image' in job_type:
+        """PHASE 2: Quality-aware file optimization"""
+        content_type, resolution, quality = self.parse_job_type(job_type)
+        
+        if content_type == 'image':
             # Images are already optimized during creation
             return file_path
             
-        if 'video' in job_type and self.ffmpeg_available:
+        if content_type == 'video' and self.ffmpeg_available:
             optimized_path = str(Path(file_path).with_suffix('.optimized.mp4'))
             
-            # Get target resolution from job config
-            config = self.job_configs.get(job_type, {})
-            size = config.get('size', '832*480')
+            # Get target resolution from config
+            resolution_config = self.resolution_configs.get(resolution, self.resolution_configs['high'])
+            size = resolution_config['size']
             width, height = size.split('*')
             
-            # PHASE 2: Resolution-specific encoding optimization
-            if 'ultra_fast' in job_type:
-                preset = 'ultrafast'
-                crf = '28'  # Higher compression for speed
-            elif 'fast' in job_type:
+            # Quality-based encoding optimization
+            if quality == 'fast':
                 preset = 'veryfast'
-                crf = '26'  # Balanced
+                crf = '26'  # Balanced compression
             else:
                 preset = 'fast'
                 crf = '23'  # Quality focus
@@ -571,20 +532,24 @@ class VideoWorker:
         return None
 
     def run(self):
-        """PHASE 2: Enhanced main loop with performance monitoring"""
+        """PHASE 2: Enhanced main loop with flexible resolution/quality options"""
         print("⏳ Waiting for jobs...")
-        print("🎯 Phase 2 Speed Targets:")
-        print("   • ultra_fast: 45-50s")
-        print("   • fast: 60-70s") 
-        print("   • standard: 85-95s")
-        print("   • high: 95-105s")
+        print("🎯 Phase 2 Performance Matrix:")
+        print("   Resolution × Quality:")
+        print("   • low + fast:    ~45s  (480×320, 12 steps)")
+        print("   • low + high:    ~50s  (480×320, 16 steps)")
+        print("   • medium + fast: ~60s  (640×360, 12 steps)")
+        print("   • medium + high: ~70s  (640×360, 16 steps)")
+        print("   • high + fast:   ~90s  (832×480, 12 steps)")
+        print("   • high + high:   ~105s (832×480, 16 steps)")
+        print("🎨 Users can choose optimal speed/quality balance!")
         
         last_cleanup = time.time()
         job_count = 0
         
         while True:
-            # More frequent cleanup every 10 minutes
-            if time.time() - last_cleanup > 600:  # 10 minutes
+            # Cleanup every 10 minutes
+            if time.time() - last_cleanup > 600:
                 self.cleanup_old_temp_files()
                 last_cleanup = time.time()
                 
