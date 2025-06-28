@@ -431,9 +431,274 @@ class VideoWorker:
         finally:
             os.chdir(original_cwd)
 
-    # [Include all other methods from the previous worker.py...]
-    # [extract_frame_from_video, optimize_file_for_upload, upload_to_supabase, etc.]
-    # [For brevity, I'm showing just the key GPU optimization parts]
+    def extract_frame_from_video(self, video_path, job_id, job_type):
+        """Enhanced frame extraction with job-type-aware optimization"""
+        image_path = self.temp_processing / f"{job_type}_{job_id}.png"
+        
+        try:
+            cap = cv2.VideoCapture(video_path)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret and frame is not None:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame_rgb)
+                
+                # Optimize compression based on job type
+                if 'fast' in job_type:
+                    img.save(str(image_path), "PNG", optimize=True, compress_level=9)
+                else:
+                    img.save(str(image_path), "PNG", optimize=True, compress_level=6)
+                
+                # Get file size for logging
+                file_size = os.path.getsize(image_path) / 1024  # KB
+                config = self.get_job_config(job_type)
+                size_desc = config.get('size', 'unknown')
+                print(f"📊 Output: {size_desc} resolution, {file_size:.0f}KB")
+                
+                # Clean up video file immediately
+                try:
+                    os.remove(video_path)
+                except:
+                    pass
+                    
+                return str(image_path)
+        except Exception as e:
+            print(f"❌ Frame extraction error: {e}")
+        return None
+
+    def optimize_file_for_upload(self, file_path, job_type):
+        """Job-type-aware file optimization"""
+        config = self.get_job_config(job_type)
+        content_type = config['content_type']
+        
+        if content_type == 'image':
+            return file_path
+            
+        if content_type == 'video' and self.ffmpeg_available:
+            optimized_path = str(Path(file_path).with_suffix('.optimized.mp4'))
+            
+            size = config['size']
+            width, height = size.split('*')
+            
+            if 'fast' in job_type:
+                preset = 'veryfast'
+                crf = '26'
+            else:
+                preset = 'fast'
+                crf = '23'
+            
+            cmd = [
+                'ffmpeg', '-i', file_path,
+                '-c:v', 'libx264',
+                '-preset', preset,
+                '-crf', crf,
+                '-movflags', '+faststart',
+                '-pix_fmt', 'yuv420p',
+                '-vf', f'scale={width}:{height}',
+                '-y', optimized_path
+            ]
+            
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if result.returncode == 0 and os.path.exists(optimized_path):
+                    orig_size = os.path.getsize(file_path)
+                    opt_size = os.path.getsize(optimized_path)
+                    
+                    if opt_size < orig_size:
+                        print(f"📉 Optimized: {orig_size//1024}KB → {opt_size//1024}KB")
+                        os.remove(file_path)
+                        return optimized_path
+                    else:
+                        os.remove(optimized_path)
+                        
+            except Exception as e:
+                print(f"⚠️ Optimization failed: {e}")
+                
+        return file_path
+
+    def upload_to_supabase(self, file_path, job_type, user_id, job_id):
+        """Upload to the correct storage bucket based on job type"""
+        if not os.path.exists(file_path):
+            return None
+            
+        optimized_path = self.optimize_file_for_upload(file_path, job_type)
+        config = self.get_job_config(job_type)
+        
+        storage_bucket = config['storage_bucket']
+        content_type = config['content_type']
+        
+        filename = f"job_{job_id}_{int(time.time())}_{job_type}.{'png' if content_type == 'image' else 'mp4'}"
+        full_path = f"{storage_bucket}/{user_id}/{filename}"
+        mime_type = 'image/png' if content_type == 'image' else 'video/mp4'
+        
+        print(f"📤 Uploading to bucket: {storage_bucket}")
+        
+        try:
+            with open(optimized_path, 'rb') as f:
+                file_data = f.read()
+                file_size = len(file_data) / 1024
+                print(f"📊 File size: {file_size:.0f}KB")
+                
+                for attempt in range(3):
+                    try:
+                        print(f"🔄 Upload attempt {attempt + 1}/3...")
+                        
+                        r = requests.post(
+                            f"{self.supabase_url}/storage/v1/object/{full_path}",
+                            data=file_data,
+                            headers={
+                                'Authorization': f"Bearer {self.supabase_service_key}",
+                                'Content-Type': mime_type,
+                                'x-upsert': 'true'
+                            },
+                            timeout=120
+                        )
+                        
+                        print(f"📡 Response: {r.status_code}")
+                        
+                        if r.status_code in [200, 201]:
+                            print(f"✅ Upload successful: {full_path}")
+                            return f"{user_id}/{filename}"
+                        else:
+                            print(f"⚠️ Upload attempt {attempt + 1} failed: {r.status_code} - {r.text}")
+                            
+                            if r.status_code in [401, 403, 404]:
+                                break
+                                
+                    except requests.RequestException as e:
+                        print(f"⚠️ Upload attempt {attempt + 1} error: {e}")
+                        if attempt < 2:
+                            time.sleep(2 ** attempt)
+                            
+        except Exception as e:
+            print(f"❌ Upload preparation failed: {e}")
+        finally:
+            self.cleanup_temp_files([file_path, optimized_path])
+            
+        print("❌ All upload attempts failed")
+        return None
+
+    def cleanup_temp_files(self, file_paths):
+        """Clean up temporary files"""
+        for file_path in file_paths:
+            try:
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+            except:
+                pass
+
+    def cleanup_old_temp_files(self):
+        """Cleanup old temp files"""
+        try:
+            current_time = time.time()
+            cleaned_count = 0
+            
+            for temp_dir in [self.temp_outputs, self.temp_processing]:
+                for file_path in temp_dir.glob("*"):
+                    if file_path.is_file():
+                        if (current_time - file_path.stat().st_mtime) > 1200:  # 20 minutes
+                            try:
+                                file_path.unlink()
+                                cleaned_count += 1
+                            except:
+                                pass
+                                
+            if cleaned_count > 0:
+                print(f"🧹 Cleaned up {cleaned_count} old temp files")
+                
+        except Exception as e:
+            print(f"⚠️ Temp cleanup error: {e}")
+
+    def notify_completion(self, job_id, status, file_path=None, error_message=None):
+        """Enhanced callback with performance metrics"""
+        data = {
+            'jobId': job_id, 
+            'status': status, 
+            'filePath': file_path, 
+            'errorMessage': error_message
+        }
+        
+        print(f"📞 Calling job-callback for job {job_id}: {status}")
+        
+        try:
+            r = requests.post(
+                f"{self.supabase_url}/functions/v1/job-callback", 
+                json=data,
+                headers={
+                    'Authorization': f"Bearer {self.supabase_service_key}", 
+                    'Content-Type': 'application/json'
+                },
+                timeout=30
+            )
+            
+            if r.status_code == 200:
+                print("✅ Callback sent successfully")
+            else:
+                print(f"❌ Callback failed: {r.status_code} - {r.text}")
+                
+        except Exception as e:
+            print(f"❌ Callback error: {e}")
+
+    def process_job(self, job_data):
+        """Enhanced job processing with GPU performance monitoring"""
+        job_id = job_data.get('jobId')
+        job_type = job_data.get('jobType')
+        prompt = job_data.get('prompt')
+        user_id = job_data.get('userId')
+        
+        print(f"📋 Received job data keys: {list(job_data.keys())}")
+        print(f"📋 Job details: ID={job_id}, Type={job_type}, User={user_id}")
+        
+        if not all([job_id, job_type, user_id, prompt]):
+            missing_fields = []
+            if not job_id: missing_fields.append('jobId')
+            if not job_type: missing_fields.append('jobType') 
+            if not user_id: missing_fields.append('userId')
+            if not prompt: missing_fields.append('prompt')
+            
+            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+            print(f"❌ {error_msg}")
+            self.notify_completion(job_id or 'unknown', 'failed', error_message=error_msg)
+            return
+
+        print(f"📝 Prompt: {prompt}")
+        print(f"📥 Processing job: {job_id} ({job_type})")
+        
+        expected_time = self.get_expected_time(job_type)
+        print(f"⏱️ Expected completion: {expected_time}")
+        
+        start_time = time.time()
+        
+        try:
+            output_path = self.generate(prompt, job_type)
+            if output_path:
+                supa_path = self.upload_to_supabase(output_path, job_type, user_id, job_id)
+                if supa_path:
+                    duration = time.time() - start_time
+                    print(f"🎉 Job completed successfully in {duration:.1f}s")
+                    self.notify_completion(job_id, 'completed', supa_path)
+                    return
+                    
+            self.notify_completion(job_id, 'failed', error_message="Generation or upload failed")
+            
+        except Exception as e:
+            print(f"❌ Job processing error: {e}")
+            self.notify_completion(job_id, 'failed', error_message=str(e))
+
+    def poll_queue(self):
+        """Reliable queue polling"""
+        try:
+            r = requests.get(
+                f"{self.redis_url}/rpop/job_queue",
+                headers={'Authorization': f"Bearer {self.redis_token}"}, 
+                timeout=10
+            )
+            if r.status_code == 200 and r.json().get('result'):
+                return json.loads(r.json()['result'])
+        except Exception as e:
+            print(f"❌ Poll error: {e}")
+        return None
 
     def run(self):
         """Enhanced main loop with GPU performance monitoring"""
