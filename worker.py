@@ -1,4 +1,4 @@
-# worker.py - Enhanced with Temp Storage Optimizations
+# worker.py - Fixed Upload Logic and Job Processing
 import os
 import json
 import time
@@ -13,7 +13,7 @@ import cv2
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized (TEMP STORAGE OPTIMIZED)")
+        print("🚀 OurVidz Worker initialized (FIXED UPLOAD LOGIC)")
         
         # Create dedicated temp directories for better organization
         self.temp_base = Path("/tmp/ourvidz")
@@ -47,7 +47,7 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        print("🎬 Worker ready (temp storage optimized)")
+        print("🎬 Worker ready (upload logic fixed)")
 
     def detect_gpu(self):
         try:
@@ -223,8 +223,9 @@ class VideoWorker:
         return file_path
 
     def upload_to_supabase(self, file_path, job_type, user_id, job_id):
-        """Upload with optimizations for speed"""
+        """FIXED: Upload with correct Supabase Storage API format"""
         if not os.path.exists(file_path):
+            print(f"❌ File not found: {file_path}")
             return None
             
         # Optimize file before upload
@@ -233,29 +234,50 @@ class VideoWorker:
         filename = f"job_{job_id}_{int(time.time())}_{job_type}.{'png' if 'image' in job_type else 'mp4'}"
         full_path = f"{job_type}/{user_id}/{filename}"
         
+        # Determine correct content type
+        content_type = 'image/png' if 'image' in job_type else 'video/mp4'
+        
+        print(f"📤 Uploading to: {self.supabase_url}/storage/v1/object/{full_path}")
+        
         try:
             with open(optimized_path, 'rb') as f:
+                file_data = f.read()  # Read entire file into memory
+                file_size = len(file_data)
+                print(f"📊 File size: {file_size // 1024}KB")
+                
                 # Upload with retry logic for better reliability
                 for attempt in range(3):
                     try:
+                        print(f"🔄 Upload attempt {attempt + 1}/3...")
+                        
                         r = requests.post(
                             f"{self.supabase_url}/storage/v1/object/{full_path}",
-                            files={'file': (filename, f)},
+                            data=file_data,  # ✅ RAW BINARY DATA (not files=)
                             headers={
-                                'Authorization': f"Bearer {self.supabase_service_key}", 
-                                'x-upsert': 'true'
+                                'Authorization': f"Bearer {self.supabase_service_key}",
+                                'Content-Type': content_type,  # ✅ REQUIRED HEADER
+                                'x-upsert': 'true',  # ✅ PREVENT 400 ASSET EXISTS
+                                'Content-Length': str(file_size)  # Optional but helpful
                             },
-                            timeout=60
+                            timeout=120  # Longer timeout for large files
                         )
                         
+                        print(f"📡 Response: {r.status_code}")
+                        
                         if r.status_code in [200, 201]:
-                            print(f"✅ Uploaded to Supabase: {full_path}")
+                            print(f"✅ Upload successful: {full_path}")
                             return f"{user_id}/{filename}"
                         else:
                             print(f"⚠️ Upload attempt {attempt + 1} failed: {r.status_code}")
+                            print(f"📝 Response text: {r.text}")
                             
+                            # Don't retry on certain errors
+                            if r.status_code in [401, 403, 404]:
+                                print("🚫 Auth/permission error - not retrying")
+                                break
+                                
                     except requests.RequestException as e:
-                        print(f"⚠️ Upload attempt {attempt + 1} error: {e}")
+                        print(f"⚠️ Upload attempt {attempt + 1} network error: {e}")
                         if attempt < 2:  # Don't sleep on last attempt
                             time.sleep(2 ** attempt)  # Exponential backoff
                             
@@ -293,12 +315,15 @@ class VideoWorker:
             print(f"⚠️ Temp cleanup error: {e}")
 
     def notify_completion(self, job_id, status, file_path=None, error_message=None):
+        """Notify job completion to callback function"""
         data = {
             'jobId': job_id, 
             'status': status, 
             'filePath': file_path, 
             'errorMessage': error_message
         }
+        
+        print(f"📞 Calling job-callback for job {job_id}: {status}")
         
         try:
             r = requests.post(
@@ -310,32 +335,58 @@ class VideoWorker:
                 },
                 timeout=30
             )
-            print("✅ Callback sent" if r.status_code == 200 else f"❌ Callback failed: {r.status_code}")
+            
+            if r.status_code == 200:
+                print("✅ Callback sent successfully")
+            else:
+                print(f"❌ Callback failed: {r.status_code} - {r.text}")
+                
         except Exception as e:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
+        """FIXED: Process job with proper field extraction"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
-        prompt = job_data.get('prompt', 'person walking')
+        prompt = job_data.get('prompt')  # ✅ No fallback - prompt is required
         user_id = job_data.get('userId')
         
-        if not all([job_id, job_type, user_id]):
-            self.notify_completion(job_id or 'unknown', 'failed', error_message="Missing required fields")
+        # Log received job data for debugging
+        print(f"📋 Received job data keys: {list(job_data.keys())}")
+        print(f"📋 Job details: ID={job_id}, Type={job_type}, User={user_id}")
+        print(f"📝 Prompt: {prompt}")
+        
+        # Validate all required fields
+        if not all([job_id, job_type, user_id, prompt]):
+            missing = [field for field, value in [
+                ('jobId', job_id), ('jobType', job_type), 
+                ('userId', user_id), ('prompt', prompt)
+            ] if not value]
+            error_msg = f"Missing required fields: {', '.join(missing)}"
+            print(f"❌ {error_msg}")
+            self.notify_completion(job_id or 'unknown', 'failed', error_message=error_msg)
             return
 
         print(f"📥 Processing job: {job_id} ({job_type})")
         start_time = time.time()
         
         try:
+            # Generate content
             output_path = self.generate(prompt, job_type)
             if output_path:
+                print(f"✅ Generation completed: {output_path}")
+                
+                # Upload to Supabase
                 supa_path = self.upload_to_supabase(output_path, job_type, user_id, job_id)
                 if supa_path:
                     duration = time.time() - start_time
-                    print(f"🎉 Job completed in {duration:.1f}s")
+                    print(f"🎉 Job completed successfully in {duration:.1f}s")
                     self.notify_completion(job_id, 'completed', supa_path)
                     return
+                else:
+                    print("❌ Upload failed")
+            else:
+                print("❌ Generation failed")
                     
             self.notify_completion(job_id, 'failed', error_message="Generation or upload failed")
             
@@ -344,19 +395,27 @@ class VideoWorker:
             self.notify_completion(job_id, 'failed', error_message=str(e))
 
     def poll_queue(self):
+        """Poll Redis queue for new jobs"""
         try:
             r = requests.get(
                 f"{self.redis_url}/rpop/job_queue",
                 headers={'Authorization': f"Bearer {self.redis_token}"}, 
                 timeout=10
             )
-            if r.status_code == 200 and r.json().get('result'):
-                return json.loads(r.json()['result'])
+            
+            if r.status_code == 200:
+                result = r.json().get('result')
+                if result:
+                    return json.loads(result)
+            elif r.status_code != 200:
+                print(f"⚠️ Redis poll error: {r.status_code}")
+                
         except Exception as e:
             print(f"❌ Poll error: {e}")
         return None
 
     def run(self):
+        """Main worker loop"""
         print("⏳ Waiting for jobs...")
         last_cleanup = time.time()
         
@@ -374,5 +433,18 @@ class VideoWorker:
                 time.sleep(5)
 
 if __name__ == "__main__":
+    # Validate environment variables
+    required_vars = [
+        'SUPABASE_URL', 'SUPABASE_SERVICE_KEY',
+        'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'
+    ]
+    
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
+        exit(1)
+    
+    print("🔧 Environment variables validated")
+    
     worker = VideoWorker()
     worker.run()
