@@ -44,13 +44,32 @@ class VideoWorker:
             print("❌ Model directory not found")
             raise Exception("Model not found")
             
-        # Check Wan 2.1 scripts
-        sample_script = f"{self.wan_script_path}/scripts/sample_wan.py"
-        if os.path.exists(sample_script):
-            print("✅ Wan 2.1 scripts found")
+        # Check Wan 2.1 - use generate.py instead of scripts/sample_wan.py
+        generate_script = f"{self.wan_script_path}/generate.py"
+        if os.path.exists(generate_script):
+            print("✅ Wan 2.1 generate.py found")
         else:
-            print("❌ Wan 2.1 scripts not found")
-            raise Exception("Wan 2.1 scripts not found")
+            print("❌ Wan 2.1 generate.py not found")
+            raise Exception("Wan 2.1 generate.py not found")
+            
+        # Check environment variables
+        required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
+        missing = [var for var in required_vars if not os.getenv(var)]
+        
+        if missing:
+            print(f"❌ Missing environment variables: {missing}")
+            raise Exception(f"Missing required environment variables: {missing}")
+        else:
+            print("✅ All environment variables configured")
+            
+        # Check GPU
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            print(f"✅ GPU: {gpu_name} ({total_memory:.1f}GB)")
+        else:
+            print("❌ CUDA not available")
+            raise Exception("CUDA not available")
             
         # Check environment variables
         required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
