@@ -1,15 +1,17 @@
-# simple_worker.py - Simplified worker for current environment
+# worker.py - Production OurVidz GPU Worker
 import os
 import json
 import time
 import requests
 import subprocess
 import uuid
+import shutil
 from pathlib import Path
+import torch
 
-class SimpleVideoWorker:
+class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Simple Worker initialized")
+        print("🚀 OurVidz Production Worker initialized")
         
         # Paths
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
@@ -19,27 +21,28 @@ class SimpleVideoWorker:
         # Create output directory
         Path(self.output_dir).mkdir(exist_ok=True)
         
-        # Environment variables (with fallback for testing)
-        self.supabase_url = os.getenv('SUPABASE_URL', 'https://ulmdmzhcdwfadbvfpckt.supabase.co')
+        # Environment variables
+        self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY')
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
-        print(f"🔧 Model path: {self.model_path}")
-        print(f"🔧 Wan scripts: {self.wan_script_path}")
-        print(f"🔧 Environment variables configured: {bool(self.supabase_service_key)}")
+        # Validate environment
+        self.validate_environment()
+        self.setup_gpu_optimizations()
         
-        self.verify_setup()
+        print("✅ Worker ready for production")
 
-    def verify_setup(self):
-        """Verify that everything is set up correctly"""
-        print("🔍 Verifying setup...")
+    def validate_environment(self):
+        """Validate all required components"""
+        print("🔍 Validating environment...")
         
-        # Check model exists
+        # Check model
         if os.path.exists(self.model_path):
             print("✅ Model directory found")
         else:
             print("❌ Model directory not found")
+            raise Exception("Model not found")
             
         # Check Wan 2.1 scripts
         sample_script = f"{self.wan_script_path}/scripts/sample_wan.py"
@@ -47,52 +50,115 @@ class SimpleVideoWorker:
             print("✅ Wan 2.1 scripts found")
         else:
             print("❌ Wan 2.1 scripts not found")
+            raise Exception("Wan 2.1 scripts not found")
             
         # Check environment variables
-        if self.supabase_service_key:
-            print("✅ Supabase credentials configured")
-        else:
-            print("⚠️ Supabase credentials missing - will run in test mode")
-            
-        if self.redis_url and self.redis_token:
-            print("✅ Redis credentials configured")
-        else:
-            print("⚠️ Redis credentials missing - will run in test mode")
-
-    def generate_video(self, prompt: str, output_filename: str) -> bool:
-        """Generate video using Wan 2.1 with proven parameters"""
-        print(f"🎬 Generating video: {prompt}")
+        required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
+        missing = [var for var in required_vars if not os.getenv(var)]
         
+        if missing:
+            print(f"❌ Missing environment variables: {missing}")
+            raise Exception(f"Missing required environment variables: {missing}")
+        else:
+            print("✅ All environment variables configured")
+            
+        # Check GPU
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            print(f"✅ GPU: {gpu_name} ({total_memory:.1f}GB)")
+        else:
+            print("❌ CUDA not available")
+            raise Exception("CUDA not available")
+
+    def setup_gpu_optimizations(self):
+        """Setup GPU optimizations for best performance"""
+        print("🔧 Setting up GPU optimizations...")
+        
+        try:
+            # PyTorch optimizations
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.deterministic = False
+            
+            # Environment optimizations
+            os.environ.update({
+                'CUDA_LAUNCH_BLOCKING': '0',
+                'PYTORCH_CUDA_ALLOC_CONF': 'max_split_size_mb:512',
+                'TORCH_USE_CUDA_DSA': '1',
+            })
+            
+            # Warm up GPU
+            if torch.cuda.is_available():
+                warmup_tensor = torch.ones((1000, 1000), device='cuda')
+                for _ in range(5):
+                    result = torch.matmul(warmup_tensor, warmup_tensor)
+                    torch.cuda.synchronize()
+                del warmup_tensor, result
+                torch.cuda.empty_cache()
+                
+            print("✅ GPU optimizations complete")
+            
+        except Exception as e:
+            print(f"⚠️ GPU optimization warning: {e}")
+
+    def enhance_prompt(self, original_prompt: str, character_description: str = None) -> str:
+        """Simple prompt enhancement for Phase 1"""
+        enhanced = f"High quality cinematic video, {original_prompt}"
+        if character_description:
+            enhanced = f"High quality cinematic video featuring {character_description}, {original_prompt}"
+        
+        # Add cinematic descriptors
+        enhanced += ", professional lighting, smooth motion, detailed"
+        
+        print(f"📝 Enhanced prompt: {enhanced[:100]}...")
+        return enhanced
+
+    def generate_video(self, prompt: str, job_id: str) -> str:
+        """Generate video using Wan 2.1 with optimized parameters"""
+        print(f"🎬 Generating video for job {job_id}")
+        print(f"📝 Prompt: {prompt}")
+        
+        output_filename = f"{job_id}_video.mp4"
         output_path = f"{self.output_dir}/{output_filename}"
         
-        # Use the proven parameters from your successful test
+        # Proven working parameters from your tests
         cmd = [
             "python", f"{self.wan_script_path}/scripts/sample_wan.py",
             "--model_dir", self.model_path,
             "--task", "t2v-1.3B",
             "--prompt", prompt,
-            "--size", "832*480",  # Proven working size
+            "--size", "832*480",  # Proven working landscape format
             "--num_frames", "80",  # 5 seconds at 16fps
-            "--num_inference_steps", "25",
-            "--guidance_scale", "6.0",
-            "--sample_shift", "8",
-            "--offload_model", "True",
-            "--t5_cpu",
+            "--num_inference_steps", "25",  # Good quality/speed balance
+            "--guidance_scale", "6.0",  # Optimal guidance
+            "--sample_shift", "8",  # Performance optimization
+            "--offload_model", "True",  # Memory optimization
+            "--t5_cpu",  # Move T5 to CPU for VRAM
             "--save_path", output_path
         ]
         
-        print("🎥 Running Wan 2.1 generation...")
-        print(f"Command: {' '.join(cmd)}")
+        print("🎥 Starting Wan 2.1 generation...")
         
         try:
             start_time = time.time()
+            
+            # Run generation with optimized environment
+            env = os.environ.copy()
+            env.update({
+                'CUDA_LAUNCH_BLOCKING': '0',
+                'OMP_NUM_THREADS': '8',
+                'MKL_NUM_THREADS': '8',
+            })
             
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 cwd=self.wan_script_path,
-                timeout=600  # 10 minute timeout
+                timeout=600,  # 10 minute timeout
+                env=env
             )
             
             generation_time = time.time() - start_time
@@ -101,26 +167,24 @@ class SimpleVideoWorker:
                 if os.path.exists(output_path):
                     file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
                     print(f"✅ Video generated in {generation_time:.1f}s: {file_size:.1f}MB")
-                    return True
+                    return output_path
                 else:
-                    print(f"❌ Generation completed but file not found: {output_path}")
+                    print(f"❌ Generation completed but file not found")
                     print(f"stdout: {result.stdout}")
-                    return False
+                    return None
             else:
                 print(f"❌ Video generation failed: {result.stderr}")
                 print(f"stdout: {result.stdout}")
-                return False
+                return None
                 
         except Exception as e:
             print(f"❌ Video generation error: {e}")
-            return False
+            return None
 
-    def upload_to_supabase(self, file_path: str, storage_path: str) -> str:
+    def upload_to_supabase(self, file_path: str, filename: str) -> str:
         """Upload file to Supabase storage"""
-        if not self.supabase_service_key:
-            print("⚠️ No Supabase credentials - skipping upload")
-            return file_path
-            
+        storage_path = f"videos-final/{filename}"
+        
         try:
             with open(file_path, 'rb') as file:
                 response = requests.post(
@@ -128,7 +192,8 @@ class SimpleVideoWorker:
                     files={'file': file},
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
-                    }
+                    },
+                    timeout=120
                 )
             
             if response.status_code == 200:
@@ -145,10 +210,6 @@ class SimpleVideoWorker:
 
     def notify_completion(self, job_id: str, status: str, output_url: str = None, error_message: str = None):
         """Notify Supabase of job completion"""
-        if not self.supabase_service_key:
-            print(f"⚠️ No Supabase credentials - would notify: {job_id} = {status}")
-            return
-            
         try:
             callback_data = {
                 'jobId': job_id,
@@ -163,7 +224,8 @@ class SimpleVideoWorker:
                 headers={
                     'Authorization': f"Bearer {self.supabase_service_key}",
                     'Content-Type': 'application/json'
-                }
+                },
+                timeout=30
             )
             
             if response.status_code == 200:
@@ -176,45 +238,66 @@ class SimpleVideoWorker:
 
     def process_job(self, job_data: dict):
         """Process a single job"""
-        job_id = job_data.get('jobId', str(uuid.uuid4())[:8])
-        job_type = job_data.get('jobType', 'video')
-        prompt = job_data.get('prompt', 'A woman walking')
-        user_id = job_data.get('userId', 'test-user')
+        job_id = job_data.get('jobId')
+        job_type = job_data.get('jobType')
+        prompt = job_data.get('prompt')
+        user_id = job_data.get('userId')
+        character_description = job_data.get('characterDescription')
         
-        print(f"📋 Processing job: {job_id}")
-        print(f"📝 Prompt: {prompt}")
+        print(f"📋 Processing job: {job_id} ({job_type})")
         
+        if not all([job_id, job_type, prompt, user_id]):
+            error_msg = "Missing required job fields"
+            print(f"❌ {error_msg}")
+            self.notify_completion(job_id or 'unknown', 'failed', error_message=error_msg)
+            return
+
         try:
-            # Generate video
-            filename = f"{job_id}_video.mp4"
-            success = self.generate_video(prompt, filename)
+            start_time = time.time()
             
-            if success:
-                file_path = f"{self.output_dir}/{filename}"
+            if job_type == 'enhance':
+                # Phase 1: Simple enhancement
+                enhanced_prompt = self.enhance_prompt(prompt, character_description)
+                print(f"✅ Prompt enhanced")
+                self.notify_completion(job_id, 'completed')
                 
-                # Upload to Supabase
-                storage_path = f"videos-final/{filename}"
-                upload_url = self.upload_to_supabase(file_path, storage_path)
+            elif job_type == 'preview':
+                # Phase 1: Skip preview, go to video
+                print(f"⏭️ Skipping preview for Phase 1")
+                self.notify_completion(job_id, 'completed')
                 
-                if upload_url:
-                    print(f"🎉 Job {job_id} completed successfully")
-                    self.notify_completion(job_id, 'completed', upload_url)
+            elif job_type == 'video':
+                # Generate final video
+                enhanced_prompt = self.enhance_prompt(prompt, character_description)
+                
+                video_path = self.generate_video(enhanced_prompt, job_id)
+                if video_path:
+                    filename = f"{job_id}_final.mp4"
+                    upload_url = self.upload_to_supabase(video_path, filename)
+                    
+                    # Cleanup local file
+                    try:
+                        os.remove(video_path)
+                    except:
+                        pass
+                    
+                    if upload_url:
+                        duration = time.time() - start_time
+                        print(f"🎉 Job {job_id} completed in {duration:.1f}s")
+                        self.notify_completion(job_id, 'completed', upload_url)
+                    else:
+                        self.notify_completion(job_id, 'failed', error_message="Upload failed")
                 else:
-                    print(f"❌ Job {job_id} upload failed")
-                    self.notify_completion(job_id, 'failed', error_message="Upload failed")
+                    self.notify_completion(job_id, 'failed', error_message="Generation failed")
             else:
-                print(f"❌ Job {job_id} generation failed")
-                self.notify_completion(job_id, 'failed', error_message="Generation failed")
+                self.notify_completion(job_id, 'failed', error_message=f"Unknown job type: {job_type}")
                 
         except Exception as e:
-            print(f"❌ Job {job_id} processing error: {e}")
+            print(f"❌ Job processing error: {e}")
             self.notify_completion(job_id, 'failed', error_message=str(e))
 
     def poll_redis_queue(self):
         """Poll Redis queue for jobs"""
-        if not (self.redis_url and self.redis_token):
-            return None
-            
         try:
             response = requests.get(
                 f"{self.redis_url}/rpop/job-queue",
@@ -235,42 +318,50 @@ class SimpleVideoWorker:
             print(f"⚠️ Redis poll error: {e}")
             return None
 
-    def test_generation(self):
-        """Test video generation with a simple prompt"""
-        print("🧪 Running test generation...")
-        
-        test_prompt = "A woman walking confidently down a busy street"
-        test_filename = f"test_{int(time.time())}.mp4"
-        
-        success = self.generate_video(test_prompt, test_filename)
-        
-        if success:
-            print("✅ Test generation successful!")
-            return True
-        else:
-            print("❌ Test generation failed!")
-            return False
+    def cleanup_old_files(self):
+        """Cleanup old output files"""
+        try:
+            current_time = time.time()
+            cleaned = 0
+            
+            for file_path in Path(self.output_dir).glob("*"):
+                if file_path.is_file():
+                    if (current_time - file_path.stat().st_mtime) > 1800:  # 30 minutes
+                        try:
+                            file_path.unlink()
+                            cleaned += 1
+                        except:
+                            pass
+                            
+            if cleaned > 0:
+                print(f"🧹 Cleaned up {cleaned} old files")
+                
+        except Exception as e:
+            print(f"⚠️ Cleanup error: {e}")
 
     def run(self):
         """Main worker loop"""
-        print("🎬 OurVidz Simple Worker started!")
-        
-        # Test generation first if no environment variables
-        if not (self.supabase_service_key and self.redis_url):
-            print("⚠️ Running in test mode - no queue integration")
-            if self.test_generation():
-                print("✅ Worker is ready for production with environment variables")
-            else:
-                print("❌ Worker needs troubleshooting")
-            return
-        
+        print("🎬 OurVidz Production Worker started!")
         print("⏳ Waiting for jobs from Redis queue...")
+        
+        job_count = 0
+        last_cleanup = time.time()
         
         while True:
             try:
+                # Periodic cleanup
+                if time.time() - last_cleanup > 600:  # Every 10 minutes
+                    self.cleanup_old_files()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    last_cleanup = time.time()
+                
+                # Poll for jobs
                 job_data = self.poll_redis_queue()
                 
                 if job_data:
+                    job_count += 1
+                    print(f"🎯 Processing job #{job_count}")
                     self.process_job(job_data)
                 else:
                     print("💤 No jobs, waiting...")
@@ -281,7 +372,11 @@ class SimpleVideoWorker:
                 time.sleep(30)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz Simple Worker")
+    print("🚀 Starting OurVidz Production Worker")
     
-    worker = SimpleVideoWorker()
-    worker.run()
+    try:
+        worker = VideoWorker()
+        worker.run()
+    except Exception as e:
+        print(f"❌ Worker failed to start: {e}")
+        exit(1)
