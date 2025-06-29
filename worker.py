@@ -12,13 +12,11 @@ from PIL import Image
 import cv2
 import torch
 
-# CRITICAL: Disable model offloading by setting distributed environment
-# This prevents Wan 2.1 from moving models to CPU after each forward pass
-os.environ['WORLD_SIZE'] = '2'  # Tricks generate.py into keeping models on GPU
-os.environ['RANK'] = '0'
-os.environ['LOCAL_RANK'] = '0'
-os.environ['MASTER_ADDR'] = 'localhost'  # Required for distributed training
-os.environ['MASTER_PORT'] = '29500'      # Required for distributed training
+# CRITICAL: Use standard single GPU approach - no distributed training needed
+# Remove all distributed training environment variables
+for key in ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']:
+    if key in os.environ:
+        del os.environ[key]
 
 # Additional GPU optimizations
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -74,8 +72,8 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',  # FIXED: Correct Supabase bucket name
-                'expected_time': 4,
-                'description': 'Ultra fast image (4s, PNG output)'
+                'expected_time': 78,         # Cold start time, will be faster after first load
+                'description': 'Ultra fast image (7s after model loaded, 78s cold start)'
             },
             'image_high': {
                 'content_type': 'image',
@@ -85,7 +83,7 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',  # FIXED: Correct Supabase bucket name
-                'expected_time': 6,
+                'expected_time': 80,
                 'description': 'High quality image (6s, PNG output)'
             },
             'video_fast': {
@@ -96,7 +94,7 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 17,                # 1-second video at 16fps
                 'storage_bucket': 'video_fast',  # FIXED: Correct Supabase bucket name
-                'expected_time': 8,
+                'expected_time': 85,
                 'description': 'Fast 1-second video (8s, MP4 output)'
             },
             'video_high': {
@@ -107,7 +105,7 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 17,                # 1-second video at 16fps
                 'storage_bucket': 'video_high',  # FIXED: Correct Supabase bucket name
-                'expected_time': 12,
+                'expected_time': 90,
                 'description': 'High quality 1-second video (12s, MP4 output)'
             }
         }
@@ -147,35 +145,34 @@ class VideoWorker:
         # Always generate as MP4 first (Wan 2.1 only outputs MP4)
         temp_video_filename = f"{job_type}_{job_id}.mp4"
         temp_video_path = self.temp_processing / temp_video_filename
-        # Build optimized command with absolute path for save_file
+        # Build standard command with offload_model False
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", self.model_path,
+            "--offload_model", "False",  # Standard approach - keep models on GPU
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
             "--frame_num", str(config['frame_num']),
             "--prompt", prompt,
             "--save_file", str(temp_video_path.absolute())
-            # NOTE: Removed --offload_model False - let environment variables handle it
         ]
         
         print(f"📁 Generating to: {temp_video_path.absolute()}")
-        print(f"🔧 Command: python generate.py --task t2v-1.3B --save_file {temp_video_path.absolute()}")
-        print(f"🌍 Using WORLD_SIZE=2 environment to disable offloading")
+        print(f"🔧 Command: python generate.py --offload_model False --save_file {temp_video_path.absolute()}")
+        print(f"⚡ Using standard single GPU approach (no distributed training)")
         
-        # Environment with distributed settings to disable offloading
+        # Clean standard environment
         env = os.environ.copy()
         env.update({
-            'WORLD_SIZE': '2',  # Critical: Disables model offloading
-            'RANK': '0',
-            'LOCAL_RANK': '0',
-            'MASTER_ADDR': 'localhost',  # Required for distributed training
-            'MASTER_PORT': '29500',      # Required for distributed training
             'CUDA_VISIBLE_DEVICES': '0',
             'TORCH_USE_CUDA_DSA': '1'
         })
+        
+        # Remove any distributed training variables
+        for key in ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']:
+            env.pop(key, None)
         
         original_cwd = os.getcwd()
         os.chdir(self.wan_path)
@@ -188,7 +185,7 @@ class VideoWorker:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=30  # Reduced from 60s - should complete in <15s now
+                timeout=100  # Conservative timeout in case it falls back to CPU
             )
             
             generation_time = time.time() - start_time
@@ -322,9 +319,24 @@ class VideoWorker:
                 return str(temp_video_path)
             
         except subprocess.TimeoutExpired:
-            print("❌ Generation timed out (>30s) - unexpected with 21x performance improvement")
-            print("🔍 This indicates a regression - check model offloading settings")
-            return None
+            print("❌ Generation timed out (>90s)")
+            print("🔍 Checking if file was created despite timeout...")
+            
+            # Check if file was created despite timeout
+            if temp_video_path.exists():
+                print("✅ File found despite timeout - continuing with processing")
+                file_size = temp_video_path.stat().st_size / 1024
+                print(f"📊 Generated file: {file_size:.0f}KB")
+                
+                if config['content_type'] == 'image':
+                    print(f"🖼️ Extracting image frame from video...")
+                    return self.extract_frame_from_video(str(temp_video_path), job_id, job_type)
+                else:
+                    print(f"🎥 Returning video file: {temp_video_path}")
+                    return str(temp_video_path)
+            else:
+                print("❌ No file created and timeout occurred")
+                return None
         except Exception as e:
             print(f"❌ Error: {e}")
             return None
@@ -580,11 +592,10 @@ if __name__ == "__main__":
     
     # Verify critical environment settings
     print(f"🔍 Environment check:")
-    print(f"   WORLD_SIZE: {os.getenv('WORLD_SIZE')} (should be 2)")
-    print(f"   MASTER_ADDR: {os.getenv('MASTER_ADDR')} (should be localhost)")
-    print(f"   MASTER_PORT: {os.getenv('MASTER_PORT')} (should be 29500)")
+    print(f"   WORLD_SIZE: {os.getenv('WORLD_SIZE', 'Not set')} (should be Not set)")
     print(f"   CUDA_VISIBLE_DEVICES: {os.getenv('CUDA_VISIBLE_DEVICES')} (should be 0)")
     print(f"   SUPABASE_SERVICE_KEY: {'✅ Set' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ Missing'}")
+    print(f"   Mode: Standard single GPU (--offload_model False)")
     
     try:
         worker = VideoWorker()
