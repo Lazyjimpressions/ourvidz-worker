@@ -64,7 +64,7 @@ class VideoWorker:
             print(f"❌ Model path missing: {self.model_path}")
             exit(1)
         
-        # RTX 6000 Ada job configurations - REALISTIC timing based on actual performance
+        # RTX 6000 Ada job configurations - FIXED timing based on manual test results
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
@@ -74,8 +74,8 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
-                'expected_time': 90,         # REALISTIC: Based on actual timeout behavior
-                'description': 'Fast image generation (1 frame, GPU-only)'
+                'expected_time': 65,         # REALISTIC: 58s loading + 3s generation + buffer
+                'description': 'Fast image generation (1 frame, 65s with cold start)'
             },
             'image_high': {
                 'content_type': 'image',
@@ -85,8 +85,8 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
-                'expected_time': 110,        # REALISTIC: Slightly longer for quality
-                'description': 'High quality image (1 frame, GPU-only)'
+                'expected_time': 75,         # REALISTIC: Slightly longer for quality
+                'description': 'High quality image (1 frame, 75s with cold start)'
             },
             'video_fast': {
                 'content_type': 'video',
@@ -96,8 +96,8 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 81,             # Full 5 seconds (80 frames + 1)
                 'storage_bucket': 'video_fast',
-                'expected_time': 120,        # REALISTIC: Based on actual 117s performance
-                'description': 'Fast 5-second video (81 frames, GPU-only)'
+                'expected_time': 85,         # REALISTIC: 58s loading + ~20s generation + buffer
+                'description': 'Fast 5-second video (81 frames, 85s with cold start)'
             },
             'video_high': {
                 'content_type': 'video',
@@ -107,8 +107,8 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 81,             # Full 5 seconds (80 frames + 1)
                 'storage_bucket': 'video_high',
-                'expected_time': 150,        # REALISTIC: Longer for quality steps
-                'description': 'High quality 5-second video (81 frames, GPU-only)'
+                'expected_time': 110,        # REALISTIC: 58s loading + ~40s generation + buffer
+                'description': 'High quality 5-second video (81 frames, 110s with cold start)'
             }
         }
         
@@ -210,8 +210,8 @@ class VideoWorker:
             start_time = time.time()
             self.log_gpu_memory("before generation")
             
-            # REALISTIC TIMEOUTS: Based on actual RTX 6000 Ada performance
-            timeout = 180 if config['content_type'] == 'video' else 120
+            # GENEROUS TIMEOUTS: Account for 58s model loading + generation + buffer
+            timeout = 150 if config['content_type'] == 'video' else 100
             
             # DEBUGGING: Check what's happening during timeout
             timeout = 180 if config['content_type'] == 'video' else 120
