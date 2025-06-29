@@ -82,6 +82,57 @@ class SimpleWorker:
             print("❌ Wan 2.1 installation incomplete - will need manual fix")
         else:
             print("✅ Wan 2.1 appears to be installed")
+            
+        # Check for missing dependencies
+        print("🔍 Checking required dependencies...")
+        missing_deps = []
+        
+        try:
+            import easydict
+            print("   ✅ easydict")
+        except ImportError:
+            missing_deps.append("easydict")
+            print("   ❌ easydict - MISSING")
+            
+        try:
+            import ftfy
+            print("   ✅ ftfy")
+        except ImportError:
+            missing_deps.append("ftfy")
+            print("   ❌ ftfy - MISSING")
+            
+        try:
+            import dashscope
+            print("   ✅ dashscope")
+        except ImportError:
+            missing_deps.append("dashscope")
+            print("   ❌ dashscope - MISSING")
+        
+        if missing_deps:
+            print(f"🔧 Installing missing dependencies: {missing_deps}")
+            self.install_missing_dependencies(missing_deps)
+        else:
+            print("✅ All dependencies appear to be installed")
+
+    def install_missing_dependencies(self, deps):
+        """Install missing dependencies"""
+        try:
+            print("📦 Installing missing dependencies...")
+            for dep in deps:
+                print(f"   Installing {dep}...")
+                result = subprocess.run([
+                    "pip", "install", dep
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    print(f"   ✅ {dep} installed successfully")
+                else:
+                    print(f"   ❌ {dep} installation failed: {result.stderr}")
+            
+            print("✅ Dependency installation completed")
+            
+        except Exception as e:
+            print(f"❌ Dependency installation error: {e}")
 
     def log_gpu_memory(self, context=""):
         """Log GPU memory usage"""
