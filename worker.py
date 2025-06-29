@@ -179,23 +179,33 @@ class VideoWorker:
             print(f"⚡ Generation completed in {generation_time:.1f}s")
             
             if result.returncode != 0:
-                # Check if it's just the distributed training error at the end
-                # This is expected when using WORLD_SIZE=2 hack and can be ignored
-                if generation_time < 20 and temp_output_path.exists():
+                # Check if it's the expected distributed training error
+                # When using WORLD_SIZE=2 hack, this error is expected but generation succeeds
+                if (generation_time < 20 and temp_output_path.exists()) or "dist.init_process_group" in str(result.stderr):
                     print("✅ Generation successful (ignoring expected distributed training error)")
+                    print(f"📊 Performance: {generation_time:.1f}s (target: {config['expected_time']}s)")
                 else:
-                    print(f"❌ Generation failed: {result.stderr[:500]}")
+                    print(f"❌ Generation actually failed: {result.stderr[:500]}")
                     return None
                 
-            # Check for output file
+            # Check for output file (generation completed successfully)
             if not temp_output_path.exists():
                 # Check for alternative output locations
                 fallback_path = Path(output_filename)
                 if fallback_path.exists():
                     shutil.move(str(fallback_path), str(temp_output_path))
+                    print("✅ Found output file in alternative location")
                 else:
-                    print("❌ Output file not found")
+                    print("❌ Output file not found - generation may have failed")
+                    print(f"Expected: {temp_output_path}")
+                    print(f"Alternative: {fallback_path}")
                     return None
+            else:
+                print(f"✅ Output file created successfully: {temp_output_path.name}")
+            
+            # Get file size for logging
+            file_size = temp_output_path.stat().st_size / 1024
+            print(f"📊 Generated file: {file_size:.0f}KB")
             
             if config['content_type'] == 'image':
                 return self.extract_frame_from_video(str(temp_output_path), job_id, job_type)
