@@ -1,4 +1,4 @@
-# worker.py - Production OurVidz GPU Worker
+# worker.py - Production OurVidz GPU Worker (Fixed for generate.py)
 import os
 import json
 import time
@@ -70,25 +70,6 @@ class VideoWorker:
         else:
             print("❌ CUDA not available")
             raise Exception("CUDA not available")
-            
-        # Check environment variables
-        required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
-        missing = [var for var in required_vars if not os.getenv(var)]
-        
-        if missing:
-            print(f"❌ Missing environment variables: {missing}")
-            raise Exception(f"Missing required environment variables: {missing}")
-        else:
-            print("✅ All environment variables configured")
-            
-        # Check GPU
-        if torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name(0)
-            total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            print(f"✅ GPU: {gpu_name} ({total_memory:.1f}GB)")
-        else:
-            print("❌ CUDA not available")
-            raise Exception("CUDA not available")
 
     def setup_gpu_optimizations(self):
         """Setup GPU optimizations for best performance"""
@@ -135,30 +116,28 @@ class VideoWorker:
         return enhanced
 
     def generate_video(self, prompt: str, job_id: str) -> str:
-        """Generate video using Wan 2.1 with optimized parameters"""
+        """Generate video using Wan 2.1 generate.py with optimized parameters"""
         print(f"🎬 Generating video for job {job_id}")
         print(f"📝 Prompt: {prompt}")
         
         output_filename = f"{job_id}_video.mp4"
         output_path = f"{self.output_dir}/{output_filename}"
         
-        # Proven working parameters from your tests
+        # Use generate.py with proven working parameters
         cmd = [
-            "python", f"{self.wan_script_path}/scripts/sample_wan.py",
-            "--model_dir", self.model_path,
+            "python", "generate.py",
             "--task", "t2v-1.3B",
+            "--ckpt_dir", self.model_path,
             "--prompt", prompt,
+            "--save_file", output_path,
             "--size", "832*480",  # Proven working landscape format
-            "--num_frames", "80",  # 5 seconds at 16fps
-            "--num_inference_steps", "25",  # Good quality/speed balance
-            "--guidance_scale", "6.0",  # Optimal guidance
-            "--sample_shift", "8",  # Performance optimization
-            "--offload_model", "True",  # Memory optimization
-            "--t5_cpu",  # Move T5 to CPU for VRAM
-            "--save_path", output_path
+            "--frame_num", "80",  # 5 seconds at 16fps
+            "--sample_steps", "25",  # Good quality/speed balance
+            "--sample_guide_scale", "6.0",  # Optimal guidance
         ]
         
         print("🎥 Starting Wan 2.1 generation...")
+        print(f"Command: {' '.join(cmd)}")
         
         try:
             start_time = time.time()
