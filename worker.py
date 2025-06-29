@@ -1,5 +1,4 @@
-# worker.py - RTX 6000 ADA WITH PROPER WAN 2.1 INSTALLATION
-# FIX: Missing wan/pipeline.py and model files - reinstall Wan 2.1 properly
+# worker.py - Simple Fixed Version (No Syntax Errors)
 import os
 import json
 import time
@@ -7,8 +6,6 @@ import requests
 import subprocess
 import uuid
 import shutil
-import gc
-import threading
 from pathlib import Path
 from PIL import Image
 import cv2
@@ -26,20 +23,16 @@ os.environ['TORCH_USE_CUDA_DSA'] = '1'
 os.environ['CUDA_LAUNCH_BLOCKING'] = '0'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
-class FixedWorker:
+class SimpleWorker:
     def __init__(self):
-        print("🚀 OurVidz FIXED WORKER - Proper Wan 2.1 Installation")
-        print("🔧 FIXING: Missing wan/pipeline.py and model components")
+        print("🚀 OurVidz SIMPLE WORKER - RTX 6000 ADA")
+        print("🔧 Diagnosis Mode: Will capture full error output")
         
         # Paths
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
         self.wan_path = "/workspace/Wan2.1"
         
-        # Worker state
-        self.models_loaded = False
-        self.last_job_time = time.time()
-        
-        # RTX 6000 Ada job configurations
+        # Job configurations
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
@@ -49,8 +42,7 @@ class FixedWorker:
                 'size': '480*832',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
-                'expected_time': 60,
-                'description': 'Fast image generation'
+                'expected_time': 60
             },
             'video_fast': {
                 'content_type': 'video',
@@ -60,8 +52,7 @@ class FixedWorker:
                 'size': '480*832',
                 'frame_num': 81,
                 'storage_bucket': 'video_fast',
-                'expected_time': 120,
-                'description': 'Fast 5s video'
+                'expected_time': 120
             }
         }
         
@@ -71,162 +62,44 @@ class FixedWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        # Fix Wan 2.1 installation before doing anything else
-        self.fix_wan_installation()
+        # Check if Wan 2.1 needs fixing
+        self.check_wan_installation()
         
-        print("🔧 Fixed worker ready!")
+        print("🔧 Simple worker ready!")
 
-    def fix_wan_installation(self):
-        """Fix the broken Wan 2.1 installation"""
-        print("\n🔧 === FIXING WAN 2.1 INSTALLATION ===")
+    def check_wan_installation(self):
+        """Check if Wan 2.1 installation needs fixing"""
+        print("\n🔍 Checking Wan 2.1 installation...")
         
-        try:
-            # Step 1: Clean up broken installation
-            print("🗑️ Cleaning up broken Wan 2.1 installation...")
-            if os.path.exists(self.wan_path):
-                shutil.rmtree(self.wan_path)
-                print("   ✅ Removed broken Wan2.1 directory")
-            
-            # Step 2: Fresh clone
-            print("📥 Cloning fresh Wan 2.1 repository...")
-            result = subprocess.run([
-                "git", "clone", 
-                "https://github.com/Wan-Video/Wan2.1.git",
-                self.wan_path
-            ], capture_output=True, text=True, cwd="/workspace")
-            
-            if result.returncode != 0:
-                print(f"❌ Git clone failed: {result.stderr}")
-                return False
-            
-            print("   ✅ Fresh repository cloned")
-            
-            # Step 3: Verify critical files exist
-            critical_files = [
-                "generate.py",
-                "wan/__init__.py", 
-                "wan/modules/__init__.py",
-                "wan/modules/model.py"
-            ]
-            
-            missing_files = []
-            for file in critical_files:
-                full_path = os.path.join(self.wan_path, file)
-                if not os.path.exists(full_path):
-                    missing_files.append(file)
-                else:
-                    print(f"   ✅ {file}")
-            
-            if missing_files:
-                print(f"❌ Still missing files: {missing_files}")
-                return False
-            
-            # Step 4: Install the package properly
-            print("📦 Installing Wan 2.1 package...")
-            original_cwd = os.getcwd()
-            os.chdir(self.wan_path)
-            
-            result = subprocess.run([
-                "pip", "install", "-e", ".", "--force-reinstall"
-            ], capture_output=True, text=True)
-            
-            os.chdir(original_cwd)
-            
-            if result.returncode != 0:
-                print(f"❌ Package installation failed: {result.stderr}")
-                return False
-            
-            print("   ✅ Package installed successfully")
-            
-            # Step 5: Test imports
-            print("🧪 Testing critical imports...")
-            try:
-                original_cwd = os.getcwd()
-                os.chdir(self.wan_path)
-                
-                import sys
-                sys.path.insert(0, self.wan_path)
-                
-                # Test basic imports
-                import wan
-                print("   ✅ wan module import")
-                
-                # Try to import video generation components
-                try:
-                    from wan.modules.model import WanModel
-                    print("   ✅ WanModel import")
-                except Exception as e:
-                    print(f"   ⚠️ WanModel import: {e}")
-                
-            # Test generate.py execution with detailed error capture
-            print("🧪 Testing generate.py execution...")
-            test_result = subprocess.run([
-                "python", "generate.py", "--help"
-            ], capture_output=True, text=True, timeout=30)
-            
-            if test_result.returncode == 0:
-                print("   ✅ generate.py executable")
-            else:
-                print(f"   ❌ generate.py test failed:")
-                print(f"   STDOUT: {test_result.stdout}")
-                print(f"   STDERR: {test_result.stderr}")
-                # Don't return False here - might still work for actual generation
-                
-            except Exception as e:
-                print(f"   ❌ Import test failed: {e}")
-                return False
-            finally:
-                os.chdir(original_cwd)
-            
-            # Step 6: Verify model files
-            print("📂 Verifying model files...")
-            if os.path.exists(self.model_path):
-                model_files = list(Path(self.model_path).rglob("*"))
-                total_size = sum(f.stat().st_size for f in model_files if f.is_file()) / (1024**3)
-                print(f"   Model files: {len(model_files)} files, {total_size:.2f}GB")
-                
-                # Check for main model file
-                main_model = os.path.join(self.model_path, "diffusion_pytorch_model.safetensors")
-                if os.path.exists(main_model):
-                    size_gb = os.path.getsize(main_model) / (1024**3)
-                    print(f"   ✅ Main model: {size_gb:.2f}GB")
-                else:
-                    print("   ❌ Main model file missing")
-                    return False
-            else:
-                print("   ❌ Model directory missing")
-                return False
-            
-            print("🔧 === WAN 2.1 INSTALLATION FIXED ===\n")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Installation fix failed: {e}")
-            return False
+        # Check if key files exist
+        wan_exists = os.path.exists(self.wan_path)
+        generate_exists = os.path.exists(os.path.join(self.wan_path, "generate.py"))
+        
+        print(f"   Wan 2.1 directory: {wan_exists}")
+        print(f"   generate.py: {generate_exists}")
+        
+        if not wan_exists or not generate_exists:
+            print("❌ Wan 2.1 installation incomplete - will need manual fix")
+        else:
+            print("✅ Wan 2.1 appears to be installed")
 
     def log_gpu_memory(self, context=""):
-        """Enhanced GPU memory logging"""
+        """Log GPU memory usage"""
         if torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated() / (1024**3)
-            reserved = torch.cuda.memory_reserved() / (1024**3)
             total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             free = total - allocated
             
             status = "🔥" if allocated > 0.1 else "❄️"
-            models_status = f"GPU:{allocated:.2f}GB" if allocated > 0.1 else "NO GPU USAGE"
             
-            print(f"{status} GPU {context} ({models_status}): {allocated:.2f}GB used, {free:.2f}GB free / {total:.1f}GB total")
-            
-            # Alert if no GPU usage during generation
-            if context.startswith("after") and allocated < 0.1:
-                print("🚨 WARNING: Still no GPU usage - check subprocess output for errors!")
+            print(f"{status} GPU {context}: {allocated:.2f}GB used, {free:.2f}GB free / {total:.1f}GB total")
 
-    def generate_with_fixed_subprocess(self, prompt, job_type):
-        """Generate with fixed Wan 2.1 installation"""
+    def generate_with_diagnosis(self, prompt, job_type):
+        """Generate with full error diagnosis"""
         config = self.job_type_mapping[job_type]
         job_id = str(uuid.uuid4())[:8]
         
-        print(f"\n🎬 === GENERATION WITH FIXED WAN 2.1 ===")
+        print(f"\n🎬 === GENERATION DIAGNOSIS ===")
         print(f"📝 Job Type: {job_type}")
         print(f"📝 Prompt: {prompt}")
         print(f"📁 Wan Path: {self.wan_path}")
@@ -242,12 +115,12 @@ class FixedWorker:
         temp_video_filename = f"{job_type}_{job_id}.mp4"
         temp_video_path = temp_processing / temp_video_filename
         
-        # Build command with proper parameters
+        # Build command
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", self.model_path,
-            "--offload_model", "False",  # Keep models on GPU
+            "--offload_model", "False",
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
@@ -257,102 +130,60 @@ class FixedWorker:
         ]
         
         print(f"📋 Command: {' '.join(cmd)}")
-        print(f"📁 Output: {temp_video_path.absolute()}")
         
-        # Enhanced environment
+        # Environment
         env = os.environ.copy()
         env.update({
             'CUDA_VISIBLE_DEVICES': '0',
-            'TORCH_USE_CUDA_DSA': '1',
-            'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
-            'CUDA_LAUNCH_BLOCKING': '1',  # For debugging
-            'PYTHONUNBUFFERED': '1'       # Real-time output
+            'PYTHONUNBUFFERED': '1'
         })
         
         original_cwd = os.getcwd()
-        os.chdir(self.wan_path)
         
         try:
+            os.chdir(self.wan_path)
             start_time = time.time()
             self.log_gpu_memory("before generation")
             
-            print("🚀 Starting fixed generation...")
+            print("🚀 Starting generation with full error capture...")
             
-            # Run with real-time monitoring
-            process = subprocess.Popen(
+            # Run subprocess with complete output capture
+            result = subprocess.run(
                 cmd,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
-                bufsize=1,
-                universal_newlines=True
+                timeout=300  # 5 minute timeout
             )
             
-            # Monitor process and GPU usage
-            gpu_usage_detected = False
-            output_lines = []
-            error_lines = []
-            
-            while process.poll() is None:
-                # Check GPU usage every 2 seconds
-                current_allocated = torch.cuda.memory_allocated() / (1024**3)
-                if current_allocated > 0.5 and not gpu_usage_detected:  # 500MB threshold
-                    print(f"🔥 GPU USAGE DETECTED: {current_allocated:.2f}GB allocated!")
-                    gpu_usage_detected = True
-                
-                # Read output with better buffering
-                try:
-                    # Read stdout
-                    while True:
-                        stdout_line = process.stdout.readline()
-                        if not stdout_line:
-                            break
-                        output_lines.append(stdout_line.strip())
-                        print(f"   OUT: {stdout_line.strip()}")
-                        
-                    # Read stderr  
-                    while True:
-                        stderr_line = process.stderr.readline()
-                        if not stderr_line:
-                            break
-                        error_lines.append(stderr_line.strip())
-                        print(f"   ERR: {stderr_line.strip()}")
-                        
-                except:
-                    pass
-                
-                time.sleep(1)  # Check every second for faster error detection
-            
-            # Get final output
-            remaining_stdout, remaining_stderr = process.communicate()
-            if remaining_stdout:
-                output_lines.extend(remaining_stdout.strip().split('\n'))
-            if remaining_stderr:
-                error_lines.extend(remaining_stderr.strip().split('\n'))
-            
             generation_time = time.time() - start_time
-            return_code = process.returncode
+            return_code = result.returncode
             
             print(f"⏱️ Generation completed in {generation_time:.1f}s")
             print(f"🔧 Return code: {return_code}")
             
             self.log_gpu_memory("after generation")
             
-            # Analyze results
-            if gpu_usage_detected:
-                print("🎉 SUCCESS: GPU usage detected - models are loading properly!")
+            # Print ALL output for diagnosis
+            print("\n📋 === COMPLETE SUBPROCESS OUTPUT ===")
+            
+            if result.stdout:
+                print("STDOUT:")
+                for line in result.stdout.split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
             else:
-                print("❌ ISSUE: Still no GPU usage detected")
-                print("📋 Subprocess output analysis:")
-                
-                # Look for specific error patterns
-                all_output = output_lines + error_lines
-                for line in all_output:
-                    if any(keyword in line.lower() for keyword in ['error', 'failed', 'exception', 'traceback']):
-                        print(f"   🚨 {line}")
-                    elif any(keyword in line.lower() for keyword in ['loading', 'model', 'cuda', 'gpu']):
-                        print(f"   📋 {line}")
+                print("STDOUT: (empty)")
+            
+            if result.stderr:
+                print("\nSTDERR:")
+                for line in result.stderr.split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
+            else:
+                print("STDERR: (empty)")
+            
+            print("📋 === END OUTPUT ===\n")
             
             # Check if file was created
             if return_code == 0 and temp_video_path.exists():
@@ -360,24 +191,17 @@ class FixedWorker:
                 print(f"✅ Output file created: {file_size:.0f}KB")
                 return str(temp_video_path)
             else:
-                print(f"❌ Generation failed or no output file")
-                # Print ALL error output for debugging
-                print("📋 COMPLETE ERROR OUTPUT:")
-                all_output = output_lines + error_lines
-                if all_output:
-                    for line in all_output:
-                        if line.strip():
-                            print(f"   {line}")
-                else:
-                    print("   (No output captured)")
+                print(f"❌ Generation failed")
                 return None
                 
+        except subprocess.TimeoutExpired:
+            print("❌ Generation timed out (5 minutes)")
+            return None
         except Exception as e:
             print(f"❌ Generation error: {e}")
             return None
         finally:
             os.chdir(original_cwd)
-            print(f"🎬 === END GENERATION ===\n")
 
     def extract_frame_from_video(self, video_path, job_id, job_type):
         """Extract frame for image jobs"""
@@ -454,7 +278,6 @@ class FixedWorker:
             print(f"❌ Upload error: {e}")
             return None
         finally:
-            # Clean up local file
             try:
                 if file_path and os.path.exists(file_path):
                     os.remove(file_path)
@@ -490,7 +313,7 @@ class FixedWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process job with fixed installation"""
+        """Process job with diagnosis"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
         prompt = job_data.get('prompt')
@@ -509,8 +332,8 @@ class FixedWorker:
         start_time = time.time()
         
         try:
-            # Generate with fixed installation
-            output_path = self.generate_with_fixed_subprocess(prompt, job_type)
+            # Generate with full diagnosis
+            output_path = self.generate_with_diagnosis(prompt, job_type)
             
             if output_path:
                 # Handle image vs video
@@ -550,9 +373,8 @@ class FixedWorker:
 
     def run(self):
         """Main loop"""
-        print("\n🎬 FIXED WORKER READY!")
-        print("✅ Wan 2.1 installation has been fixed")
-        print("🔥 Should now see proper GPU usage during generation")
+        print("\n🎬 SIMPLE WORKER READY!")
+        print("🔍 Will provide complete error diagnosis for generation issues")
         print("⏳ Waiting for jobs...\n")
         
         job_count = 0
@@ -568,7 +390,7 @@ class FixedWorker:
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz FIXED WORKER - Proper Wan 2.1 Installation")
+    print("🚀 Starting OurVidz SIMPLE WORKER")
     
     # Verify environment
     required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
@@ -578,7 +400,7 @@ if __name__ == "__main__":
         exit(1)
     
     try:
-        worker = FixedWorker()
+        worker = SimpleWorker()
         worker.run()
     except Exception as e:
         print(f"❌ Worker failed: {e}")
