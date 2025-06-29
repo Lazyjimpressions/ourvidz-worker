@@ -40,10 +40,33 @@ class VideoWorker:
         for temp_dir in [self.temp_models, self.temp_outputs, self.temp_processing]:
             temp_dir.mkdir(exist_ok=True)
 
-        # Model persistence - KEY OPTIMIZATION
-        self.wan_pipeline = None
-        self.model_loaded = False
-        self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
+    def extract_frame_from_video(self, video_path, job_id, job_type):
+        """Extract frame for image jobs"""
+        image_path = self.temp_processing / f"{job_type}_{job_id}.png"
+        
+        try:
+            cap = cv2.VideoCapture(video_path)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret and frame is not None:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame_rgb)
+                img.save(str(image_path), "PNG", optimize=True)
+                
+                file_size = os.path.getsize(image_path) / 1024
+                print(f"📊 Output: {file_size:.0f}KB")
+                
+                # Clean up video file
+                try:
+                    os.remove(video_path)
+                except:
+                    pass
+                    
+                return str(image_path)
+        except Exception as e:
+            print(f"❌ Frame extraction error: {e}")
+        return None
         
         # GPU optimization
         self.init_gpu_optimizations()
@@ -117,117 +140,87 @@ class VideoWorker:
         except Exception as e:
             print(f"⚠️ GPU optimization failed: {e}")
 
-    def load_wan_model_once(self):
-        """Load Wan 2.1 model once and keep in memory - KEY OPTIMIZATION"""
-        if self.model_loaded:
-            print("✅ Model already loaded in memory")
-            return True
-            
-        print("🔄 Loading Wan 2.1 model (one-time setup, ~90 seconds)...")
-        load_start = time.time()
-        
-        try:
-            # Add Wan2.1 to Python path
-            import sys
-            sys.path.insert(0, '/workspace/Wan2.1')
-            
-            # Import Wan modules
-            from wan.pipelines import WanVideoPipeline
-            from wan.utils import setup_seed
-            
-            # Setup reproducible generation
-            setup_seed(42)
-            
-            # Load model directly on GPU
-            print(f"📁 Loading from: {self.model_path}")
-            self.wan_pipeline = WanVideoPipeline.from_pretrained(
-                self.model_path,
-                torch_dtype=torch.float16,
-                device_map='cuda:0'
-            ).to(self.device)
-            
-            load_time = time.time() - load_start
-            self.model_loaded = True
-            
-            print(f"✅ Wan 2.1 model loaded in {load_time:.1f}s and ready for fast generation")
-            print(f"🔥 Model device: {next(self.wan_pipeline.parameters()).device}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ Model loading failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def generate_with_loaded_model(self, prompt, job_type):
-        """Generate using pre-loaded model - FAST GENERATION"""
-        if not self.model_loaded:
-            print("🔄 Model not loaded, loading now...")
-            if not self.load_wan_model_once():
-                print("❌ Failed to load model")
-                return None
-                
+    def generate_with_gpu_forced(self, prompt, job_type):
+        """Generate using the working generate.py method with GPU forced"""
         config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
         
-        print(f"⚡ {job_type.upper()} generation (PRE-LOADED MODEL)")
+        print(f"⚡ {job_type.upper()} generation (GPU FORCED)")
         print(f"📝 Prompt: {prompt}")
         print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
-        print(f"🎯 Expected: {config['expected_time']}s (model already loaded)")
+        print(f"🎯 Expected: {config['expected_time']}s")
         
-        generation_start = time.time()
+        job_id = str(uuid.uuid4())[:8]
+        output_filename = f"{job_type}_{job_id}.mp4"
+        temp_output_path = self.temp_processing / output_filename
+        
+        # Build command exactly like our successful test
+        cmd = [
+            "python", "-c",
+            """
+import torch
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+torch.cuda.set_device(0)
+exec(open('generate.py').read())
+""",
+            "--task", "t2v-1.3B",
+            "--size", config['size'],
+            "--ckpt_dir", self.model_path,
+            "--prompt", prompt,
+            "--save_file", str(temp_output_path),
+            "--sample_steps", str(config['sample_steps']),
+            "--sample_guide_scale", str(config['sample_guide_scale']),
+            "--frame_num", str(config['frame_num'])
+        ]
+        
+        original_cwd = os.getcwd()
+        os.chdir("/workspace/Wan2.1")
         
         try:
-            # Force GPU context
-            with torch.cuda.device(0):
-                # Generate with pre-loaded pipeline
-                result = self.wan_pipeline(
-                    prompt=prompt,
-                    height=int(config['size'].split('*')[1]),
-                    width=int(config['size'].split('*')[0]),
-                    num_frames=config['frame_num'],
-                    num_inference_steps=config['sample_steps'],
-                    guidance_scale=config['sample_guide_scale'],
-                    generator=torch.Generator(device='cuda').manual_seed(42)
-                )
+            start_time = time.time()
             
-            generation_time = time.time() - generation_start
-            expected_time = config['expected_time']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            generation_time = time.time() - start_time
             
-            if generation_time < expected_time:
-                speedup = ((expected_time - generation_time) / expected_time) * 100
-                print(f"🚀 Generation completed in {generation_time:.1f}s ({speedup:.1f}% faster than expected!)")
-            else:
-                print(f"⚡ Generation completed in {generation_time:.1f}s")
+            if result.returncode != 0:
+                print(f"❌ Generation failed: {result.stderr}")
+                print(f"❌ STDOUT: {result.stdout}")
+                return None
+                
+            print(f"⚡ Generation completed in {generation_time:.1f}s")
+                
+            if not temp_output_path.exists():
+                # Check if file was created in current directory
+                fallback_path = Path(output_filename)
+                if fallback_path.exists():
+                    shutil.move(str(fallback_path), str(temp_output_path))
+                else:
+                    print("❌ Output file not found")
+                    return None
             
-            # Save result
-            job_id = str(uuid.uuid4())[:8]
+            print(f"✅ Generation completed: {temp_output_path}")
             
             if config['content_type'] == 'image':
-                # Save as PNG for images
-                output_file = self.temp_processing / f"{job_type}_{job_id}.png"
-                result.frames[0][0].save(str(output_file), "PNG", optimize=True)
-                print(f"📊 Image saved: {output_file}")
-            else:
-                # Save as MP4 for videos
-                output_file = self.temp_processing / f"{job_type}_{job_id}.mp4"
-                import imageio
-                with imageio.get_writer(str(output_file), fps=16) as writer:
-                    for frame in result.frames[0]:
-                        import numpy as np
-                        writer.append_data(np.array(frame))
-                print(f"📊 Video saved: {output_file}")
+                return self.extract_frame_from_video(str(temp_output_path), job_id, job_type)
             
-            file_size = os.path.getsize(output_file) / 1024
-            print(f"📊 File size: {file_size:.0f}KB")
-            
-            return str(output_file)
+            return str(temp_output_path)
             
         except Exception as e:
-            print(f"❌ Generation error: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Error during generation: {e}")
             return None
+        finally:
+            os.chdir(original_cwd)
+
+    def generate_with_loaded_model(self, prompt, job_type):
+        """Generate using the working generate.py method - FAST GENERATION"""
+        config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
+        
+        print(f"⚡ {job_type.upper()} generation (USING WORKING METHOD)")
+        print(f"📝 Prompt: {prompt}")
+        print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
+        print(f"🎯 Expected: {config['expected_time']}s")
+        
+        return self.generate_with_gpu_forced(prompt, job_type)
 
     def upload_to_supabase(self, file_path, job_type, user_id, job_id):
         """Upload file to Supabase storage"""
@@ -338,7 +331,7 @@ class VideoWorker:
         total_start_time = time.time()
         
         try:
-            # Generate with pre-loaded model (fast!)
+            # Generate using working method
             output_path = self.generate_with_loaded_model(prompt, job_type)
             
             if output_path:
@@ -412,17 +405,9 @@ class VideoWorker:
             print(f"⚠️ Cleanup error: {e}")
 
     def run(self):
-        """Main worker loop with model pre-loading"""
-        print("🚀 Starting optimized worker with model pre-loading...")
-        
-        # Load model once at startup
-        print("🔄 Pre-loading Wan 2.1 model for fast generation...")
-        if not self.load_wan_model_once():
-            print("❌ Failed to load model at startup - exiting")
-            return
-            
-        print("⏳ Waiting for jobs (MODEL PRE-LOADED FOR FAST GENERATION)...")
-        print("🎯 OPTIMIZED Job Types:")
+        """Main worker loop"""
+        print("⏳ Waiting for jobs (USING WORKING GENERATE.PY METHOD)...")
+        print("🎯 Job Types:")
         for job_type, config in self.job_type_mapping.items():
             print(f"   • {job_type}: {config['description']} (~{config['expected_time']}s)")
         
@@ -439,13 +424,13 @@ class VideoWorker:
             job = self.poll_queue()
             if job:
                 job_count += 1
-                print(f"🎯 Processing optimized job #{job_count}")
+                print(f"🎯 Processing job #{job_count}")
                 self.process_job(job)
             else:
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz GPU-OPTIMIZED Worker with Model Persistence")
+    print("🚀 Starting OurVidz FIXED Worker (Using Working Generate.py Method)")
     
     try:
         worker = VideoWorker()
