@@ -581,6 +581,8 @@ if __name__ == "__main__":
     # Verify critical environment settings
     print(f"🔍 Environment check:")
     print(f"   WORLD_SIZE: {os.getenv('WORLD_SIZE')} (should be 2)")
+    print(f"   MASTER_ADDR: {os.getenv('MASTER_ADDR')} (should be localhost)")
+    print(f"   MASTER_PORT: {os.getenv('MASTER_PORT')} (should be 29500)")
     print(f"   CUDA_VISIBLE_DEVICES: {os.getenv('CUDA_VISIBLE_DEVICES')} (should be 0)")
     print(f"   SUPABASE_SERVICE_KEY: {'✅ Set' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ Missing'}")
     
