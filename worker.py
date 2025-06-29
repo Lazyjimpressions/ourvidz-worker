@@ -64,7 +64,7 @@ class VideoWorker:
             print(f"❌ Model path missing: {self.model_path}")
             exit(1)
         
-        # RTX 6000 Ada job configurations - NO CPU OFFLOADING needed with 48GB VRAM
+        # RTX 6000 Ada job configurations - REALISTIC timing based on actual performance
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
@@ -74,7 +74,7 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
-                'expected_time': 15,         # Much faster without CPU offloading
+                'expected_time': 90,         # REALISTIC: Based on actual timeout behavior
                 'description': 'Fast image generation (1 frame, GPU-only)'
             },
             'image_high': {
@@ -85,7 +85,7 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
-                'expected_time': 20,         # Much faster without CPU offloading
+                'expected_time': 110,        # REALISTIC: Slightly longer for quality
                 'description': 'High quality image (1 frame, GPU-only)'
             },
             'video_fast': {
@@ -96,7 +96,7 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 81,             # Full 5 seconds (80 frames + 1)
                 'storage_bucket': 'video_fast',
-                'expected_time': 60,         # Much faster without CPU offloading
+                'expected_time': 120,        # REALISTIC: Based on actual 117s performance
                 'description': 'Fast 5-second video (81 frames, GPU-only)'
             },
             'video_high': {
@@ -107,7 +107,7 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 81,             # Full 5 seconds (80 frames + 1)
                 'storage_bucket': 'video_high',
-                'expected_time': 90,         # Much faster without CPU offloading
+                'expected_time': 150,        # REALISTIC: Longer for quality steps
                 'description': 'High quality 5-second video (81 frames, GPU-only)'
             }
         }
@@ -210,8 +210,11 @@ class VideoWorker:
             start_time = time.time()
             self.log_gpu_memory("before generation")
             
-            # REDUCED TIMEOUT: RTX 6000 Ada should be much faster
-            timeout = 120 if config['content_type'] == 'video' else 90
+            # REALISTIC TIMEOUTS: Based on actual RTX 6000 Ada performance
+            timeout = 180 if config['content_type'] == 'video' else 120
+            
+            # DEBUGGING: Check what's happening during timeout
+            timeout = 180 if config['content_type'] == 'video' else 120
             
             result = subprocess.run(
                 cmd,
@@ -225,28 +228,26 @@ class VideoWorker:
             print(f"⚡ Generation completed in {generation_time:.1f}s")
             self.log_gpu_memory("after generation")
             
-            # Print generate.py output for debugging
-            print(f"📝 generate.py stdout length: {len(result.stdout) if result.stdout else 0}")
-            print(f"⚠️ generate.py stderr length: {len(result.stderr) if result.stderr else 0}")
-            
+            # ENHANCED DEBUGGING: Print full output for analysis
+            print(f"📝 generate.py FULL stdout:")
             if result.stdout:
-                print(f"📝 Last 500 chars of stdout: {result.stdout[-500:]}")
+                print(result.stdout)
+            else:
+                print("   (No stdout output)")
+                
+            print(f"⚠️ generate.py FULL stderr:")
             if result.stderr:
-                print(f"⚠️ Last 500 chars of stderr: {result.stderr[-500:]}")
+                print(result.stderr)
+            else:
+                print("   (No stderr output)")
             
             print(f"🔍 Return code: {result.returncode}")
             
-            # Check for OOM errors (should be rare with 48GB VRAM)
-            if "CUDA out of memory" in str(result.stderr):
-                print("❌ UNEXPECTED: CUDA OOM on RTX 6000 Ada (48GB)")
-                print("🔧 This suggests a code issue, not hardware limitation")
-                self.aggressive_cleanup()
-                return None
-            
+            # Check for specific error patterns
             if result.returncode != 0:
                 print(f"❌ Generation failed with return code {result.returncode}")
                 if result.stderr:
-                    print(f"Error details: {result.stderr[-1000:]}")
+                    print(f"Error details: {result.stderr}")
                 self.aggressive_cleanup()
                 return None
             
@@ -310,7 +311,21 @@ class VideoWorker:
             
         except subprocess.TimeoutExpired:
             print(f"❌ Generation timed out (>{timeout}s)")
-            print("🔧 Unexpected timeout on RTX 6000 Ada - investigate code issue")
+            print("🔧 DEBUGGING: Process was killed due to timeout")
+            print("🔍 This suggests generate.py is hanging or taking too long")
+            print("⚠️ Possible causes:")
+            print("   • Model loading issues")
+            print("   • CUDA initialization problems") 
+            print("   • Different GPU behavior on RTX 6000 Ada")
+            print("   • Wan 2.1 compatibility issues with newer hardware")
+            
+            # Check if partial file was created
+            if temp_video_path.exists():
+                file_size = temp_video_path.stat().st_size / 1024
+                print(f"📁 Partial file found: {file_size:.0f}KB")
+            else:
+                print("📁 No output file created during timeout")
+                
             self.aggressive_cleanup()
             return None
         except Exception as e:
