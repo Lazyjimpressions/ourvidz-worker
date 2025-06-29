@@ -1,5 +1,5 @@
-# worker.py - COMPLETE FIXED VERSION WITH FILE EXTENSION AND UPLOAD FIXES
-# FIXES: File extensions, bucket mappings, output detection, upload authentication
+# worker.py - FIXED GPU MEMORY MANAGEMENT FOR VIDEO GENERATION
+# KEY FIX: Aggressive memory cleanup between jobs to prevent OOM on video generation
 import os
 import json
 import time
@@ -7,27 +7,29 @@ import requests
 import subprocess
 import uuid
 import shutil
+import gc
 from pathlib import Path
 from PIL import Image
 import cv2
 import torch
 
-# CRITICAL: Use standard single GPU approach - no distributed training needed
-# Remove all distributed training environment variables
+# Clean environment - no distributed training needed
 for key in ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']:
     if key in os.environ:
         del os.environ[key]
 
-# Additional GPU optimizations
+# GPU optimizations
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TORCH_USE_CUDA_DSA'] = '1'
-os.environ['CUDA_LAUNCH_BLOCKING'] = '0'  # Don't block for debugging in production
+os.environ['CUDA_LAUNCH_BLOCKING'] = '0'
+
+# CRITICAL: Memory management for video generation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized (COMPLETE FIXED - v4.0)")
-        print("🔧 FIXES: File extensions, bucket mappings, output detection, upload auth")
-        print("⚡ Model offloading DISABLED via WORLD_SIZE=2 environment variable")
+        print("🚀 OurVidz Worker initialized - GPU MEMORY MANAGEMENT FIXED")
+        print("🔧 KEY FIX: Aggressive memory cleanup to prevent video generation OOM")
         
         # Verify CUDA availability
         if not torch.cuda.is_available():
@@ -62,95 +64,120 @@ class VideoWorker:
             print(f"❌ Model path missing: {self.model_path}")
             exit(1)
         
-        # FIXED: Corrected job configurations with proper file extensions and buckets
+        # Updated job configurations - REDUCED frame counts for memory management
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
-                'file_extension': 'png',        # FIXED: Images should be PNG
+                'file_extension': 'png',
                 'sample_steps': 4,
                 'sample_guide_scale': 3.0,
                 'size': '480*832',
                 'frame_num': 1,
-                'storage_bucket': 'image_fast',  # FIXED: Correct Supabase bucket name
-                'expected_time': 78,         # Cold start time, will be faster after first load
-                'description': 'Ultra fast image (7s after model loaded, 78s cold start)'
+                'storage_bucket': 'image_fast',
+                'expected_time': 78,
+                'description': 'Fast image generation (1 frame extraction)'
             },
             'image_high': {
                 'content_type': 'image',
-                'file_extension': 'png',        # FIXED: Images should be PNG
+                'file_extension': 'png',
                 'sample_steps': 6,
                 'sample_guide_scale': 4.0,
                 'size': '832*480',
                 'frame_num': 1,
-                'storage_bucket': 'image_high',  # FIXED: Correct Supabase bucket name
+                'storage_bucket': 'image_high',
                 'expected_time': 80,
-                'description': 'High quality image (6s, PNG output)'
+                'description': 'High quality image (1 frame extraction)'
             },
             'video_fast': {
                 'content_type': 'video',
-                'file_extension': 'mp4',        # FIXED: Videos should be MP4
+                'file_extension': 'mp4',
                 'sample_steps': 4,
                 'sample_guide_scale': 3.0,
                 'size': '480*832',
-                'frame_num': 17,                # 1-second video at 16fps
-                'storage_bucket': 'video_fast',  # FIXED: Correct Supabase bucket name
+                'frame_num': 9,  # REDUCED: 0.5 second instead of 1 second
+                'storage_bucket': 'video_fast',
                 'expected_time': 85,
-                'description': 'Fast 1-second video (8s, MP4 output)'
+                'description': 'Fast 0.5-second video (9 frames)'
             },
             'video_high': {
                 'content_type': 'video',
-                'file_extension': 'mp4',        # FIXED: Videos should be MP4
+                'file_extension': 'mp4',
                 'sample_steps': 6,
                 'sample_guide_scale': 4.0,
-                'size': '832*480',
-                'frame_num': 17,                # 1-second video at 16fps
-                'storage_bucket': 'video_high',  # FIXED: Correct Supabase bucket name
+                'size': '640*480',  # REDUCED: Smaller resolution for memory
+                'frame_num': 13,     # REDUCED: 0.75 second instead of 1 second
+                'storage_bucket': 'video_high',
                 'expected_time': 90,
-                'description': 'High quality 1-second video (12s, MP4 output)'
+                'description': 'High quality 0.75-second video (13 frames)'
             }
         }
         
         # Environment variables
         self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY')  # FIXED: Use service key
+        self.supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY')
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        print("🎬 Worker ready - ALL FIXES APPLIED!")
-        print("🔧 File extension mapping:")
+        print("🎬 Worker ready - MEMORY OPTIMIZED FOR VIDEO GENERATION!")
+        print("🔧 Memory management fixes:")
         for job_type, config in self.job_type_mapping.items():
-            print(f"   • {job_type}: {config['content_type']} → .{config['file_extension']} → {config['storage_bucket']}")
+            print(f"   • {job_type}: {config['description']}")
 
     def log_gpu_memory(self, context=""):
-        """Log GPU memory usage for monitoring"""
+        """Enhanced GPU memory logging"""
         if torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated() / (1024**3)
             reserved = torch.cuda.memory_reserved() / (1024**3)
             total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            print(f"🔥 GPU {context}: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved / {total:.1f}GB total")
+            free = total - allocated
+            print(f"🔥 GPU {context}: {allocated:.2f}GB used, {free:.2f}GB free / {total:.1f}GB total")
+            
+            # Warning if memory usage is high
+            if allocated > 20.0:  # More than 20GB used
+                print(f"⚠️ HIGH MEMORY USAGE: {allocated:.2f}GB - cleanup recommended")
+
+    def aggressive_cleanup(self):
+        """Aggressive GPU memory cleanup between jobs"""
+        print("🧹 Performing aggressive GPU cleanup...")
+        
+        # Python garbage collection
+        gc.collect()
+        
+        # PyTorch cache cleanup
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+        
+        # Force synchronization
+        torch.cuda.synchronize()
+        
+        self.log_gpu_memory("after cleanup")
 
     def generate_with_optimized_settings(self, prompt, job_type):
-        """Generate using OPTIMIZED settings with model offloading disabled"""
+        """Generate with ENHANCED memory management for video generation"""
         config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
         
         print(f"⚡ {job_type.upper()} generation")
         print(f"📝 Prompt: {prompt}")
         print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance")
-        print(f"🎯 Expected: {config['expected_time']}s (OPTIMIZED)")
+        print(f"📺 Frames: {config['frame_num']} frames ({config['frame_num']/16:.2f}s video)")
+        print(f"🎯 Expected: {config['expected_time']}s")
+        
+        # PRE-GENERATION: Aggressive cleanup
+        self.aggressive_cleanup()
         
         job_id = str(uuid.uuid4())[:8]
-        
         print(f"📁 Job ID: {job_id}")
         
         # Always generate as MP4 first (Wan 2.1 only outputs MP4)
         temp_video_filename = f"{job_type}_{job_id}.mp4"
         temp_video_path = self.temp_processing / temp_video_filename
-        # Build standard command with offload_model False
+        
+        # Build command with memory-optimized parameters
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", self.model_path,
-            "--offload_model", "False",  # Standard approach - keep models on GPU
+            "--offload_model", "False",
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
@@ -160,17 +187,17 @@ class VideoWorker:
         ]
         
         print(f"📁 Generating to: {temp_video_path.absolute()}")
-        print(f"🔧 Command: python generate.py --offload_model False --save_file {temp_video_path.absolute()}")
-        print(f"⚡ Using standard single GPU approach (no distributed training)")
+        print(f"🔧 Memory-optimized command with {config['frame_num']} frames")
         
-        # Clean standard environment
+        # Clean environment
         env = os.environ.copy()
         env.update({
             'CUDA_VISIBLE_DEVICES': '0',
-            'TORCH_USE_CUDA_DSA': '1'
+            'TORCH_USE_CUDA_DSA': '1',
+            'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True'  # Memory fragmentation fix
         })
         
-        # Remove any distributed training variables
+        # Remove distributed training variables
         for key in ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']:
             env.pop(key, None)
         
@@ -179,124 +206,84 @@ class VideoWorker:
         
         try:
             start_time = time.time()
+            self.log_gpu_memory("before generation")
+            
+            # EXTENDED TIMEOUT for video generation
+            timeout = 180 if config['content_type'] == 'video' else 120
             
             result = subprocess.run(
                 cmd,
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=100  # Conservative timeout in case it falls back to CPU
+                timeout=timeout
             )
             
             generation_time = time.time() - start_time
             print(f"⚡ Generation completed in {generation_time:.1f}s")
+            self.log_gpu_memory("after generation")
             
-            # DEBUGGING: Print generate.py output to understand what's happening
+            # Print generate.py output for debugging
             print(f"📝 generate.py stdout length: {len(result.stdout) if result.stdout else 0}")
             print(f"⚠️ generate.py stderr length: {len(result.stderr) if result.stderr else 0}")
             
             if result.stdout:
-                print(f"📝 generate.py stdout: {result.stdout}")
+                print(f"📝 Last 500 chars of stdout: {result.stdout[-500:]}")
             if result.stderr:
-                print(f"⚠️ generate.py stderr: {result.stderr}")
+                print(f"⚠️ Last 500 chars of stderr: {result.stderr[-500:]}")
             
-            # Check return code
             print(f"🔍 Return code: {result.returncode}")
             
-            # ADDITIONAL DEBUG: Check if any new files were created in various locations
-            print(f"🔍 Files in /tmp/ourvidz/processing after generation:")
-            try:
-                for file in self.temp_processing.glob('*'):
-                    if file.is_file():
-                        file_age = time.time() - file.stat().st_mtime
-                        print(f"   Found: {file} (created {file_age:.1f}s ago)")
-            except Exception as e:
-                print(f"   Error listing temp files: {e}")
-            
-            print(f"🔍 Files in current directory (/workspace/Wan2.1) after generation:")
-            try:
-                for file in Path('.').glob('*.mp4'):
-                    if file.is_file():
-                        file_age = time.time() - file.stat().st_mtime
-                        print(f"   Found: {file} (created {file_age:.1f}s ago)")
-            except Exception as e:
-                print(f"   Error listing current files: {e}")
-            
-            print(f"🔍 Files in /tmp/ after generation:")
-            try:
-                for file in Path('/tmp').glob('*.mp4'):
-                    if file.is_file():
-                        file_age = time.time() - file.stat().st_mtime
-                        print(f"   Found: {file} (created {file_age:.1f}s ago)")
-            except Exception as e:
-                print(f"   Error listing /tmp files: {e}")
+            # Check for OOM errors specifically
+            if "CUDA out of memory" in str(result.stderr):
+                print("❌ CUDA OUT OF MEMORY ERROR DETECTED")
+                print("🔧 Try reducing frame count or resolution")
+                self.aggressive_cleanup()
+                return None
             
             if result.returncode != 0:
-                # Check if it's the expected distributed training error
-                # When using WORLD_SIZE=2 hack, this error is expected but generation succeeds
-                if (generation_time < 20) or "dist.init_process_group" in str(result.stderr):
-                    print("✅ Generation successful (ignoring expected distributed training error)")
-                    print(f"📊 Performance: {generation_time:.1f}s (target: {config['expected_time']}s)")
-                else:
-                    print(f"❌ Generation actually failed: {result.stderr[:500]}")
-                    return None
+                print(f"❌ Generation failed with return code {result.returncode}")
+                if result.stderr:
+                    print(f"Error details: {result.stderr[-1000:]}")
+                self.aggressive_cleanup()
+                return None
             
-            # FIXED: Look for output files - try specific name first, then find newest MP4
+            # Enhanced file detection
             output_candidates = [
-                temp_video_path,  # Expected location: {job_type}_{job_id}.mp4
-                Path(self.wan_path) / temp_video_filename,  # In Wan2.1 directory
-                Path(temp_video_filename),  # Current working directory
-                Path(f"{job_type}_{job_id}_temp.mp4"),  # Alternative naming
-                Path(f"output.mp4"),  # Default output name
-                Path(f"generated.mp4")  # Another possible default
+                temp_video_path,
+                Path(self.wan_path) / temp_video_filename,
+                Path(temp_video_filename),
+                Path(f"{job_type}_{job_id}_temp.mp4"),
+                Path(f"output.mp4"),
+                Path(f"generated.mp4")
             ]
             
             actual_output_path = None
             
-            # First, try our expected file names
+            # Try expected file names first
             for candidate in output_candidates:
                 if candidate.exists():
                     actual_output_path = candidate
                     print(f"✅ Found output file: {candidate}")
                     break
-                else:
-                    print(f"🔍 Checked: {candidate} (not found)")
             
-            # If not found, look for the newest MP4 file in current directory
+            # If not found, look for newest MP4 file
             if not actual_output_path:
-                print("🔍 Looking for newest MP4 file in current directory...")
+                print("🔍 Looking for newest MP4 file...")
                 try:
                     mp4_files = list(Path('.').glob('*.mp4'))
                     if mp4_files:
-                        # Sort by modification time, get the newest
                         newest_mp4 = max(mp4_files, key=lambda x: x.stat().st_mtime)
-                        
-                        # Check if this file was created recently (within last 30 seconds)
                         file_age = time.time() - newest_mp4.stat().st_mtime
-                        if file_age < 30:
+                        if file_age < 60:  # Within last minute
                             actual_output_path = newest_mp4
-                            print(f"✅ Found newest MP4 file: {newest_mp4} (created {file_age:.1f}s ago)")
-                        else:
-                            print(f"⚠️ Newest MP4 file is too old: {newest_mp4} (created {file_age:.1f}s ago)")
+                            print(f"✅ Found newest MP4: {newest_mp4} (created {file_age:.1f}s ago)")
                 except Exception as e:
                     print(f"❌ Error finding newest MP4: {e}")
             
             if not actual_output_path:
-                print("❌ Output file not found in any expected location")
-                print("🔍 Listing files in current directory:")
-                try:
-                    for file in Path('.').glob('*'):
-                        if file.is_file():
-                            print(f"   Found: {file}")
-                except:
-                    pass
-                print("🔍 Listing files in temp directory:")
-                try:
-                    for file in self.temp_processing.glob('*'):
-                        if file.is_file():
-                            print(f"   Found: {file}")
-                except:
-                    pass
+                print("❌ Output file not found")
+                self.aggressive_cleanup()
                 return None
             
             # Move to expected location if needed
@@ -304,44 +291,34 @@ class VideoWorker:
                 shutil.move(str(actual_output_path), str(temp_video_path))
                 print(f"📁 Moved output from {actual_output_path} to {temp_video_path}")
             
-            # Get file size for logging
+            # Get file size
             file_size = temp_video_path.stat().st_size / 1024
             print(f"📊 Generated file: {file_size:.0f}KB")
             
-            # FIXED: Handle image extraction vs video output
+            # POST-GENERATION: Immediate cleanup
+            self.aggressive_cleanup()
+            
+            # Handle image extraction vs video output
             if config['content_type'] == 'image':
-                # Extract frame from video and save as PNG
                 print(f"🖼️ Extracting image frame from video...")
                 return self.extract_frame_from_video(str(temp_video_path), job_id, job_type)
             else:
-                # Return MP4 video directly
                 print(f"🎥 Returning video file: {temp_video_path}")
                 return str(temp_video_path)
             
         except subprocess.TimeoutExpired:
-            print("❌ Generation timed out (>90s)")
-            print("🔍 Checking if file was created despite timeout...")
-            
-            # Check if file was created despite timeout
-            if temp_video_path.exists():
-                print("✅ File found despite timeout - continuing with processing")
-                file_size = temp_video_path.stat().st_size / 1024
-                print(f"📊 Generated file: {file_size:.0f}KB")
-                
-                if config['content_type'] == 'image':
-                    print(f"🖼️ Extracting image frame from video...")
-                    return self.extract_frame_from_video(str(temp_video_path), job_id, job_type)
-                else:
-                    print(f"🎥 Returning video file: {temp_video_path}")
-                    return str(temp_video_path)
-            else:
-                print("❌ No file created and timeout occurred")
-                return None
+            print(f"❌ Generation timed out (>{timeout}s)")
+            print("🔧 This usually indicates insufficient memory for video generation")
+            self.aggressive_cleanup()
+            return None
         except Exception as e:
             print(f"❌ Error: {e}")
+            self.aggressive_cleanup()
             return None
         finally:
             os.chdir(original_cwd)
+            # Final cleanup
+            self.aggressive_cleanup()
 
     def extract_frame_from_video(self, video_path, job_id, job_type):
         """Extract frame for image jobs and save as PNG"""
@@ -377,7 +354,7 @@ class VideoWorker:
             return None
 
     def upload_to_supabase(self, file_path, job_type, user_id, job_id):
-        """Upload to Supabase with FIXED authentication and file path structure"""
+        """Upload to Supabase storage"""
         if not os.path.exists(file_path):
             print(f"❌ File not found for upload: {file_path}")
             return None
@@ -387,12 +364,10 @@ class VideoWorker:
         content_type = config['content_type']
         file_extension = config['file_extension']
         
-        # FIXED: Use proper file path format as specified
         timestamp = int(time.time())
         filename = f"job_{job_id}_{timestamp}_{job_type}.{file_extension}"
         full_path = f"{storage_bucket}/{user_id}/{filename}"
         
-        # FIXED: Use proper MIME types
         mime_type = 'image/png' if content_type == 'image' else 'video/mp4'
         
         print(f"📤 Uploading to Supabase:")
@@ -406,13 +381,12 @@ class VideoWorker:
                 file_size = len(file_data) / 1024
                 print(f"📊 File size: {file_size:.0f}KB")
                 
-                # FIXED: Use service role key for server-side uploads
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{full_path}",
                     data=file_data,
                     headers={
-                        'Authorization': f"Bearer {self.supabase_service_key}",  # FIXED: Service key
-                        'Content-Type': mime_type,  # FIXED: Proper MIME type
+                        'Authorization': f"Bearer {self.supabase_service_key}",
+                        'Content-Type': mime_type,
                         'x-upsert': 'true'
                     },
                     timeout=60
@@ -424,7 +398,6 @@ class VideoWorker:
                 
                 if response.status_code in [200, 201]:
                     print(f"✅ Upload successful to {storage_bucket}")
-                    # FIXED: Return the relative path for database storage
                     return f"{user_id}/{filename}"
                 else:
                     print(f"❌ Upload failed: {response.status_code} - {response.text}")
@@ -443,11 +416,11 @@ class VideoWorker:
                 print(f"⚠️ Cleanup warning: {e}")
 
     def notify_completion(self, job_id, status, file_path=None, error_message=None):
-        """Notify completion with FIXED callback structure"""
+        """Notify completion via callback"""
         data = {
             'jobId': job_id,
             'status': status,
-            'filePath': file_path,  # FIXED: Use filePath (not outputUrl)
+            'filePath': file_path,
             'errorMessage': error_message
         }
         
@@ -460,7 +433,7 @@ class VideoWorker:
                 f"{self.supabase_url}/functions/v1/job-callback",
                 json=data,
                 headers={
-                    'Authorization': f"Bearer {self.supabase_service_key}",  # FIXED: Service key
+                    'Authorization': f"Bearer {self.supabase_service_key}",
                     'Content-Type': 'application/json'
                 },
                 timeout=15
@@ -479,7 +452,7 @@ class VideoWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process job with COMPLETE FIXES applied"""
+        """Process job with enhanced memory management"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
         prompt = job_data.get('prompt')
@@ -494,13 +467,14 @@ class VideoWorker:
         print(f"📥 Processing job: {job_id} ({job_type})")
         print(f"👤 User: {user_id}")
         print(f"📝 Prompt: {prompt[:50]}...")
+        
+        # PRE-JOB: Memory status
+        self.log_gpu_memory("pre-job")
+        
         start_time = time.time()
         
         try:
-            # Clear GPU cache before generation
-            torch.cuda.empty_cache()
-            
-            # Generate content
+            # Generate content with enhanced memory management
             output_path = self.generate_with_optimized_settings(prompt, job_type)
             if output_path:
                 print(f"✅ Generation successful: {Path(output_path).name}")
@@ -528,6 +502,9 @@ class VideoWorker:
         except Exception as e:
             print(f"❌ Job processing error: {e}")
             self.notify_completion(job_id, 'failed', error_message=str(e))
+        finally:
+            # POST-JOB: Aggressive cleanup
+            self.aggressive_cleanup()
 
     def poll_queue(self):
         """Poll Redis queue"""
@@ -544,24 +521,19 @@ class VideoWorker:
         return None
 
     def run(self):
-        """Main loop with COMPLETE FIXES applied"""
+        """Main loop with memory management"""
         print("⏳ Waiting for jobs...")
-        print("🚀 COMPLETE FIXES APPLIED - v4.0 Worker:")
-        print("🔧 FIXES:")
-        print("   • File extensions: Images→PNG, Videos→MP4")
-        print("   • Storage buckets: scene-previews, videos-final")
-        print("   • Upload auth: Service role key authentication")
-        print("   • File detection: Multiple location checking")
-        print("   • Path format: {user_id}/job_{job_id}_{timestamp}_{job_type}.{ext}")
+        print("🚀 MEMORY-OPTIMIZED WORKER:")
+        print("🔧 KEY IMPROVEMENTS:")
+        print("   • Aggressive GPU cleanup between jobs")
+        print("   • Reduced frame counts for video generation")
+        print("   • Enhanced OOM detection and handling")
+        print("   • Memory fragmentation fixes")
         
         for job_type, config in self.job_type_mapping.items():
             print(f"   • {job_type}: {config['description']}")
         
-        print("\n🎯 Performance improvements still active:")
-        print("   • Model offloading: DISABLED (WORLD_SIZE=2)")
-        print("   • Generation times: 4-12 seconds")
-        print("   • Success rate: 99%+ expected")
-        print("\n🔥 System ready for production!")
+        print("\n🔥 System ready for memory-intensive video generation!")
         
         job_count = 0
         
@@ -572,16 +544,16 @@ class VideoWorker:
                 print(f"\n🎯 Processing job #{job_count}")
                 self.process_job(job)
                 
-                # Clear GPU cache after each job
-                torch.cuda.empty_cache()
+                # CRITICAL: Aggressive cleanup after each job
+                print("🧹 Post-job cleanup...")
+                self.aggressive_cleanup()
                 print("=" * 60)
             else:
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz COMPLETE FIXED Worker v4.0")
-    print("🔧 ALL FIXES APPLIED: Extensions, buckets, auth, detection")
-    print("⚡ Performance breakthrough still active: 4-12 second generation")
+    print("🚀 Starting OurVidz MEMORY-OPTIMIZED Worker")
+    print("🔧 KEY FIX: GPU memory management for video generation")
     
     # Verify environment
     required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
@@ -590,12 +562,10 @@ if __name__ == "__main__":
         print(f"❌ Missing environment variables: {missing}")
         exit(1)
     
-    # Verify critical environment settings
     print(f"🔍 Environment check:")
-    print(f"   WORLD_SIZE: {os.getenv('WORLD_SIZE', 'Not set')} (should be Not set)")
-    print(f"   CUDA_VISIBLE_DEVICES: {os.getenv('CUDA_VISIBLE_DEVICES')} (should be 0)")
-    print(f"   SUPABASE_SERVICE_KEY: {'✅ Set' if os.getenv('SUPABASE_SERVICE_KEY') else '❌ Missing'}")
-    print(f"   Mode: Standard single GPU (--offload_model False)")
+    print(f"   CUDA_VISIBLE_DEVICES: {os.getenv('CUDA_VISIBLE_DEVICES')}")
+    print(f"   PYTORCH_CUDA_ALLOC_CONF: {os.getenv('PYTORCH_CUDA_ALLOC_CONF')}")
+    print(f"   Mode: Memory-optimized video generation")
     
     try:
         worker = VideoWorker()
