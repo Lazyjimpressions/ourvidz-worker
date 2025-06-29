@@ -140,15 +140,11 @@ class VideoWorker:
         
         job_id = str(uuid.uuid4())[:8]
         
-        # FIXED: Use proper file extension based on content type
-        file_extension = config['file_extension']
-        output_filename = f"{job_type}_{job_id}.{file_extension}"
-        temp_output_path = self.temp_processing / output_filename
+        print(f"📁 Job ID: {job_id}")
         
-        print(f"📁 Output file: {temp_output_path}")
-        
-        # Build optimized command - always generate as MP4 first
-        temp_video_path = self.temp_processing / f"{job_type}_{job_id}_temp.mp4"
+        # Always generate as MP4 first (Wan 2.1 only outputs MP4)
+        temp_video_filename = f"{job_type}_{job_id}.mp4"
+        temp_video_path = self.temp_processing / temp_video_filename
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
@@ -161,6 +157,8 @@ class VideoWorker:
             "--prompt", prompt,
             "--save_file", str(temp_video_path)
         ]
+        
+        print(f"📁 Generating to: {temp_video_path}")
         
         # Environment with distributed settings to disable offloading
         env = os.environ.copy()
@@ -199,12 +197,14 @@ class VideoWorker:
                     print(f"❌ Generation actually failed: {result.stderr[:500]}")
                     return None
                 
-            # FIXED: Look for output files in multiple locations
+            # FIXED: Look for output files in multiple locations with correct naming
             output_candidates = [
-                temp_video_path,  # Expected location
-                Path(f"{job_type}_{job_id}_temp.mp4"),  # Alternative in current directory
-                Path(output_filename),  # Direct filename
-                Path(f"{job_type}_{job_id}.mp4")  # Without _temp
+                temp_video_path,  # Expected location: {job_type}_{job_id}.mp4
+                Path(self.wan_path) / temp_video_filename,  # In Wan2.1 directory
+                Path(temp_video_filename),  # Current working directory
+                Path(f"{job_type}_{job_id}_temp.mp4"),  # Alternative naming
+                Path(f"output.mp4"),  # Default output name
+                Path(f"generated.mp4")  # Another possible default
             ]
             
             actual_output_path = None
@@ -213,17 +213,31 @@ class VideoWorker:
                     actual_output_path = candidate
                     print(f"✅ Found output file: {candidate}")
                     break
+                else:
+                    print(f"🔍 Checked: {candidate} (not found)")
             
             if not actual_output_path:
-                print("❌ Output file not found in any expected location:")
-                for candidate in output_candidates:
-                    print(f"   Checked: {candidate}")
+                print("❌ Output file not found in any expected location")
+                print("🔍 Listing files in current directory:")
+                try:
+                    for file in Path('.').glob('*'):
+                        if file.is_file():
+                            print(f"   Found: {file}")
+                except:
+                    pass
+                print("🔍 Listing files in temp directory:")
+                try:
+                    for file in self.temp_processing.glob('*'):
+                        if file.is_file():
+                            print(f"   Found: {file}")
+                except:
+                    pass
                 return None
             
             # Move to expected location if needed
             if actual_output_path != temp_video_path:
                 shutil.move(str(actual_output_path), str(temp_video_path))
-                print(f"📁 Moved output to: {temp_video_path}")
+                print(f"📁 Moved output from {actual_output_path} to {temp_video_path}")
             
             # Get file size for logging
             file_size = temp_video_path.stat().st_size / 1024
@@ -232,13 +246,12 @@ class VideoWorker:
             # FIXED: Handle image extraction vs video output
             if config['content_type'] == 'image':
                 # Extract frame from video and save as PNG
+                print(f"🖼️ Extracting image frame from video...")
                 return self.extract_frame_from_video(str(temp_video_path), job_id, job_type)
             else:
                 # Return MP4 video directly
-                final_video_path = self.temp_processing / f"{job_type}_{job_id}.mp4"
-                if temp_video_path != final_video_path:
-                    shutil.move(str(temp_video_path), str(final_video_path))
-                return str(final_video_path)
+                print(f"🎥 Returning video file: {temp_video_path}")
+                return str(temp_video_path)
             
         except subprocess.TimeoutExpired:
             print("❌ Generation timed out (>30s) - unexpected with 21x performance improvement")
