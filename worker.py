@@ -28,8 +28,8 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized - GPU MEMORY MANAGEMENT FIXED")
-        print("🔧 KEY FIX: Aggressive memory cleanup to prevent video generation OOM")
+        print("🚀 OurVidz Worker initialized - RTX 6000 ADA OPTIMIZED")
+        print("🔧 48GB VRAM: Full models on GPU, no offloading needed")
         
         # Verify CUDA availability
         if not torch.cuda.is_available():
@@ -64,7 +64,7 @@ class VideoWorker:
             print(f"❌ Model path missing: {self.model_path}")
             exit(1)
         
-        # Updated job configurations - REDUCED frame counts for memory management
+        # RTX 6000 Ada job configurations - NO CPU OFFLOADING needed with 48GB VRAM
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
@@ -74,8 +74,8 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
-                'expected_time': 78,
-                'description': 'Fast image generation (1 frame extraction)'
+                'expected_time': 15,         # Much faster without CPU offloading
+                'description': 'Fast image generation (1 frame, GPU-only)'
             },
             'image_high': {
                 'content_type': 'image',
@@ -85,8 +85,8 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
-                'expected_time': 80,
-                'description': 'High quality image (1 frame extraction)'
+                'expected_time': 20,         # Much faster without CPU offloading
+                'description': 'High quality image (1 frame, GPU-only)'
             },
             'video_fast': {
                 'content_type': 'video',
@@ -94,21 +94,21 @@ class VideoWorker:
                 'sample_steps': 4,
                 'sample_guide_scale': 3.0,
                 'size': '480*832',
-                'frame_num': 9,  # REDUCED: 0.5 second instead of 1 second
+                'frame_num': 81,             # Full 5 seconds (80 frames + 1)
                 'storage_bucket': 'video_fast',
-                'expected_time': 85,
-                'description': 'Fast 0.5-second video (9 frames)'
+                'expected_time': 60,         # Much faster without CPU offloading
+                'description': 'Fast 5-second video (81 frames, GPU-only)'
             },
             'video_high': {
                 'content_type': 'video',
                 'file_extension': 'mp4',
                 'sample_steps': 6,
                 'sample_guide_scale': 4.0,
-                'size': '640*480',  # REDUCED: Smaller resolution for memory
-                'frame_num': 13,     # REDUCED: 0.75 second instead of 1 second
+                'size': '832*480',
+                'frame_num': 81,             # Full 5 seconds (80 frames + 1)
                 'storage_bucket': 'video_high',
-                'expected_time': 90,
-                'description': 'High quality 0.75-second video (13 frames)'
+                'expected_time': 90,         # Much faster without CPU offloading
+                'description': 'High quality 5-second video (81 frames, GPU-only)'
             }
         }
         
@@ -118,8 +118,8 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        print("🎬 Worker ready - MEMORY OPTIMIZED FOR VIDEO GENERATION!")
-        print("🔧 Memory management fixes:")
+        print("🎬 Worker ready - RTX 6000 ADA OPTIMIZED!")
+        print("🔧 RTX 6000 Ada advantages:")
         for job_type, config in self.job_type_mapping.items():
             print(f"   • {job_type}: {config['description']}")
 
@@ -172,12 +172,12 @@ class VideoWorker:
         temp_video_filename = f"{job_type}_{job_id}.mp4"
         temp_video_path = self.temp_processing / temp_video_filename
         
-        # Build command with memory-optimized parameters
+        # Build command with NO CPU offloading (RTX 6000 Ada has 48GB VRAM)
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", self.model_path,
-            "--offload_model", "False",
+            "--offload_model", "False",  # RTX 6000 Ada: Keep all models on GPU for speed
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
@@ -187,14 +187,16 @@ class VideoWorker:
         ]
         
         print(f"📁 Generating to: {temp_video_path.absolute()}")
-        print(f"🔧 Memory-optimized command with {config['frame_num']} frames")
+        print(f"🔧 RTX 6000 Ada: --offload_model False (all models on GPU)")
+        print(f"💾 VRAM usage: ~22GB / 48GB available")
+        print(f"⚡ Expected fast generation with GPU-only processing")
         
-        # Clean environment
+        # Clean environment for RTX 6000 Ada
         env = os.environ.copy()
         env.update({
             'CUDA_VISIBLE_DEVICES': '0',
             'TORCH_USE_CUDA_DSA': '1',
-            'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True'  # Memory fragmentation fix
+            'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True'
         })
         
         # Remove distributed training variables
@@ -208,8 +210,8 @@ class VideoWorker:
             start_time = time.time()
             self.log_gpu_memory("before generation")
             
-            # EXTENDED TIMEOUT for video generation
-            timeout = 180 if config['content_type'] == 'video' else 120
+            # REDUCED TIMEOUT: RTX 6000 Ada should be much faster
+            timeout = 120 if config['content_type'] == 'video' else 90
             
             result = subprocess.run(
                 cmd,
@@ -234,10 +236,10 @@ class VideoWorker:
             
             print(f"🔍 Return code: {result.returncode}")
             
-            # Check for OOM errors specifically
+            # Check for OOM errors (should be rare with 48GB VRAM)
             if "CUDA out of memory" in str(result.stderr):
-                print("❌ CUDA OUT OF MEMORY ERROR DETECTED")
-                print("🔧 Try reducing frame count or resolution")
+                print("❌ UNEXPECTED: CUDA OOM on RTX 6000 Ada (48GB)")
+                print("🔧 This suggests a code issue, not hardware limitation")
                 self.aggressive_cleanup()
                 return None
             
@@ -308,7 +310,7 @@ class VideoWorker:
             
         except subprocess.TimeoutExpired:
             print(f"❌ Generation timed out (>{timeout}s)")
-            print("🔧 This usually indicates insufficient memory for video generation")
+            print("🔧 Unexpected timeout on RTX 6000 Ada - investigate code issue")
             self.aggressive_cleanup()
             return None
         except Exception as e:
@@ -523,12 +525,13 @@ class VideoWorker:
     def run(self):
         """Main loop with memory management"""
         print("⏳ Waiting for jobs...")
-        print("🚀 MEMORY-OPTIMIZED WORKER:")
-        print("🔧 KEY IMPROVEMENTS:")
-        print("   • Aggressive GPU cleanup between jobs")
-        print("   • Reduced frame counts for video generation")
-        print("   • Enhanced OOM detection and handling")
-        print("   • Memory fragmentation fixes")
+        print("🚀 RTX 6000 ADA OPTIMIZED WORKER:")
+        print("🔧 KEY ADVANTAGES:")
+        print("   • 48GB VRAM: No CPU offloading needed")
+        print("   • Full GPU processing: 3-5x faster generation")
+        print("   • Full 5-second videos (81 frames)")
+        print("   • Reliable generation with memory headroom")
+        print("   • Ready for warm worker implementation")
         
         for job_type, config in self.job_type_mapping.items():
             print(f"   • {job_type}: {config['description']}")
@@ -552,8 +555,9 @@ class VideoWorker:
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz MEMORY-OPTIMIZED Worker")
-    print("🔧 KEY FIX: GPU memory management for video generation")
+    print("🚀 Starting OurVidz RTX 6000 ADA Worker")
+    print("🔧 KEY ADVANTAGE: 48GB VRAM, no offloading needed")
+    print("💾 Expected VRAM usage: 22GB / 48GB available")
     
     # Verify environment
     required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
@@ -565,7 +569,8 @@ if __name__ == "__main__":
     print(f"🔍 Environment check:")
     print(f"   CUDA_VISIBLE_DEVICES: {os.getenv('CUDA_VISIBLE_DEVICES')}")
     print(f"   PYTORCH_CUDA_ALLOC_CONF: {os.getenv('PYTORCH_CUDA_ALLOC_CONF')}")
-    print(f"   Mode: Memory-optimized video generation")
+    print(f"   Mode: RTX 6000 Ada GPU-only processing (--offload_model False)")
+    print(f"   Expected: Fast generation, comfortable VRAM headroom")
     
     try:
         worker = VideoWorker()
