@@ -158,15 +158,19 @@ class FixedWorker:
                 except Exception as e:
                     print(f"   ⚠️ WanModel import: {e}")
                 
-                # Test generate.py execution
-                test_result = subprocess.run([
-                    "python", "generate.py", "--help"
-                ], capture_output=True, text=True, timeout=10)
-                
-                if test_result.returncode == 0:
-                    print("   ✅ generate.py executable")
-                else:
-                    print(f"   ❌ generate.py test failed: {test_result.stderr}")
+            # Test generate.py execution with detailed error capture
+            print("🧪 Testing generate.py execution...")
+            test_result = subprocess.run([
+                "python", "generate.py", "--help"
+            ], capture_output=True, text=True, timeout=30)
+            
+            if test_result.returncode == 0:
+                print("   ✅ generate.py executable")
+            else:
+                print(f"   ❌ generate.py test failed:")
+                print(f"   STDOUT: {test_result.stdout}")
+                print(f"   STDERR: {test_result.stderr}")
+                # Don't return False here - might still work for actual generation
                 
             except Exception as e:
                 print(f"   ❌ Import test failed: {e}")
@@ -291,28 +295,34 @@ class FixedWorker:
             error_lines = []
             
             while process.poll() is None:
-                # Check GPU usage every 5 seconds
+                # Check GPU usage every 2 seconds
                 current_allocated = torch.cuda.memory_allocated() / (1024**3)
                 if current_allocated > 0.5 and not gpu_usage_detected:  # 500MB threshold
                     print(f"🔥 GPU USAGE DETECTED: {current_allocated:.2f}GB allocated!")
                     gpu_usage_detected = True
                 
-                # Read output
+                # Read output with better buffering
                 try:
-                    stdout_line = process.stdout.readline()
-                    if stdout_line:
+                    # Read stdout
+                    while True:
+                        stdout_line = process.stdout.readline()
+                        if not stdout_line:
+                            break
                         output_lines.append(stdout_line.strip())
                         print(f"   OUT: {stdout_line.strip()}")
                         
-                    stderr_line = process.stderr.readline()
-                    if stderr_line:
+                    # Read stderr  
+                    while True:
+                        stderr_line = process.stderr.readline()
+                        if not stderr_line:
+                            break
                         error_lines.append(stderr_line.strip())
                         print(f"   ERR: {stderr_line.strip()}")
                         
                 except:
                     pass
                 
-                time.sleep(2)  # Check every 2 seconds
+                time.sleep(1)  # Check every second for faster error detection
             
             # Get final output
             remaining_stdout, remaining_stderr = process.communicate()
@@ -351,11 +361,15 @@ class FixedWorker:
                 return str(temp_video_path)
             else:
                 print(f"❌ Generation failed or no output file")
-                # Print last 10 lines of output for debugging
-                print("📋 Last 10 lines of output:")
-                for line in (output_lines + error_lines)[-10:]:
-                    if line.strip():
-                        print(f"   {line}")
+                # Print ALL error output for debugging
+                print("📋 COMPLETE ERROR OUTPUT:")
+                all_output = output_lines + error_lines
+                if all_output:
+                    for line in all_output:
+                        if line.strip():
+                            print(f"   {line}")
+                else:
+                    print("   (No output captured)")
                 return None
                 
         except Exception as e:
