@@ -1,77 +1,38 @@
-# worker.py - GPU Optimized with Model Persistence
+# worker.py - FIXED VERSION
 import os
 import json
 import time
 import requests
+import subprocess
 import uuid
 import shutil
-import threading
 from pathlib import Path
 from PIL import Image
 import cv2
 import torch
 
-# FORCE GPU USAGE - CRITICAL FOR PERFORMANCE
+# FORCE GPU USAGE
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TORCH_USE_CUDA_DSA'] = '1'
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized (GPU OPTIMIZED WITH MODEL PERSISTENCE)")
+        print("🚀 OurVidz Worker initialized (FIXED)")
         
-        # Force GPU setup
-        if not torch.cuda.is_available():
-            print("❌ CUDA not available - cannot continue")
-            exit(1)
-            
+        # Force GPU
         torch.cuda.set_device(0)
-        self.device = torch.device('cuda:0')
         print(f"🔥 GPU FORCED: {torch.cuda.get_device_name(0)}")
         
         # Create temp directories
         self.temp_base = Path("/tmp/ourvidz")
         self.temp_base.mkdir(exist_ok=True)
-        
-        self.temp_models = self.temp_base / "models"
-        self.temp_outputs = self.temp_base / "outputs" 
         self.temp_processing = self.temp_base / "processing"
+        self.temp_processing.mkdir(exist_ok=True)
         
-        for temp_dir in [self.temp_models, self.temp_outputs, self.temp_processing]:
-            temp_dir.mkdir(exist_ok=True)
-
-    def extract_frame_from_video(self, video_path, job_id, job_type):
-        """Extract frame for image jobs"""
-        image_path = self.temp_processing / f"{job_type}_{job_id}.png"
+        # Paths
+        self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
         
-        try:
-            cap = cv2.VideoCapture(video_path)
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret and frame is not None:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(frame_rgb)
-                img.save(str(image_path), "PNG", optimize=True)
-                
-                file_size = os.path.getsize(image_path) / 1024
-                print(f"📊 Output: {file_size:.0f}KB")
-                
-                # Clean up video file
-                try:
-                    os.remove(video_path)
-                except:
-                    pass
-                    
-                return str(image_path)
-        except Exception as e:
-            print(f"❌ Frame extraction error: {e}")
-        return None
-        
-        # GPU optimization
-        self.init_gpu_optimizations()
-        
-        # OPTIMIZED job configurations with realistic timing
+        # Job configurations
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
@@ -80,8 +41,8 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
-                'expected_time': 15,  # With pre-loaded model
-                'description': 'Ultra fast image generation'
+                'expected_time': 15,
+                'description': 'Ultra fast image'
             },
             'image_high': {
                 'content_type': 'image',
@@ -90,8 +51,8 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
-                'expected_time': 20,  # With pre-loaded model
-                'description': 'High quality image generation'
+                'expected_time': 20,
+                'description': 'High quality image'
             },
             'video_fast': {
                 'content_type': 'video',
@@ -100,8 +61,8 @@ class VideoWorker:
                 'size': '480*832',
                 'frame_num': 17,
                 'storage_bucket': 'video_fast',
-                'expected_time': 25,  # With pre-loaded model
-                'description': 'Fast video generation'
+                'expected_time': 25,
+                'description': 'Fast video'
             },
             'video_high': {
                 'content_type': 'video',
@@ -110,8 +71,8 @@ class VideoWorker:
                 'size': '832*480',
                 'frame_num': 17,
                 'storage_bucket': 'video_high',
-                'expected_time': 35,  # With pre-loaded model
-                'description': 'High quality video generation'
+                'expected_time': 35,
+                'description': 'High quality video'
             }
         }
         
@@ -121,39 +82,21 @@ class VideoWorker:
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-        print("🎬 GPU-optimized worker ready")
-
-    def init_gpu_optimizations(self):
-        """Initialize GPU optimizations for maximum performance"""
-        try:
-            # Enable all performance optimizations
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True  
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cudnn.deterministic = False
-            torch.backends.cudnn.enabled = True
-            
-            # Memory optimization
-            torch.cuda.empty_cache()
-            
-            print("✅ GPU optimizations applied")
-        except Exception as e:
-            print(f"⚠️ GPU optimization failed: {e}")
+        print("🎬 Worker ready")
 
     def generate_with_gpu_forced(self, prompt, job_type):
-        """Generate using the working generate.py method with GPU forced"""
+        """Generate using working generate.py method"""
         config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
         
-        print(f"⚡ {job_type.upper()} generation (GPU FORCED)")
+        print(f"⚡ {job_type.upper()} generation")
         print(f"📝 Prompt: {prompt}")
-        print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
+        print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance")
         print(f"🎯 Expected: {config['expected_time']}s")
         
         job_id = str(uuid.uuid4())[:8]
         output_filename = f"{job_type}_{job_id}.mp4"
         temp_output_path = self.temp_processing / output_filename
         
-        # Build command exactly like our successful test
         cmd = [
             "python", "-c",
             """
@@ -178,19 +121,16 @@ exec(open('generate.py').read())
         
         try:
             start_time = time.time()
-            
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             generation_time = time.time() - start_time
             
             if result.returncode != 0:
                 print(f"❌ Generation failed: {result.stderr}")
-                print(f"❌ STDOUT: {result.stdout}")
                 return None
                 
             print(f"⚡ Generation completed in {generation_time:.1f}s")
                 
             if not temp_output_path.exists():
-                # Check if file was created in current directory
                 fallback_path = Path(output_filename)
                 if fallback_path.exists():
                     shutil.move(str(fallback_path), str(temp_output_path))
@@ -198,34 +138,47 @@ exec(open('generate.py').read())
                     print("❌ Output file not found")
                     return None
             
-            print(f"✅ Generation completed: {temp_output_path}")
-            
             if config['content_type'] == 'image':
                 return self.extract_frame_from_video(str(temp_output_path), job_id, job_type)
             
             return str(temp_output_path)
             
         except Exception as e:
-            print(f"❌ Error during generation: {e}")
+            print(f"❌ Error: {e}")
             return None
         finally:
             os.chdir(original_cwd)
 
-    def generate_with_loaded_model(self, prompt, job_type):
-        """Generate using the working generate.py method - FAST GENERATION"""
-        config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
+    def extract_frame_from_video(self, video_path, job_id, job_type):
+        """Extract frame for image jobs"""
+        image_path = self.temp_processing / f"{job_type}_{job_id}.png"
         
-        print(f"⚡ {job_type.upper()} generation (USING WORKING METHOD)")
-        print(f"📝 Prompt: {prompt}")
-        print(f"🔧 Config: {config['sample_steps']} steps, {config['sample_guide_scale']} guidance, {config['size']}")
-        print(f"🎯 Expected: {config['expected_time']}s")
-        
-        return self.generate_with_gpu_forced(prompt, job_type)
+        try:
+            cap = cv2.VideoCapture(video_path)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret and frame is not None:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame_rgb)
+                img.save(str(image_path), "PNG", optimize=True)
+                
+                file_size = os.path.getsize(image_path) / 1024
+                print(f"📊 Output: {file_size:.0f}KB")
+                
+                try:
+                    os.remove(video_path)
+                except:
+                    pass
+                    
+                return str(image_path)
+        except Exception as e:
+            print(f"❌ Frame extraction error: {e}")
+        return None
 
     def upload_to_supabase(self, file_path, job_type, user_id, job_id):
-        """Upload file to Supabase storage"""
+        """Upload to Supabase"""
         if not os.path.exists(file_path):
-            print(f"❌ File not found: {file_path}")
             return None
             
         config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
@@ -242,7 +195,7 @@ exec(open('generate.py').read())
             with open(file_path, 'rb') as f:
                 file_data = f.read()
                 file_size = len(file_data) / 1024
-                print(f"📊 Upload size: {file_size:.0f}KB")
+                print(f"📊 File size: {file_size:.0f}KB")
                 
                 r = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{full_path}",
@@ -256,30 +209,28 @@ exec(open('generate.py').read())
                 )
                 
                 if r.status_code in [200, 201]:
-                    print(f"✅ Upload successful: {full_path}")
+                    print(f"✅ Upload successful")
                     return f"{user_id}/{filename}"
                 else:
-                    print(f"❌ Upload failed: {r.status_code} - {r.text}")
+                    print(f"❌ Upload failed: {r.status_code}")
                     
         except Exception as e:
             print(f"❌ Upload error: {e}")
         finally:
-            # Clean up temp file
             try:
-                if os.path.exists(file_path):
+                if file_path and os.path.exists(file_path):
                     os.remove(file_path)
-                    print(f"🗑️ Cleaned up: {file_path}")
             except:
                 pass
-                
+            
         return None
 
     def notify_completion(self, job_id, status, file_path=None, error_message=None):
-        """Notify Supabase of job completion"""
+        """Notify completion"""
         data = {
             'jobId': job_id,
             'status': status,
-            'filePath': file_path,  # Using filePath as per original infrastructure
+            'filePath': file_path,
             'errorMessage': error_message
         }
         
@@ -299,73 +250,45 @@ exec(open('generate.py').read())
             if r.status_code == 200:
                 print("✅ Callback sent successfully")
             else:
-                print(f"❌ Callback failed: {r.status_code} - {r.text}")
+                print(f"❌ Callback failed: {r.status_code}")
                 
         except Exception as e:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process job with optimized pre-loaded model"""
+        """Process job"""
         job_id = job_data.get('jobId')
         job_type = job_data.get('jobType')
         prompt = job_data.get('prompt')
         user_id = job_data.get('userId')
         
-        print(f"📋 Job details: ID={job_id}, Type={job_type}, User={user_id}")
-        
         if not all([job_id, job_type, user_id, prompt]):
-            missing_fields = []
-            if not job_id: missing_fields.append('jobId')
-            if not job_type: missing_fields.append('jobType') 
-            if not user_id: missing_fields.append('userId')
-            if not prompt: missing_fields.append('prompt')
-            
-            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+            error_msg = "Missing required fields"
             print(f"❌ {error_msg}")
             self.notify_completion(job_id or 'unknown', 'failed', error_message=error_msg)
             return
 
-        print(f"📝 Prompt: {prompt}")
-        print(f"📥 Processing OPTIMIZED job: {job_id} ({job_type})")
-        
-        total_start_time = time.time()
+        print(f"📥 Processing job: {job_id} ({job_type})")
+        start_time = time.time()
         
         try:
-            # Generate using working method
-            output_path = self.generate_with_loaded_model(prompt, job_type)
-            
+            output_path = self.generate_with_gpu_forced(prompt, job_type)
             if output_path:
-                # Upload to Supabase
                 supa_path = self.upload_to_supabase(output_path, job_type, user_id, job_id)
-                
                 if supa_path:
-                    total_duration = time.time() - total_start_time
-                    config = self.job_type_mapping.get(job_type, self.job_type_mapping['image_fast'])
-                    expected = config['expected_time']
-                    
-                    if total_duration < expected:
-                        speedup = ((expected - total_duration) / expected) * 100
-                        print(f"🎉 Job completed in {total_duration:.1f}s - {speedup:.1f}% FASTER than expected!")
-                    else:
-                        print(f"🎉 Job completed in {total_duration:.1f}s")
-                    
+                    duration = time.time() - start_time
+                    print(f"🎉 Job completed in {duration:.1f}s")
                     self.notify_completion(job_id, 'completed', supa_path)
                     return
-                else:
-                    print("❌ Upload failed")
-            else:
-                print("❌ Generation failed")
                     
             self.notify_completion(job_id, 'failed', error_message="Generation or upload failed")
             
         except Exception as e:
             print(f"❌ Job processing error: {e}")
-            import traceback
-            traceback.print_exc()
             self.notify_completion(job_id, 'failed', error_message=str(e))
 
     def poll_queue(self):
-        """Poll Redis queue for jobs"""
+        """Poll Redis queue"""
         try:
             r = requests.get(
                 f"{self.redis_url}/rpop/job_queue",
@@ -378,49 +301,16 @@ exec(open('generate.py').read())
             print(f"❌ Poll error: {e}")
         return None
 
-    def cleanup_old_temp_files(self):
-        """Clean up old temporary files"""
-        try:
-            current_time = time.time()
-            cleaned_count = 0
-            
-            for temp_dir in [self.temp_outputs, self.temp_processing]:
-                for file_path in temp_dir.glob("*"):
-                    if file_path.is_file():
-                        if (current_time - file_path.stat().st_mtime) > 600:  # 10 minutes old
-                            try:
-                                file_path.unlink()
-                                cleaned_count += 1
-                            except:
-                                pass
-                                
-            if cleaned_count > 0:
-                print(f"🧹 Cleaned up {cleaned_count} old temp files")
-                
-            # GPU memory cleanup
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                
-        except Exception as e:
-            print(f"⚠️ Cleanup error: {e}")
-
     def run(self):
-        """Main worker loop"""
-        print("⏳ Waiting for jobs (USING WORKING GENERATE.PY METHOD)...")
+        """Main loop"""
+        print("⏳ Waiting for jobs...")
         print("🎯 Job Types:")
         for job_type, config in self.job_type_mapping.items():
             print(f"   • {job_type}: {config['description']} (~{config['expected_time']}s)")
         
-        last_cleanup = time.time()
         job_count = 0
         
         while True:
-            # Periodic cleanup
-            if time.time() - last_cleanup > 300:  # Every 5 minutes
-                self.cleanup_old_temp_files()
-                last_cleanup = time.time()
-                
-            # Poll for jobs
             job = self.poll_queue()
             if job:
                 job_count += 1
@@ -430,13 +320,11 @@ exec(open('generate.py').read())
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz FIXED Worker (Using Working Generate.py Method)")
+    print("🚀 Starting OurVidz FIXED Worker")
     
     try:
         worker = VideoWorker()
         worker.run()
     except Exception as e:
-        print(f"❌ Worker failed to start: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Worker failed: {e}")
         exit(1)
