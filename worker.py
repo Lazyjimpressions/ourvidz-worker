@@ -145,6 +145,7 @@ class VideoWorker:
         # Always generate as MP4 first (Wan 2.1 only outputs MP4)
         temp_video_filename = f"{job_type}_{job_id}.mp4"
         temp_video_path = self.temp_processing / temp_video_filename
+        # Build optimized command with absolute path for save_file
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
@@ -155,10 +156,11 @@ class VideoWorker:
             "--sample_guide_scale", str(config['sample_guide_scale']),
             "--frame_num", str(config['frame_num']),
             "--prompt", prompt,
-            "--save_file", str(temp_video_path)
+            "--save_file", str(temp_video_path.absolute())  # Use absolute path
         ]
         
-        print(f"📁 Generating to: {temp_video_path}")
+        print(f"📁 Generating to: {temp_video_path.absolute()}")
+        print(f"🔧 Command: python generate.py --task t2v-1.3B --save_file {temp_video_path.absolute()}")
         
         # Environment with distributed settings to disable offloading
         env = os.environ.copy()
@@ -190,14 +192,14 @@ class VideoWorker:
             if result.returncode != 0:
                 # Check if it's the expected distributed training error
                 # When using WORLD_SIZE=2 hack, this error is expected but generation succeeds
-                if (generation_time < 20 and temp_video_path.exists()) or "dist.init_process_group" in str(result.stderr):
+                if (generation_time < 20) or "dist.init_process_group" in str(result.stderr):
                     print("✅ Generation successful (ignoring expected distributed training error)")
                     print(f"📊 Performance: {generation_time:.1f}s (target: {config['expected_time']}s)")
                 else:
                     print(f"❌ Generation actually failed: {result.stderr[:500]}")
                     return None
-                
-            # FIXED: Look for output files in multiple locations with correct naming
+            
+            # FIXED: Look for output files - try specific name first, then find newest MP4
             output_candidates = [
                 temp_video_path,  # Expected location: {job_type}_{job_id}.mp4
                 Path(self.wan_path) / temp_video_filename,  # In Wan2.1 directory
@@ -208,6 +210,8 @@ class VideoWorker:
             ]
             
             actual_output_path = None
+            
+            # First, try our expected file names
             for candidate in output_candidates:
                 if candidate.exists():
                     actual_output_path = candidate
@@ -215,6 +219,25 @@ class VideoWorker:
                     break
                 else:
                     print(f"🔍 Checked: {candidate} (not found)")
+            
+            # If not found, look for the newest MP4 file in current directory
+            if not actual_output_path:
+                print("🔍 Looking for newest MP4 file in current directory...")
+                try:
+                    mp4_files = list(Path('.').glob('*.mp4'))
+                    if mp4_files:
+                        # Sort by modification time, get the newest
+                        newest_mp4 = max(mp4_files, key=lambda x: x.stat().st_mtime)
+                        
+                        # Check if this file was created recently (within last 30 seconds)
+                        file_age = time.time() - newest_mp4.stat().st_mtime
+                        if file_age < 30:
+                            actual_output_path = newest_mp4
+                            print(f"✅ Found newest MP4 file: {newest_mp4} (created {file_age:.1f}s ago)")
+                        else:
+                            print(f"⚠️ Newest MP4 file is too old: {newest_mp4} (created {file_age:.1f}s ago)")
+                except Exception as e:
+                    print(f"❌ Error finding newest MP4: {e}")
             
             if not actual_output_path:
                 print("❌ Output file not found in any expected location")
