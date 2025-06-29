@@ -1,4 +1,4 @@
-# worker.py - Complete Enhanced GPU Performance Worker with Fixes
+# worker.py - Complete Enhanced GPU Performance Worker with CRITICAL FIXES
 import os
 import json
 import time
@@ -16,8 +16,8 @@ import torch
 
 class VideoWorker:
     def __init__(self):
-        print("🚀 OurVidz Worker initialized (COMPLETE GPU DIAGNOSTICS FIX)")
-        print("⚡ Fixed GPU monitoring with realistic performance expectations")
+        print("🚀 OurVidz Worker initialized (CRITICAL WAN 2.1 FIXES)")
+        print("⚡ Fixed resolution format and memory optimization for RTX 4090")
         
         # Create dedicated temp directories for better organization
         self.temp_base = Path("/tmp/ourvidz")
@@ -89,17 +89,17 @@ class VideoWorker:
             }
         }
         
-        # Resolution configurations using ONLY supported Wan 2.1 sizes
+        # FIXED: Resolution configurations using CORRECT Wan 2.1 formats
         self.resolution_configs = {
             'small': {
-                'size': '480*832',              
+                'size': '832*480',              # FIXED: Correct landscape format for 1.3B model
                 'multiplier': 0.7,              
-                'description': 'Small (480×832) - Fastest supported'
+                'description': 'Standard (832×480) - Recommended for 1.3B'
             },
             'standard': {
-                'size': '832*480',              
+                'size': '832*480',              # FIXED: Use working resolution
                 'multiplier': 1.0,              
-                'description': 'Standard (832×480) - Current working'
+                'description': 'Standard (832×480) - Optimal for 1.3B model'
             }
         }
         
@@ -124,7 +124,7 @@ class VideoWorker:
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
         print("🎬 Complete GPU Diagnostics Worker ready")
-        print("🔥 Fixed GPU monitoring with realistic 90s expectations")
+        print("🔥 Fixed resolution and memory optimization for Wan 2.1 1.3B")
 
     def simple_gpu_diagnostic(self):
         """Simple diagnostic to understand GPU environment"""
@@ -547,7 +547,7 @@ class VideoWorker:
         return f"{job_mapping.get('expected_time', 90)}s"
 
     def generate_with_gpu_monitoring(self, prompt, job_type):
-        """Enhanced generation with comprehensive GPU monitoring"""
+        """FIXED: Enhanced generation with proper Wan 2.1 1.3B parameters"""
         config = self.get_job_config(job_type)
 
         # Ensure model and GPU are ready
@@ -583,16 +583,19 @@ class VideoWorker:
         output_filename = f"{job_type}_{job_id}.mp4"
         temp_output_path = self.temp_processing / output_filename
         
+        # CRITICAL FIX: Use proper Wan 2.1 1.3B command with RTX 4090 optimizations
         cmd = [
             "python", "generate.py",
-            "--task", "t2v-1.3B",
-            "--size", config['size'],
+            "--task", "t2v-1.3B",                    # FIXED: Use 1.3B task
+            "--size", config['size'],                # FIXED: Now 832*480
             "--ckpt_dir", self.model_path,
             "--prompt", prompt,
             "--save_file", str(temp_output_path),
-            "--sample_steps", str(config['sample_steps']),
+            "--sample_shift", "8",                   # CRITICAL: RTX 4090 optimization
             "--sample_guide_scale", str(config['sample_guide_scale']),
-            "--frame_num", str(config['frame_num'])
+            "--frame_num", str(config['frame_num']),
+            "--offload_model", "True",               # CRITICAL: Memory optimization for RTX 4090
+            "--t5_cpu"                               # CRITICAL: Move T5 to CPU to save VRAM
         ]
 
         original_cwd = os.getcwd()
@@ -624,6 +627,7 @@ class VideoWorker:
             if pre_gen_stats:
                 print(f"🔥 Starting generation with GPU at {pre_gen_stats['graphics_clock']}MHz")
             
+            print(f"🚀 Running command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
             generation_time = time.time() - start_time
             
@@ -633,7 +637,9 @@ class VideoWorker:
                 print(f"🔥 Generation completed with GPU at {post_gen_stats['graphics_clock']}MHz")
             
             if result.returncode != 0:
-                print(f"❌ Generation failed: {result.stderr}")
+                print(f"❌ Generation failed:")
+                print(f"  stdout: {result.stdout}")
+                print(f"  stderr: {result.stderr}")
                 return None
                 
             print(f"⚡ Generation completed in {generation_time:.1f}s (expected {expected_time}s)")
@@ -1084,6 +1090,10 @@ class VideoWorker:
         print("   • Real-time monitoring during generation")
         print("   • Persistent activation threads")
         print("   • Realistic performance analysis")
+        print("🛠️ CRITICAL FIXES APPLIED:")
+        print("   • Resolution format: 832×480 (landscape) for 1.3B model")
+        print("   • Memory optimization: --offload_model True --t5_cpu")
+        print("   • RTX 4090 optimization: --sample_shift 8")
         
         # Run comprehensive diagnostic on startup
         self.run_comprehensive_diagnostic()
@@ -1163,6 +1173,10 @@ if __name__ == "__main__":
     print("🔥 Fixed GPU monitoring with realistic performance expectations")
     print("📊 Real-time generation monitoring and comprehensive diagnostics")
     print("🎯 Updated timing: 90s realistic target (vs previous unrealistic 35s)")
+    print("🛠️ CRITICAL WAN 2.1 FIXES:")
+    print("   • Resolution: 832×480 (landscape format for 1.3B model)")
+    print("   • Memory: --offload_model True --t5_cpu for RTX 4090")
+    print("   • Optimization: --sample_shift 8 for performance")
     
     # Handle graceful shutdown
     def signal_handler(signum, frame):
