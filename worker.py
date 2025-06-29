@@ -155,42 +155,94 @@ class WarmWorker:
         print(f"🔄 Model lifecycle manager started (idle timeout: {self.IDLE_TIMEOUT}s)")
 
     def load_models_if_needed(self):
-        """Load models if not already loaded (thread-safe)"""
+        """Load models if not already loaded - SIMPLIFIED APPROACH"""
         with self.model_lock:
             if not self.models_loaded:
-                print("🔄 COLD START: Loading Wan 2.1 models...")
+                print("🔄 WARM MODE: Pre-loading models via subprocess test...")
                 self.log_gpu_memory("before model loading")
                 
                 start_time = time.time()
                 
-                # Import Wan 2.1 modules
-                import sys
-                sys.path.append('/workspace/Wan2.1')
-                
                 try:
-                    from wan import WanT2V
+                    # Run a quick test generation to load models into GPU memory
+                    # This will load the models and keep them in GPU memory
+                    test_result = self.run_quick_model_test()
                     
-                    # Load the pipeline (this takes ~58 seconds)
-                    self.wan_pipeline = WanT2V(
-                        model_path=self.model_path,
-                        device="cuda",
-                        offload_model=False  # Keep all models on GPU for speed
-                    )
-                    
-                    loading_time = time.time() - start_time
-                    self.models_loaded = True
-                    self.last_job_time = time.time()
-                    
-                    print(f"✅ WARM MODE ACTIVATED: Models loaded in {loading_time:.1f}s")
-                    self.log_gpu_memory("after model loading")
-                    print("🚀 Next generations will be 21x faster!")
+                    if test_result:
+                        loading_time = time.time() - start_time
+                        self.models_loaded = True
+                        self.last_job_time = time.time()
+                        
+                        print(f"✅ WARM MODE ACTIVATED: Models pre-loaded in {loading_time:.1f}s")
+                        self.log_gpu_memory("after model loading")
+                        print("🚀 Next generations will be MUCH faster!")
+                    else:
+                        raise Exception("Model test failed")
                     
                 except Exception as e:
                     print(f"❌ Model loading failed: {e}")
-                    print("🔄 Falling back to subprocess generation")
+                    print("🔄 Continuing with standard subprocess generation")
                     self.models_loaded = False
-                    self.wan_pipeline = None
-                    raise
+
+    def run_quick_model_test(self):
+        """Run a quick test to pre-load models into GPU memory"""
+        print("🧪 Running model pre-load test...")
+        
+        # Create a minimal test generation to load models
+        temp_base = Path("/tmp/ourvidz")
+        temp_base.mkdir(exist_ok=True)
+        test_output = temp_base / "model_test.mp4"
+        
+        cmd = [
+            "python", "generate.py",
+            "--task", "t2v-1.3B",
+            "--ckpt_dir", self.model_path,
+            "--offload_model", "False",
+            "--size", "480*832",
+            "--sample_steps", "1",  # Minimal steps for speed
+            "--sample_guide_scale", "3.0",
+            "--frame_num", "1",
+            "--prompt", "test",
+            "--save_file", str(test_output.absolute())
+        ]
+        
+        env = os.environ.copy()
+        env.update({
+            'CUDA_VISIBLE_DEVICES': '0',
+            'TORCH_USE_CUDA_DSA': '1',
+            'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True'
+        })
+        
+        original_cwd = os.getcwd()
+        os.chdir(self.wan_path)
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120  # Should be fast for 1 step
+            )
+            
+            success = result.returncode == 0 and test_output.exists()
+            
+            # Clean up test file
+            if test_output.exists():
+                test_output.unlink()
+                
+            if success:
+                print("✅ Model pre-load test successful")
+                return True
+            else:
+                print(f"❌ Model pre-load test failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Model test error: {e}")
+            return False
+        finally:
+            os.chdir(original_cwd)
 
     def unload_models(self):
         """Unload models to free memory (thread-safe)"""
