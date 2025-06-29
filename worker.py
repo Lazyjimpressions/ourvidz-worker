@@ -150,17 +150,18 @@ class VideoWorker:
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", self.model_path,
-            "--offload_model", "False",  # Explicitly disable (though env vars override)
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
             "--frame_num", str(config['frame_num']),
             "--prompt", prompt,
-            "--save_file", str(temp_video_path.absolute())  # Use absolute path
+            "--save_file", str(temp_video_path.absolute())
+            # NOTE: Removed --offload_model False - let environment variables handle it
         ]
         
         print(f"📁 Generating to: {temp_video_path.absolute()}")
         print(f"🔧 Command: python generate.py --task t2v-1.3B --save_file {temp_video_path.absolute()}")
+        print(f"🌍 Using WORLD_SIZE=2 environment to disable offloading")
         
         # Environment with distributed settings to disable offloading
         env = os.environ.copy()
@@ -188,6 +189,15 @@ class VideoWorker:
             
             generation_time = time.time() - start_time
             print(f"⚡ Generation completed in {generation_time:.1f}s")
+            
+            # DEBUGGING: Print generate.py output to understand what's happening
+            if result.stdout:
+                print(f"📝 generate.py stdout: {result.stdout[:500]}")
+            if result.stderr:
+                print(f"⚠️ generate.py stderr: {result.stderr[:500]}")
+            
+            # Check return code
+            print(f"🔍 Return code: {result.returncode}")
             
             if result.returncode != 0:
                 # Check if it's the expected distributed training error
