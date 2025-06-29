@@ -108,11 +108,117 @@ class SimpleWorker:
             missing_deps.append("dashscope")
             print("   ❌ dashscope - MISSING")
         
+        try:
+            import flash_attn
+            print("   ✅ flash_attn")
+        except ImportError:
+            missing_deps.append("flash_attn")
+            print("   ❌ flash_attn - MISSING")
+        
         if missing_deps:
             print(f"🔧 Installing missing dependencies: {missing_deps}")
             self.install_missing_dependencies(missing_deps)
         else:
             print("✅ All dependencies appear to be installed")
+            
+        # Check Flash Attention 2 specifically
+        self.check_flash_attention()
+
+    def check_flash_attention(self):
+        """Check and fix Flash Attention 2 availability"""
+        print("🔍 Checking Flash Attention 2...")
+        
+        try:
+            import flash_attn
+            from flash_attn import flash_attn_func
+            print("   ✅ Flash Attention 2 import successful")
+            
+            # Test if it actually works
+            import torch
+            if torch.cuda.is_available():
+                # Quick test
+                test_q = torch.randn(1, 8, 64, device='cuda', dtype=torch.float16)
+                test_k = torch.randn(1, 8, 64, device='cuda', dtype=torch.float16) 
+                test_v = torch.randn(1, 8, 64, device='cuda', dtype=torch.float16)
+                
+                try:
+                    _ = flash_attn_func(test_q, test_k, test_v)
+                    print("   ✅ Flash Attention 2 functional test passed")
+                except Exception as e:
+                    print(f"   ❌ Flash Attention 2 functional test failed: {e}")
+                    self.fix_flash_attention()
+                    
+                # Cleanup
+                del test_q, test_k, test_v
+                torch.cuda.empty_cache()
+            else:
+                print("   ⚠️ No CUDA available for Flash Attention test")
+                
+        except ImportError as e:
+            print(f"   ❌ Flash Attention 2 import failed: {e}")
+            self.fix_flash_attention()
+
+    def fix_flash_attention(self):
+        """Fix Flash Attention 2 installation"""
+        print("🔧 Fixing Flash Attention 2...")
+        
+        try:
+            # Method 1: Reinstall flash_attn
+            print("   📦 Reinstalling flash_attn...")
+            result = subprocess.run([
+                "pip", "uninstall", "flash_attn", "-y"
+            ], capture_output=True, text=True)
+            
+            result = subprocess.run([
+                "pip", "install", "flash_attn", "--no-build-isolation"
+            ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
+            
+            if result.returncode == 0:
+                print("   ✅ Flash Attention 2 reinstalled")
+            else:
+                print(f"   ❌ Flash Attention 2 reinstall failed: {result.stderr}")
+                
+                # Method 2: Try alternative Flash Attention fix
+                print("   🔧 Trying alternative fix...")
+                self.patch_flash_attention()
+                
+        except Exception as e:
+            print(f"   ❌ Flash Attention fix error: {e}")
+            self.patch_flash_attention()
+
+    def patch_flash_attention(self):
+        """Patch Wan 2.1 to disable Flash Attention requirement"""
+        print("   🩹 Patching Wan 2.1 to bypass Flash Attention...")
+        
+        try:
+            attention_file = os.path.join(self.wan_path, "wan/modules/attention.py")
+            
+            if os.path.exists(attention_file):
+                # Read the file
+                with open(attention_file, 'r') as f:
+                    content = f.read()
+                
+                # Replace the assertion with a conditional
+                old_code = "assert FLASH_ATTN_2_AVAILABLE"
+                new_code = """if not FLASH_ATTN_2_AVAILABLE:
+    # Fallback to standard attention when Flash Attention 2 is not available
+    return torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)"""
+                
+                if old_code in content:
+                    content = content.replace(old_code, new_code)
+                    
+                    # Write back the patched file
+                    with open(attention_file, 'w') as f:
+                        f.write(content)
+                    
+                    print("   ✅ Flash Attention patch applied successfully")
+                else:
+                    print("   ⚠️ Flash Attention assertion not found for patching")
+            else:
+                print("   ❌ attention.py file not found")
+                
+        except Exception as e:
+            print(f"   ❌ Flash Attention patch failed: {e}")
 
     def install_missing_dependencies(self, deps):
         """Install missing dependencies"""
