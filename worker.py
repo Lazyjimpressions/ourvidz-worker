@@ -17,6 +17,8 @@ import torch
 os.environ['WORLD_SIZE'] = '2'  # Tricks generate.py into keeping models on GPU
 os.environ['RANK'] = '0'
 os.environ['LOCAL_RANK'] = '0'
+os.environ['MASTER_ADDR'] = 'localhost'  # Required for distributed training
+os.environ['MASTER_PORT'] = '29500'      # Required for distributed training
 
 # Additional GPU optimizations
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -169,6 +171,8 @@ class VideoWorker:
             'WORLD_SIZE': '2',  # Critical: Disables model offloading
             'RANK': '0',
             'LOCAL_RANK': '0',
+            'MASTER_ADDR': 'localhost',  # Required for distributed training
+            'MASTER_PORT': '29500',      # Required for distributed training
             'CUDA_VISIBLE_DEVICES': '0',
             'TORCH_USE_CUDA_DSA': '1'
         })
@@ -191,13 +195,44 @@ class VideoWorker:
             print(f"⚡ Generation completed in {generation_time:.1f}s")
             
             # DEBUGGING: Print generate.py output to understand what's happening
+            print(f"📝 generate.py stdout length: {len(result.stdout) if result.stdout else 0}")
+            print(f"⚠️ generate.py stderr length: {len(result.stderr) if result.stderr else 0}")
+            
             if result.stdout:
-                print(f"📝 generate.py stdout: {result.stdout[:500]}")
+                print(f"📝 generate.py stdout: {result.stdout}")
             if result.stderr:
-                print(f"⚠️ generate.py stderr: {result.stderr[:500]}")
+                print(f"⚠️ generate.py stderr: {result.stderr}")
             
             # Check return code
             print(f"🔍 Return code: {result.returncode}")
+            
+            # ADDITIONAL DEBUG: Check if any new files were created in various locations
+            print(f"🔍 Files in /tmp/ourvidz/processing after generation:")
+            try:
+                for file in self.temp_processing.glob('*'):
+                    if file.is_file():
+                        file_age = time.time() - file.stat().st_mtime
+                        print(f"   Found: {file} (created {file_age:.1f}s ago)")
+            except Exception as e:
+                print(f"   Error listing temp files: {e}")
+            
+            print(f"🔍 Files in current directory (/workspace/Wan2.1) after generation:")
+            try:
+                for file in Path('.').glob('*.mp4'):
+                    if file.is_file():
+                        file_age = time.time() - file.stat().st_mtime
+                        print(f"   Found: {file} (created {file_age:.1f}s ago)")
+            except Exception as e:
+                print(f"   Error listing current files: {e}")
+            
+            print(f"🔍 Files in /tmp/ after generation:")
+            try:
+                for file in Path('/tmp').glob('*.mp4'):
+                    if file.is_file():
+                        file_age = time.time() - file.stat().st_mtime
+                        print(f"   Found: {file} (created {file_age:.1f}s ago)")
+            except Exception as e:
+                print(f"   Error listing /tmp files: {e}")
             
             if result.returncode != 0:
                 # Check if it's the expected distributed training error
