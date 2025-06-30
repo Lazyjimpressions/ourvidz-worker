@@ -37,12 +37,12 @@ class OptimizedVideoWorker:
             'image_fast': {
                 'content_type': 'image',
                 'file_extension': 'png',
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
-                'size': '480*832',
+                'sample_steps': 20,
+                'sample_guide_scale': 8.0,
+                'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
-                'expected_time': 67  # Measured performance
+                'expected_time': 73  # Measured performance
             },
             'image_high': {
                 'content_type': 'image', 
@@ -52,17 +52,17 @@ class OptimizedVideoWorker:
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
-                'expected_time': 120
+                'expected_time': 90
             },
             'video_fast': {
                 'content_type': 'video',
                 'file_extension': 'mp4',
-                'sample_steps': 6,
-                'sample_guide_scale': 4.0,
+                'sample_steps': 20,
+                'sample_guide_scale': 8.0,
                 'size': '480*832',
-                'frame_num': 81,  # 1 second at 16fps
+                'frame_num': 81,  # 5 second at 16fps
                 'storage_bucket': 'video_fast',
-                'expected_time': 90
+                'expected_time': 180
             },
             'video_high': {
                 'content_type': 'video',
