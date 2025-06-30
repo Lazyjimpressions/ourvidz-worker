@@ -1,4 +1,5 @@
-# worker.py - Simple Fixed Version (No Syntax Errors)
+# worker.py - COMPREHENSIVE CUDA DIAGNOSTIC MODE
+# Systematic diagnosis of GPU utilization issues following established checklist
 import os
 import json
 import time
@@ -9,24 +10,25 @@ import shutil
 from pathlib import Path
 from PIL import Image
 import cv2
-import torch
-import numpy as np
+import sys
 
-# Clean environment
+# Clean environment first
 for key in ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']:
     if key in os.environ:
         del os.environ[key]
 
-# GPU optimizations
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-os.environ['TORCH_USE_CUDA_DSA'] = '1'
-os.environ['CUDA_LAUNCH_BLOCKING'] = '0'
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+# Import torch after cleaning environment
+import torch
+import torch.nn as nn
+import numpy as np
 
-class SimpleWorker:
+class CUDADiagnosticWorker:
     def __init__(self):
-        print("🚀 OurVidz SIMPLE WORKER - RTX 6000 ADA")
-        print("🔧 Diagnosis Mode: Will capture full error output")
+        print("🔍 CUDA DIAGNOSTIC WORKER - Comprehensive GPU Analysis")
+        print("📋 Following systematic checklist to identify CPU fallback issues")
+        
+        # Run comprehensive CUDA diagnostics
+        self.run_cuda_diagnostics()
         
         # Paths
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
@@ -41,18 +43,7 @@ class SimpleWorker:
                 'sample_guide_scale': 3.0,
                 'size': '480*832',
                 'frame_num': 1,
-                'storage_bucket': 'image_fast',
-                'expected_time': 60
-            },
-            'video_fast': {
-                'content_type': 'video',
-                'file_extension': 'mp4',
-                'sample_steps': 4,
-                'sample_guide_scale': 3.0,
-                'size': '480*832',
-                'frame_num': 81,
-                'storage_bucket': 'video_fast',
-                'expected_time': 120
+                'storage_bucket': 'image_fast'
             }
         }
         
@@ -61,206 +52,503 @@ class SimpleWorker:
         self.supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY')
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
+        
+        print("🔧 Diagnostic worker ready for systematic analysis")
 
-        # Check if Wan 2.1 needs fixing
-        self.check_wan_installation()
+    def run_cuda_diagnostics(self):
+        """Comprehensive CUDA diagnostics following checklist"""
+        print("\n" + "="*80)
+        print("🔍 COMPREHENSIVE CUDA DIAGNOSTICS")
+        print("="*80)
         
-        print("🔧 Simple worker ready!")
+        # 1. Confirm Torch CUDA Availability
+        self.check_torch_cuda_availability()
+        
+        # 2. Match Torch/CUDA combo with GPU
+        self.check_torch_cuda_compatibility()
+        
+        # 3. Monitor System RAM
+        self.check_system_resources()
+        
+        # 4. Check GPU Architecture Support
+        self.check_gpu_architecture_support()
+        
+        # 5. Test GPU Tensor Operations
+        self.test_gpu_tensor_operations()
+        
+        # 6. Check CUDA Runtime Environment
+        self.check_cuda_runtime_environment()
+        
+        # 7. Test Real GPU Memory Allocation
+        self.test_gpu_memory_allocation()
+        
+        # 8. Check for Multi-GPU Conflicts
+        self.check_multi_gpu_conflicts()
+        
+        # 9. Test Flash Attention 2 Properly
+        self.test_flash_attention_properly()
+        
+        print("="*80)
+        print("🔍 CUDA DIAGNOSTICS COMPLETE")
+        print("="*80 + "\n")
 
-    def check_wan_installation(self):
-        """Check if Wan 2.1 installation needs fixing"""
-        print("\n🔍 Checking Wan 2.1 installation...")
+    def check_torch_cuda_availability(self):
+        """Step 1: Confirm Torch CUDA Availability"""
+        print("\n📋 STEP 1: Torch CUDA Availability")
+        print("-" * 40)
         
-        # Check if key files exist
-        wan_exists = os.path.exists(self.wan_path)
-        generate_exists = os.path.exists(os.path.join(self.wan_path, "generate.py"))
+        # Basic availability
+        cuda_available = torch.cuda.is_available()
+        print(f"   torch.cuda.is_available(): {cuda_available}")
         
-        print(f"   Wan 2.1 directory: {wan_exists}")
-        print(f"   generate.py: {generate_exists}")
+        if not cuda_available:
+            print("   ❌ CRITICAL: PyTorch cannot see CUDA")
+            print("   💡 This likely means CPU-only PyTorch installation")
+            return False
         
-        if not wan_exists or not generate_exists:
-            print("❌ Wan 2.1 installation incomplete - will need manual fix")
+        # Device count
+        device_count = torch.cuda.device_count()
+        print(f"   torch.cuda.device_count(): {device_count}")
+        
+        # Current device
+        try:
+            current_device = torch.cuda.current_device()
+            device_name = torch.cuda.get_device_name(current_device)
+            print(f"   Current device: {current_device}")
+            print(f"   Device name: {device_name}")
+            
+            # Memory info
+            props = torch.cuda.get_device_properties(current_device)
+            total_memory = props.total_memory / (1024**3)
+            print(f"   Total memory: {total_memory:.1f}GB")
+            print(f"   Compute capability: {props.major}.{props.minor}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"   ❌ Error getting device info: {e}")
+            return False
+
+    def check_torch_cuda_compatibility(self):
+        """Step 2: Match Torch/CUDA combo with GPU"""
+        print("\n📋 STEP 2: Torch/CUDA Compatibility")
+        print("-" * 40)
+        
+        # PyTorch version
+        torch_version = torch.__version__
+        print(f"   PyTorch version: {torch_version}")
+        
+        # CUDA version that PyTorch was compiled with
+        if torch.cuda.is_available():
+            cuda_version = torch.version.cuda
+            print(f"   PyTorch CUDA version: {cuda_version}")
+            
+            # Check if this is a CUDA build
+            if '+cu' in torch_version:
+                cuda_build = torch_version.split('+cu')[1]
+                print(f"   PyTorch CUDA build: cu{cuda_build}")
+            else:
+                print("   ⚠️ WARNING: PyTorch version doesn't indicate CUDA build")
+        
+        # System CUDA version
+        try:
+            result = subprocess.run(['nvcc', '--version'], capture_output=True, text=True)
+            if result.returncode == 0:
+                nvcc_output = result.stdout
+                for line in nvcc_output.split('\n'):
+                    if 'release' in line.lower():
+                        print(f"   System CUDA (nvcc): {line.strip()}")
+        except:
+            print("   ⚠️ nvcc not found")
+        
+        # Driver version
+        try:
+            result = subprocess.run(['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                driver_version = result.stdout.strip()
+                print(f"   NVIDIA driver: {driver_version}")
+        except:
+            print("   ⚠️ nvidia-smi not found")
+
+    def check_system_resources(self):
+        """Step 3: Monitor System RAM"""
+        print("\n📋 STEP 3: System Resources")
+        print("-" * 40)
+        
+        # Memory usage
+        try:
+            result = subprocess.run(['free', '-h'], capture_output=True, text=True)
+            if result.returncode == 0:
+                print("   System memory:")
+                for line in result.stdout.split('\n')[1:3]:  # Mem and Swap lines
+                    if line.strip():
+                        print(f"     {line}")
+        except:
+            print("   ⚠️ Cannot check system memory")
+        
+        # CPU info
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpu_info = f.read()
+                cpu_count = cpu_info.count('processor')
+                print(f"   CPU cores: {cpu_count}")
+        except:
+            print("   ⚠️ Cannot read CPU info")
+
+    def check_gpu_architecture_support(self):
+        """Step 4: Check GPU Architecture Support"""
+        print("\n📋 STEP 4: GPU Architecture Support")
+        print("-" * 40)
+        
+        if not torch.cuda.is_available():
+            print("   ❌ Cannot check - CUDA not available")
+            return
+        
+        # Get compute capability
+        device = torch.cuda.current_device()
+        props = torch.cuda.get_device_properties(device)
+        major, minor = props.major, props.minor
+        compute_cap = f"{major}.{minor}"
+        
+        print(f"   GPU compute capability: {compute_cap}")
+        
+        # Map to architecture name
+        arch_map = {
+            (8, 9): "Ada Lovelace (RTX 40 series)",
+            (8, 6): "Ampere (RTX 30 series)",
+            (7, 5): "Turing (RTX 20 series)",
+            (6, 1): "Pascal (GTX 10 series)"
+        }
+        
+        arch_name = arch_map.get((major, minor), f"Unknown architecture {compute_cap}")
+        print(f"   Architecture: {arch_name}")
+        
+        # Check if PyTorch supports this architecture
+        if major >= 8:
+            print("   ✅ Modern GPU architecture")
+            if minor == 9:
+                print("   📝 Ada Lovelace requires PyTorch 1.13+ with CUDA 11.8+")
         else:
-            print("✅ Wan 2.1 appears to be installed")
-            
-        # Check for missing dependencies
-        print("🔍 Checking required dependencies...")
-        missing_deps = []
-        
-        try:
-            import easydict
-            print("   ✅ easydict")
-        except ImportError:
-            missing_deps.append("easydict")
-            print("   ❌ easydict - MISSING")
-            
-        try:
-            import ftfy
-            print("   ✅ ftfy")
-        except ImportError:
-            missing_deps.append("ftfy")
-            print("   ❌ ftfy - MISSING")
-            
-        try:
-            import dashscope
-            print("   ✅ dashscope")
-        except ImportError:
-            missing_deps.append("dashscope")
-            print("   ❌ dashscope - MISSING")
-        
-        try:
-            import flash_attn
-            print("   ✅ flash_attn")
-        except ImportError:
-            missing_deps.append("flash_attn")
-            print("   ❌ flash_attn - MISSING")
-        
-        if missing_deps:
-            print(f"🔧 Installing missing dependencies: {missing_deps}")
-            self.install_missing_dependencies(missing_deps)
-        else:
-            print("✅ All dependencies appear to be installed")
-            
-        # Check Flash Attention 2 specifically
-        self.check_flash_attention()
+            print("   ⚠️ Older GPU architecture")
 
-    def check_flash_attention(self):
-        """Check and fix Flash Attention 2 availability"""
-        print("🔍 Checking Flash Attention 2...")
+    def test_gpu_tensor_operations(self):
+        """Step 5: Test GPU Tensor Operations"""
+        print("\n📋 STEP 5: GPU Tensor Operations Test")
+        print("-" * 40)
         
+        if not torch.cuda.is_available():
+            print("   ❌ Cannot test - CUDA not available")
+            return
+        
+        try:
+            # Create tensors on GPU
+            print("   Creating test tensors on GPU...")
+            device = torch.device('cuda')
+            
+            # Test tensor creation
+            a = torch.randn(1000, 1000, device=device, dtype=torch.float32)
+            b = torch.randn(1000, 1000, device=device, dtype=torch.float32)
+            
+            # Check memory usage
+            allocated_before = torch.cuda.memory_allocated() / (1024**3)
+            print(f"   GPU memory after tensor creation: {allocated_before:.2f}GB")
+            
+            if allocated_before < 0.001:
+                print("   ❌ CRITICAL: No GPU memory allocated - tensors may be on CPU!")
+                return False
+            
+            # Test computation
+            start_time = time.time()
+            c = torch.matmul(a, b)
+            torch.cuda.synchronize()  # Wait for GPU computation
+            gpu_time = time.time() - start_time
+            
+            print(f"   GPU matrix multiplication time: {gpu_time:.4f}s")
+            
+            # Test CPU for comparison
+            a_cpu = a.cpu()
+            b_cpu = b.cpu()
+            start_time = time.time()
+            c_cpu = torch.matmul(a_cpu, b_cpu)
+            cpu_time = time.time() - start_time
+            
+            print(f"   CPU matrix multiplication time: {cpu_time:.4f}s")
+            print(f"   GPU speedup: {cpu_time/gpu_time:.1f}x")
+            
+            # Cleanup
+            del a, b, c, a_cpu, b_cpu, c_cpu
+            torch.cuda.empty_cache()
+            
+            if gpu_time < cpu_time:
+                print("   ✅ GPU computation working correctly")
+                return True
+            else:
+                print("   ❌ GPU not faster than CPU - possible issue")
+                return False
+                
+        except Exception as e:
+            print(f"   ❌ GPU tensor test failed: {e}")
+            return False
+
+    def check_cuda_runtime_environment(self):
+        """Step 6: Check CUDA Runtime Environment"""
+        print("\n📋 STEP 6: CUDA Runtime Environment")
+        print("-" * 40)
+        
+        # Environment variables
+        cuda_env_vars = [
+            'CUDA_VISIBLE_DEVICES',
+            'CUDA_DEVICE_ORDER',
+            'TORCH_USE_CUDA_DSA',
+            'PYTORCH_CUDA_ALLOC_CONF'
+        ]
+        
+        for var in cuda_env_vars:
+            value = os.environ.get(var)
+            if value:
+                print(f"   {var}: {value}")
+            else:
+                print(f"   {var}: (not set)")
+        
+        # CUDA runtime version
+        if torch.cuda.is_available():
+            try:
+                runtime_version = torch.version.cuda
+                print(f"   CUDA runtime version: {runtime_version}")
+            except:
+                print("   ⚠️ Cannot get CUDA runtime version")
+
+    def test_gpu_memory_allocation(self):
+        """Step 7: Test Real GPU Memory Allocation"""
+        print("\n📋 STEP 7: GPU Memory Allocation Test")
+        print("-" * 40)
+        
+        if not torch.cuda.is_available():
+            print("   ❌ Cannot test - CUDA not available")
+            return
+        
+        try:
+            device = torch.device('cuda')
+            
+            # Test progressively larger allocations
+            sizes = [100, 500, 1000, 2000]  # MB
+            
+            for size_mb in sizes:
+                size_elements = (size_mb * 1024 * 1024) // 4  # 4 bytes per float32
+                
+                print(f"   Allocating {size_mb}MB tensor...")
+                
+                try:
+                    tensor = torch.randn(size_elements, device=device, dtype=torch.float32)
+                    allocated = torch.cuda.memory_allocated() / (1024**3)
+                    print(f"     ✅ Success - GPU memory: {allocated:.2f}GB")
+                    del tensor
+                    torch.cuda.empty_cache()
+                    
+                except Exception as e:
+                    print(f"     ❌ Failed: {e}")
+                    break
+                    
+        except Exception as e:
+            print(f"   ❌ Memory allocation test failed: {e}")
+
+    def test_flash_attention_properly(self):
+        """Step 9: Test Flash Attention 2 Properly"""
+        print("\n📋 STEP 9: Flash Attention 2 Comprehensive Test")
+        print("-" * 40)
+        
+        # Import test
         try:
             import flash_attn
             from flash_attn import flash_attn_func
             print("   ✅ Flash Attention 2 import successful")
-            
-            # Test if it actually works
-            import torch
-            if torch.cuda.is_available():
-                # Quick test
-                test_q = torch.randn(1, 8, 64, device='cuda', dtype=torch.float16)
-                test_k = torch.randn(1, 8, 64, device='cuda', dtype=torch.float16) 
-                test_v = torch.randn(1, 8, 64, device='cuda', dtype=torch.float16)
-                
-                try:
-                    _ = flash_attn_func(test_q, test_k, test_v)
-                    print("   ✅ Flash Attention 2 functional test passed")
-                except Exception as e:
-                    print(f"   ❌ Flash Attention 2 functional test failed: {e}")
-                    self.fix_flash_attention()
-                    
-                # Cleanup
-                del test_q, test_k, test_v
-                torch.cuda.empty_cache()
-            else:
-                print("   ⚠️ No CUDA available for Flash Attention test")
-                
+            print(f"   Flash Attention version: {getattr(flash_attn, '__version__', 'unknown')}")
         except ImportError as e:
             print(f"   ❌ Flash Attention 2 import failed: {e}")
-            self.fix_flash_attention()
+            return False
+        
+        if not torch.cuda.is_available():
+            print("   ❌ Cannot test Flash Attention - CUDA not available")
+            return False
+        
+        # Proper Flash Attention test with correct dimensions
+        try:
+            device = torch.device('cuda')
+            
+            # Flash Attention expects: (batch_size, seq_len, num_heads, head_dim)
+            # Common transformer dimensions
+            batch_size = 1
+            seq_len = 512  # Sequence length
+            num_heads = 8  # Number of attention heads
+            head_dim = 64  # Dimension per head
+            
+            print(f"   Testing with dimensions: batch={batch_size}, seq_len={seq_len}, heads={num_heads}, head_dim={head_dim}")
+            
+            # Create properly shaped tensors
+            q = torch.randn(batch_size, seq_len, num_heads, head_dim, device=device, dtype=torch.float16)
+            k = torch.randn(batch_size, seq_len, num_heads, head_dim, device=device, dtype=torch.float16)
+            v = torch.randn(batch_size, seq_len, num_heads, head_dim, device=device, dtype=torch.float16)
+            
+            print("   Created test tensors with correct Flash Attention dimensions")
+            
+            # Test Flash Attention function
+            start_time = time.time()
+            try:
+                # Flash Attention 2 function call
+                out = flash_attn_func(q, k, v, dropout_p=0.0, causal=False)
+                flash_time = time.time() - start_time
+                
+                print(f"   ✅ Flash Attention 2 functional test PASSED")
+                print(f"   Flash Attention computation time: {flash_time:.4f}s")
+                print(f"   Output shape: {out.shape}")
+                
+                # Verify GPU memory was used
+                gpu_memory = torch.cuda.memory_allocated() / (1024**3)
+                print(f"   GPU memory during Flash Attention: {gpu_memory:.2f}GB")
+                
+                if gpu_memory < 0.001:
+                    print("   ⚠️ WARNING: No GPU memory usage detected during Flash Attention")
+                
+                # Cleanup
+                del q, k, v, out
+                torch.cuda.empty_cache()
+                
+                return True
+                
+            except Exception as e:
+                flash_error = str(e)
+                print(f"   ❌ Flash Attention 2 functional test FAILED: {flash_error}")
+                
+                # Analyze the error
+                if "dimension out of range" in flash_error.lower():
+                    print("   💡 Dimension error suggests Flash Attention version/compilation issue")
+                elif "cuda" in flash_error.lower():
+                    print("   💡 CUDA error suggests GPU/driver compatibility issue")
+                elif "unsupported" in flash_error.lower():
+                    print("   💡 Unsupported operation suggests architecture mismatch")
+                
+                # Test standard PyTorch attention as fallback
+                print("   🔄 Testing standard PyTorch attention as comparison...")
+                self.test_standard_attention(q, k, v)
+                
+                return False
+                
+        except Exception as e:
+            print(f"   ❌ Flash Attention test setup failed: {e}")
+            return False
 
-    def fix_flash_attention(self):
-        """Fix Flash Attention 2 installation"""
-        print("🔧 Fixing Flash Attention 2...")
+    def test_standard_attention(self, q, k, v):
+        """Test standard PyTorch attention for comparison"""
+        try:
+            # Reshape for standard attention: (batch, heads, seq_len, head_dim)
+            q_std = q.transpose(1, 2)  # (batch, heads, seq_len, head_dim)
+            k_std = k.transpose(1, 2)
+            v_std = v.transpose(1, 2)
+            
+            start_time = time.time()
+            # Standard scaled dot-product attention
+            out_std = torch.nn.functional.scaled_dot_product_attention(
+                q_std, k_std, v_std, attn_mask=None, dropout_p=0.0, is_causal=False
+            )
+            std_time = time.time() - start_time
+            
+            print(f"   ✅ Standard PyTorch attention works: {std_time:.4f}s")
+            print(f"   Standard attention output shape: {out_std.shape}")
+            
+            # Check GPU usage
+            gpu_memory = torch.cuda.memory_allocated() / (1024**3)
+            print(f"   GPU memory during standard attention: {gpu_memory:.2f}GB")
+            
+            del q_std, k_std, v_std, out_std
+            torch.cuda.empty_cache()
+            
+            return True
+            
+        except Exception as e:
+            print(f"   ❌ Standard attention also failed: {e}")
+            return False
+
+    def check_flash_attention_build_info(self):
+        """Check Flash Attention build information"""
+        print("\n🔍 Flash Attention Build Information")
+        print("-" * 40)
         
         try:
-            # Method 1: Reinstall flash_attn
-            print("   📦 Reinstalling flash_attn...")
-            result = subprocess.run([
-                "pip", "uninstall", "flash_attn", "-y"
-            ], capture_output=True, text=True)
+            import flash_attn
             
-            result = subprocess.run([
-                "pip", "install", "flash_attn", "--no-build-isolation"
-            ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
+            # Version info
+            if hasattr(flash_attn, '__version__'):
+                print(f"   Version: {flash_attn.__version__}")
             
-            if result.returncode == 0:
-                print("   ✅ Flash Attention 2 reinstalled")
-            else:
-                print(f"   ❌ Flash Attention 2 reinstall failed: {result.stderr}")
-                
-                # Method 2: Try alternative Flash Attention fix
-                print("   🔧 Trying alternative fix...")
-                self.patch_flash_attention()
-                
+            # Check if it was compiled for current architecture
+            device = torch.device('cuda')
+            props = torch.cuda.get_device_properties(device)
+            arch = f"sm_{props.major}{props.minor}"
+            
+            print(f"   GPU architecture: {arch}")
+            
+            # Try to get build info (if available)
+            try:
+                # Some versions expose build info
+                if hasattr(flash_attn, '__cuda_version__'):
+                    print(f"   Flash Attention CUDA version: {flash_attn.__cuda_version__}")
+            except:
+                pass
+            
         except Exception as e:
-            print(f"   ❌ Flash Attention fix error: {e}")
-            self.patch_flash_attention()
-
-    def patch_flash_attention(self):
-        """Patch Wan 2.1 to disable Flash Attention requirement"""
-        print("   🩹 Patching Wan 2.1 to bypass Flash Attention...")
+            print(f"   Error getting Flash Attention build info: {e}")
+        """Step 8: Check for Multi-GPU Conflicts"""
+        print("\n📋 STEP 8: Multi-GPU Conflicts")
+        print("-" * 40)
         
-        try:
-            attention_file = os.path.join(self.wan_path, "wan/modules/attention.py")
-            
-            if os.path.exists(attention_file):
-                # Read the file
-                with open(attention_file, 'r') as f:
-                    content = f.read()
-                
-                # Replace the assertion with a conditional
-                old_code = "assert FLASH_ATTN_2_AVAILABLE"
-                new_code = """if not FLASH_ATTN_2_AVAILABLE:
-    # Fallback to standard attention when Flash Attention 2 is not available
-    return torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)"""
-                
-                if old_code in content:
-                    content = content.replace(old_code, new_code)
-                    
-                    # Write back the patched file
-                    with open(attention_file, 'w') as f:
-                        f.write(content)
-                    
-                    print("   ✅ Flash Attention patch applied successfully")
-                else:
-                    print("   ⚠️ Flash Attention assertion not found for patching")
-            else:
-                print("   ❌ attention.py file not found")
-                
-        except Exception as e:
-            print(f"   ❌ Flash Attention patch failed: {e}")
+        device_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        print(f"   Available GPU devices: {device_count}")
+        
+        if device_count > 1:
+            print("   ⚠️ Multiple GPUs detected")
+            print("   💡 Ensure CUDA_VISIBLE_DEVICES=0 to use only first GPU")
+        else:
+            print("   ✅ Single GPU configuration")
+        
+        # Check for distributed training environment variables
+        dist_vars = ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']
+        dist_set = [var for var in dist_vars if os.environ.get(var)]
+        
+        if dist_set:
+            print(f"   ⚠️ Distributed training vars set: {dist_set}")
+            print("   💡 Consider removing for single GPU setup")
+    def check_multi_gpu_conflicts(self):
+        """Step 8: Check for Multi-GPU Conflicts"""
+        print("\n📋 STEP 8: Multi-GPU Conflicts")
+        print("-" * 40)
+        
+        device_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        print(f"   Available GPU devices: {device_count}")
+        
+        if device_count > 1:
+            print("   ⚠️ Multiple GPUs detected")
+            print("   💡 Ensure CUDA_VISIBLE_DEVICES=0 to use only first GPU")
+        else:
+            print("   ✅ Single GPU configuration")
+        
+        # Check for distributed training environment variables
+        dist_vars = ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']
+        dist_set = [var for var in dist_vars if os.environ.get(var)]
+        
+        if dist_set:
+            print(f"   ⚠️ Distributed training vars set: {dist_set}")
+            print("   💡 Consider removing for single GPU setup")
+        else:
+            print("   ✅ No distributed training variables set")
 
-    def install_missing_dependencies(self, deps):
-        """Install missing dependencies"""
-        try:
-            print("📦 Installing missing dependencies...")
-            for dep in deps:
-                print(f"   Installing {dep}...")
-                result = subprocess.run([
-                    "pip", "install", dep
-                ], capture_output=True, text=True)
-                
-                if result.returncode == 0:
-                    print(f"   ✅ {dep} installed successfully")
-                else:
-                    print(f"   ❌ {dep} installation failed: {result.stderr}")
-            
-            print("✅ Dependency installation completed")
-            
-        except Exception as e:
-            print(f"❌ Dependency installation error: {e}")
-
-    def log_gpu_memory(self, context=""):
-        """Log GPU memory usage"""
-        if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated() / (1024**3)
-            total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            free = total - allocated
-            
-            status = "🔥" if allocated > 0.1 else "❄️"
-            
-            print(f"{status} GPU {context}: {allocated:.2f}GB used, {free:.2f}GB free / {total:.1f}GB total")
-
-    def generate_with_diagnosis(self, prompt, job_type):
-        """Generate with full error diagnosis"""
-        config = self.job_type_mapping[job_type]
+    def diagnose_wan_gpu_usage(self, prompt):
+        """Diagnose GPU usage during Wan 2.1 generation"""
+        print("\n🔍 WAN 2.1 GPU USAGE DIAGNOSIS")
+        print("-" * 50)
+        
+        config = self.job_type_mapping['image_fast']
         job_id = str(uuid.uuid4())[:8]
-        
-        print(f"\n🎬 === GENERATION DIAGNOSIS ===")
-        print(f"📝 Job Type: {job_type}")
-        print(f"📝 Prompt: {prompt}")
-        print(f"📁 Wan Path: {self.wan_path}")
-        print(f"📁 Model Path: {self.model_path}")
         
         # Create temp directories
         temp_base = Path("/tmp/ourvidz")
@@ -268,16 +556,14 @@ class SimpleWorker:
         temp_processing = temp_base / "processing"
         temp_processing.mkdir(exist_ok=True)
         
-        # Output file
-        temp_video_filename = f"{job_type}_{job_id}.mp4"
-        temp_video_path = temp_processing / temp_video_filename
+        temp_video_path = temp_processing / f"diagnostic_{job_id}.mp4"
         
-        # Build command
+        # Build command with GPU monitoring
         cmd = [
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", self.model_path,
-            "--offload_model", "False",
+            "--offload_model", "False",  # Keep on GPU
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
@@ -288,10 +574,12 @@ class SimpleWorker:
         
         print(f"📋 Command: {' '.join(cmd)}")
         
-        # Environment
+        # Environment with GPU forced
         env = os.environ.copy()
         env.update({
             'CUDA_VISIBLE_DEVICES': '0',
+            'TORCH_USE_CUDA_DSA': '1',
+            'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
             'PYTHONUNBUFFERED': '1'
         })
         
@@ -299,223 +587,111 @@ class SimpleWorker:
         
         try:
             os.chdir(self.wan_path)
-            start_time = time.time()
-            self.log_gpu_memory("before generation")
             
-            print("🚀 Starting generation with full error capture...")
+            print("🚀 Starting generation with intensive GPU monitoring...")
             
-            # Run subprocess with complete output capture
-            result = subprocess.run(
+            # Start subprocess
+            process = subprocess.Popen(
                 cmd,
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=300  # 5 minute timeout
+                bufsize=1
             )
             
-            generation_time = time.time() - start_time
-            return_code = result.returncode
+            # Monitor GPU usage during generation
+            gpu_peaks = []
+            start_time = time.time()
             
-            print(f"⏱️ Generation completed in {generation_time:.1f}s")
-            print(f"🔧 Return code: {return_code}")
-            
-            self.log_gpu_memory("after generation")
-            
-            # Print ALL output for diagnosis
-            print("\n📋 === COMPLETE SUBPROCESS OUTPUT ===")
-            
-            if result.stdout:
-                print("STDOUT:")
-                for line in result.stdout.split('\n'):
-                    if line.strip():
-                        print(f"   {line}")
-            else:
-                print("STDOUT: (empty)")
-            
-            if result.stderr:
-                print("\nSTDERR:")
-                for line in result.stderr.split('\n'):
-                    if line.strip():
-                        print(f"   {line}")
-            else:
-                print("STDERR: (empty)")
-            
-            print("📋 === END OUTPUT ===\n")
-            
-            # Check if file was created
-            if return_code == 0 and temp_video_path.exists():
-                file_size = temp_video_path.stat().st_size / 1024
-                print(f"✅ Output file created: {file_size:.0f}KB")
-                return str(temp_video_path)
-            else:
-                print(f"❌ Generation failed")
-                return None
+            while process.poll() is None:
+                # Check GPU memory every 2 seconds
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / (1024**3)
+                    reserved = torch.cuda.memory_reserved() / (1024**3)
+                    
+                    if allocated > 0.1:  # More than 100MB
+                        gpu_peaks.append({
+                            'time': time.time() - start_time,
+                            'allocated': allocated,
+                            'reserved': reserved
+                        })
+                        print(f"   🔥 GPU usage detected: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
                 
-        except subprocess.TimeoutExpired:
-            print("❌ Generation timed out (5 minutes)")
-            return None
+                time.sleep(2)
+            
+            # Get final output
+            stdout, stderr = process.communicate()
+            generation_time = time.time() - start_time
+            
+            print(f"\n📊 GENERATION RESULTS:")
+            print(f"   Total time: {generation_time:.1f}s")
+            print(f"   Return code: {process.returncode}")
+            print(f"   GPU peaks detected: {len(gpu_peaks)}")
+            
+            if gpu_peaks:
+                max_usage = max(peak['allocated'] for peak in gpu_peaks)
+                print(f"   Peak GPU usage: {max_usage:.2f}GB")
+                print("   ✅ GPU was actively used during generation")
+            else:
+                print("   ❌ NO GPU usage detected during generation")
+                print("   💡 This confirms CPU fallback is occurring")
+            
+            # Print last few lines of output
+            if stderr:
+                print(f"\n📋 Generation stderr (last 5 lines):")
+                for line in stderr.split('\n')[-6:-1]:
+                    if line.strip():
+                        print(f"   {line}")
+            
+            return {
+                'success': process.returncode == 0,
+                'gpu_used': len(gpu_peaks) > 0,
+                'peak_usage': max((peak['allocated'] for peak in gpu_peaks), default=0),
+                'generation_time': generation_time
+            }
+            
         except Exception as e:
-            print(f"❌ Generation error: {e}")
-            return None
+            print(f"❌ Diagnostic generation failed: {e}")
+            return {'success': False, 'gpu_used': False, 'error': str(e)}
         finally:
             os.chdir(original_cwd)
 
-    def extract_frame_from_video(self, video_path, job_id, job_type):
-        """Extract frame for image jobs"""
-        temp_processing = Path("/tmp/ourvidz/processing")
-        image_path = temp_processing / f"{job_type}_{job_id}.png"
+    def generate_fix_recommendations(self):
+        """Generate specific fix recommendations based on diagnostics"""
+        print("\n💡 FIX RECOMMENDATIONS")
+        print("="*50)
         
-        try:
-            cap = cv2.VideoCapture(video_path)
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret and frame is not None:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(frame_rgb)
-                img.save(str(image_path), "PNG", optimize=True, quality=95)
-                
-                # Clean up video file
-                try:
-                    os.remove(video_path)
-                except:
-                    pass
-                    
-                return str(image_path)
-            else:
-                print("❌ Failed to read frame from video")
-                return None
-        except Exception as e:
-            print(f"❌ Frame extraction error: {e}")
-            return None
-
-    def upload_to_supabase(self, file_path, job_type, user_id, job_id):
-        """Upload to Supabase storage"""
-        if not os.path.exists(file_path):
-            print(f"❌ File not found for upload: {file_path}")
-            return None
-            
-        config = self.job_type_mapping[job_type]
-        storage_bucket = config['storage_bucket']
-        content_type = config['content_type']
-        file_extension = config['file_extension']
-        
-        timestamp = int(time.time())
-        filename = f"job_{job_id}_{timestamp}_{job_type}.{file_extension}"
-        full_path = f"{storage_bucket}/{user_id}/{filename}"
-        
-        mime_type = 'image/png' if content_type == 'image' else 'video/mp4'
-        
-        print(f"📤 Uploading to Supabase: {storage_bucket}/{filename}")
-        
-        try:
-            with open(file_path, 'rb') as f:
-                file_data = f.read()
-                file_size = len(file_data) / 1024
-                
-                response = requests.post(
-                    f"{self.supabase_url}/storage/v1/object/{full_path}",
-                    data=file_data,
-                    headers={
-                        'Authorization': f"Bearer {self.supabase_service_key}",
-                        'Content-Type': mime_type,
-                        'x-upsert': 'true'
-                    },
-                    timeout=60
-                )
-                
-                if response.status_code in [200, 201]:
-                    print(f"✅ Upload successful: {file_size:.0f}KB")
-                    return f"{user_id}/{filename}"
-                else:
-                    print(f"❌ Upload failed: {response.status_code} - {response.text}")
-                    return None
-                    
-        except Exception as e:
-            print(f"❌ Upload error: {e}")
-            return None
-        finally:
-            try:
-                if file_path and os.path.exists(file_path):
-                    os.remove(file_path)
-            except:
-                pass
-
-    def notify_completion(self, job_id, status, file_path=None, error_message=None):
-        """Notify completion via callback"""
-        data = {
-            'jobId': job_id,
-            'status': status,
-            'filePath': file_path,
-            'errorMessage': error_message
-        }
-        
-        try:
-            response = requests.post(
-                f"{self.supabase_url}/functions/v1/job-callback",
-                json=data,
-                headers={
-                    'Authorization': f"Bearer {self.supabase_service_key}",
-                    'Content-Type': 'application/json'
-                },
-                timeout=15
-            )
-            
-            if response.status_code == 200:
-                print(f"✅ Callback sent: {status}")
-            else:
-                print(f"❌ Callback failed: {response.status_code}")
-                
-        except Exception as e:
-            print(f"❌ Callback error: {e}")
-
-    def process_job(self, job_data):
-        """Process job with diagnosis"""
-        job_id = job_data.get('jobId')
-        job_type = job_data.get('jobType')
-        prompt = job_data.get('prompt')
-        user_id = job_data.get('userId')
-        
-        if not all([job_id, job_type, user_id, prompt]):
-            error_msg = "Missing required fields"
-            print(f"❌ {error_msg}")
-            self.notify_completion(job_id or 'unknown', 'failed', error_message=error_msg)
+        if not torch.cuda.is_available():
+            print("🔧 CRITICAL: Install CUDA-enabled PyTorch")
+            print("   pip uninstall torch torchvision")
+            print("   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
             return
-
-        print(f"\n🎯 Processing job: {job_id} ({job_type})")
-        print(f"👤 User: {user_id}")
-        print(f"📝 Prompt: {prompt}")
         
-        start_time = time.time()
-        
-        try:
-            # Generate with full diagnosis
-            output_path = self.generate_with_diagnosis(prompt, job_type)
+        # Check if we have modern GPU with potential architecture issues
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(0)
+            if props.major >= 8 and props.minor >= 9:  # Ada Lovelace
+                print("🔧 Ada Lovelace GPU detected - ensuring latest PyTorch")
+                print("   pip install torch==2.4.1+cu124 torchvision --index-url https://download.pytorch.org/whl/cu124")
             
-            if output_path:
-                # Handle image vs video
-                config = self.job_type_mapping[job_type]
-                if config['content_type'] == 'image':
-                    output_path = self.extract_frame_from_video(output_path, job_id, job_type)
+            # Check memory allocation capability
+            try:
+                test_tensor = torch.randn(1000, 1000, device='cuda')
+                allocated = torch.cuda.memory_allocated()
+                del test_tensor
+                torch.cuda.empty_cache()
                 
-                if output_path:
-                    # Upload to Supabase
-                    supa_path = self.upload_to_supabase(output_path, job_type, user_id, job_id)
-                    if supa_path:
-                        duration = time.time() - start_time
-                        print(f"🎉 Job completed successfully in {duration:.1f}s")
-                        self.notify_completion(job_id, 'completed', supa_path)
-                        return
-            
-            print("❌ Job failed")
-            self.notify_completion(job_id, 'failed', error_message="Generation failed")
-            
-        except Exception as e:
-            print(f"❌ Job processing error: {e}")
-            self.notify_completion(job_id, 'failed', error_message=str(e))
+                if allocated == 0:
+                    print("🔧 GPU memory allocation issue detected")
+                    print("   export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128")
+                    print("   export CUDA_LAUNCH_BLOCKING=1")
+            except Exception as e:
+                print(f"🔧 GPU allocation test failed: {e}")
+                print("   Check CUDA driver compatibility")
 
     def poll_queue(self):
-        """Poll Redis queue"""
+        """Poll Redis queue for diagnostic jobs"""
         try:
             response = requests.get(
                 f"{self.redis_url}/rpop/job_queue",
@@ -529,9 +705,9 @@ class SimpleWorker:
         return None
 
     def run(self):
-        """Main loop"""
-        print("\n🎬 SIMPLE WORKER READY!")
-        print("🔍 Will provide complete error diagnosis for generation issues")
+        """Main diagnostic loop"""
+        print("\n🎬 CUDA DIAGNOSTIC WORKER READY!")
+        print("🔍 Will perform comprehensive diagnosis on first job")
         print("⏳ Waiting for jobs...\n")
         
         job_count = 0
@@ -540,14 +716,31 @@ class SimpleWorker:
             job = self.poll_queue()
             if job:
                 job_count += 1
-                print(f"🚀 === PROCESSING JOB #{job_count} ===")
-                self.process_job(job)
+                print(f"🚀 === DIAGNOSTIC JOB #{job_count} ===")
+                
+                # Run Wan 2.1 diagnostic on first job
+                if job_count == 1:
+                    prompt = job.get('prompt', 'diagnostic test')
+                    result = self.diagnose_wan_gpu_usage(prompt)
+                    
+                    print(f"\n🎯 DIAGNOSTIC SUMMARY:")
+                    print(f"   Generation successful: {result.get('success', False)}")
+                    print(f"   GPU utilized: {result.get('gpu_used', False)}")
+                    print(f"   Peak GPU usage: {result.get('peak_usage', 0):.2f}GB")
+                    print(f"   Generation time: {result.get('generation_time', 0):.1f}s")
+                    
+                    if not result.get('gpu_used', False):
+                        print("\n❌ CONFIRMED: CPU FALLBACK OCCURRING")
+                        self.generate_fix_recommendations()
+                    else:
+                        print("\n✅ GPU utilization confirmed")
+                
                 print("=" * 80)
             else:
                 time.sleep(5)
 
 if __name__ == "__main__":
-    print("🚀 Starting OurVidz SIMPLE WORKER")
+    print("🔍 Starting CUDA Diagnostic Worker")
     
     # Verify environment
     required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
@@ -557,8 +750,8 @@ if __name__ == "__main__":
         exit(1)
     
     try:
-        worker = SimpleWorker()
+        worker = CUDADiagnosticWorker()
         worker.run()
     except Exception as e:
-        print(f"❌ Worker failed: {e}")
+        print(f"❌ Diagnostic worker failed: {e}")
         exit(1)
