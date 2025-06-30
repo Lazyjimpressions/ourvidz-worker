@@ -47,8 +47,8 @@ class OptimizedVideoWorker:
             'image_high': {
                 'content_type': 'image', 
                 'file_extension': 'png',
-                'sample_steps': 20,
-                'sample_guide_scale': 8.0,
+                'sample_steps': 30,
+                'sample_guide_scale': 10.0,
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
@@ -67,12 +67,12 @@ class OptimizedVideoWorker:
             'video_high': {
                 'content_type': 'video',
                 'file_extension': 'mp4', 
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
+                'sample_steps': 20,
+                'sample_guide_scale': 8.0,
                 'size': '832*480',
                 'frame_num': 81,  # 1 second at 16fps
                 'storage_bucket': 'video_high',
-                'expected_time': 120
+                'expected_time': 150
             }
         }
         
