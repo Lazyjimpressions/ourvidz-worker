@@ -253,8 +253,17 @@ class OptimizedVideoWorker:
             )
             
             if response.status_code in [200, 201]:
-                # Return the relative path for database storage
-                return storage_path
+                # Extract just the relative path within bucket (remove bucket prefix)
+                # storage_path = "bucket/user_id/filename.png"
+                # Return: "user_id/filename.png" (relative path within bucket)
+                path_parts = storage_path.split('/', 1)  # Split on first slash only
+                if len(path_parts) == 2:
+                    relative_path = path_parts[1]  # Everything after bucket name
+                    print(f"📁 Uploaded to bucket, relative path: {relative_path}")
+                    return relative_path
+                else:
+                    print(f"⚠️ Unexpected storage path format: {storage_path}")
+                    return storage_path
             else:
                 print(f"❌ Upload failed: {response.status_code} - {response.text}")
                 return None
