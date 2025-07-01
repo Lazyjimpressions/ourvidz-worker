@@ -53,6 +53,9 @@ pip install tokenizers==0.19.1 sentencepiece==0.2.0 tqdm==4.66.5 \
 pip install imageio==2.34.2 imageio-ffmpeg==0.5.1 \
     click==8.1.7 omegaconf==2.3.0 --no-deps
 
+echo "⏳ Waiting for installations to settle..."
+sleep 5
+
 # Setup Wan 2.1
 echo "🎥 Setting up Wan 2.1..."
 cd /workspace
@@ -73,27 +76,74 @@ if [ ! -f "$SDXL_MODEL" ]; then
         "https://huggingface.co/John6666/lustify-sdxl-nsfw-checkpoint-olt-one-last-time-sdxl/resolve/main/lustifySDXLNSFWSFW_v20.safetensors"
 fi
 
-# Validate environment
 echo "🔧 Validating setup..."
 cd /workspace/ourvidz-worker
+
+# Comprehensive validation with retries
+echo "🔍 Final dependency check..."
 python -c "
-import torch; print(f'PyTorch: {torch.__version__}')
-import diffusers; print(f'Diffusers: {diffusers.__version__}')
-print(f'GPU: {torch.cuda.get_device_name(0)}')
-print(f'VRAM: {torch.cuda.get_device_properties(0).total_memory/(1024**3):.1f}GB')
+import sys
+missing = []
+
+try:
+    import torch
+    print(f'✅ PyTorch: {torch.__version__}')
+except ImportError:
+    missing.append('torch')
+
+try:
+    import diffusers
+    print(f'✅ Diffusers: {diffusers.__version__}')
+except ImportError:
+    missing.append('diffusers')
+
+try:
+    import transformers
+    print(f'✅ Transformers: {transformers.__version__}')
+except ImportError:
+    missing.append('transformers')
+
+try:
+    import requests
+    print(f'✅ Requests: Available')
+except ImportError:
+    missing.append('requests')
+
+try:
+    from PIL import Image
+    print(f'✅ Pillow: Available')
+except ImportError:
+    missing.append('pillow')
+
+if torch.cuda.is_available():
+    print(f'✅ GPU: {torch.cuda.get_device_name(0)}')
+    print(f'✅ VRAM: {torch.cuda.get_device_properties(0).total_memory/(1024**3):.1f}GB')
+else:
+    missing.append('cuda')
 
 try:
     import xformers
-    print(f'xformers: {xformers.__version__}')
+    print(f'✅ xformers: {xformers.__version__}')
 except:
-    print('xformers: Not available')
+    print('⚠️ xformers: Not available (optional)')
 
 try:
     import accelerate
-    print(f'accelerate: {accelerate.__version__}')
+    print(f'✅ accelerate: {accelerate.__version__}')
 except:
-    print('accelerate: Not available')
+    print('⚠️ accelerate: Not available (optional)')
+
+if missing:
+    print(f'❌ Missing critical dependencies: {missing}')
+    sys.exit(1)
+else:
+    print('🎉 All critical dependencies available!')
 "
 
-echo "🚀 Starting dual orchestrator..."
+if [ $? -ne 0 ]; then
+    echo "❌ Dependency validation failed - cannot start workers"
+    exit 1
+fi
+
+echo "🚀 All dependencies validated - starting dual orchestrator..."
 exec python -u dual_orchestrator.py
