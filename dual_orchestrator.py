@@ -39,7 +39,7 @@ class DualWorkerOrchestrator:
         # Worker configurations
         self.worker_configs = {
             'sdxl_worker': {
-                'script': '/workspace/ourvidz-worker/sdxl_worker_fixed.py',
+                'script': '/workspace/ourvidz-worker/sdxl_worker.py',
                 'name': 'LUSTIFY SDXL Worker',
                 'queue': 'sdxl_queue',
                 'expected_vram': '10.5GB',
