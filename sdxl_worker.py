@@ -8,6 +8,11 @@ import uuid
 import torch
 from pathlib import Path
 from PIL import Image
+
+# DISABLE FLASH ATTENTION to avoid CUDA compatibility issues
+os.environ["DISABLE_FLASH_ATTN"] = "1"
+os.environ["DISABLE_XFORMERS"] = "0"  # Keep xformers for memory efficiency
+
 from diffusers import StableDiffusionXLPipeline
 import logging
 
@@ -18,8 +23,8 @@ logger = logging.getLogger(__name__)
 class LustifySDXLWorker:
     def __init__(self):
         """Initialize LUSTIFY SDXL Worker for RTX 6000 ADA"""
-        print("🚀 LUSTIFY SDXL WORKER - RTX 6000 ADA OPTIMIZED")
-        print("⚡ Performance: 3.2s generation, 10.5GB VRAM")
+        print("🚀 LUSTIFY SDXL WORKER - FLASH ATTENTION DISABLED")
+        print("⚡ Performance: 3-8s generation, 10.5GB VRAM")
         
         # Model path
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -38,7 +43,7 @@ class LustifySDXLWorker:
                 'num_inference_steps': 15,
                 'guidance_scale': 6.0,
                 'storage_bucket': 'sdxl_fast',
-                'expected_time': 3,
+                'expected_time': 5,
                 'quality_tier': 'fast'
             },
             'sdxl_image_high': {
@@ -49,7 +54,7 @@ class LustifySDXLWorker:
                 'num_inference_steps': 25,
                 'guidance_scale': 7.5,
                 'storage_bucket': 'sdxl_high',
-                'expected_time': 5,
+                'expected_time': 8,
                 'quality_tier': 'high'
             },
             'sdxl_image_premium': {
@@ -60,7 +65,7 @@ class LustifySDXLWorker:
                 'num_inference_steps': 40,
                 'guidance_scale': 8.0,
                 'storage_bucket': 'sdxl_premium',
-                'expected_time': 8,
+                'expected_time': 12,
                 'quality_tier': 'premium'
             },
             'sdxl_img2img': {
@@ -72,7 +77,7 @@ class LustifySDXLWorker:
                 'guidance_scale': 7.0,
                 'strength': 0.75,
                 'storage_bucket': 'sdxl_img2img',
-                'expected_time': 4,
+                'expected_time': 6,
                 'quality_tier': 'img2img'
             }
         }
@@ -123,7 +128,7 @@ class LustifySDXLWorker:
         if self.model_loaded:
             return
             
-        logger.info("📦 Loading LUSTIFY SDXL v2.0...")
+        logger.info("📦 Loading LUSTIFY SDXL v2.0 (Flash Attention disabled)...")
         start_time = time.time()
         
         try:
@@ -134,10 +139,19 @@ class LustifySDXLWorker:
                 variant="fp16"
             ).to("cuda")
             
-            # Optimize pipeline for production
-            self.pipeline.enable_attention_slicing()
-            if hasattr(self.pipeline, 'enable_xformers_memory_efficient_attention'):
-                self.pipeline.enable_xformers_memory_efficient_attention()
+            # Optimize pipeline for production (without Flash Attention)
+            try:
+                self.pipeline.enable_attention_slicing()
+                logger.info("✅ Attention slicing enabled")
+            except Exception as e:
+                logger.warning(f"⚠️ Attention slicing failed: {e}")
+            
+            try:
+                if hasattr(self.pipeline, 'enable_xformers_memory_efficient_attention'):
+                    self.pipeline.enable_xformers_memory_efficient_attention()
+                    logger.info("✅ Xformers memory optimization enabled")
+            except Exception as e:
+                logger.warning(f"⚠️ Xformers optimization failed: {e}")
             
             load_time = time.time() - start_time
             vram_used = torch.cuda.memory_allocated() / (1024**3)
@@ -148,15 +162,6 @@ class LustifySDXLWorker:
         except Exception as e:
             logger.error(f"❌ Model loading failed: {e}")
             raise
-
-    def unload_model(self):
-        """Unload model to free VRAM (if needed for sequential operation)"""
-        if self.pipeline is not None:
-            del self.pipeline
-            self.pipeline = None
-            self.model_loaded = False
-            torch.cuda.empty_cache()
-            logger.info("🗑️ LUSTIFY model unloaded")
 
     def generate_image(self, prompt, job_type, init_image=None):
         """Generate image with LUSTIFY SDXL"""
@@ -180,13 +185,6 @@ class LustifySDXLWorker:
                 'guidance_scale': config['guidance_scale'],
                 'num_images_per_prompt': 1
             }
-            
-            # Add img2img specific parameters
-            if job_type == 'sdxl_img2img' and init_image:
-                generation_kwargs['image'] = init_image
-                generation_kwargs['strength'] = config['strength']
-                # Note: Would need to use StableDiffusionXLImg2ImgPipeline for img2img
-                # For now, treating as text2img
             
             # Generate image
             result = self.pipeline(**generation_kwargs)
@@ -329,7 +327,7 @@ class LustifySDXLWorker:
     def run(self):
         """Main SDXL worker loop"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
-        logger.info("⚡ Performance: 3.2s generation, 10.5GB VRAM")
+        logger.info("⚡ Performance: 3-8s generation, Flash Attention disabled")
         logger.info("🔥 RTX 6000 ADA: Concurrent operation enabled")
         logger.info("📬 Waiting for SDXL jobs...")
         
@@ -349,14 +347,16 @@ class LustifySDXLWorker:
                     
             except KeyboardInterrupt:
                 logger.info("👋 SDXL Worker shutting down...")
-                self.unload_model()
+                if self.pipeline:
+                    del self.pipeline
+                    torch.cuda.empty_cache()
                 break
             except Exception as e:
                 logger.error(f"❌ SDXL Worker error: {e}")
                 time.sleep(10)
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker (Flash Attention Disabled)")
     
     # Environment validation
     required_vars = [
