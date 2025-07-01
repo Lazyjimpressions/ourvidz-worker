@@ -1,0 +1,45 @@
+# requirements_locked.txt - Version-Locked for Stability
+# Base PyTorch ecosystem - MUST stay compatible
+torch==2.4.1+cu124
+torchvision==0.19.1+cu124
+torchaudio==2.4.1+cu124
+--find-links https://download.pytorch.org/whl/cu124/torch_stable.html
+
+# Flash Attention - Built for PyTorch 2.4.1
+flash-attn==2.8.0.post2 --no-build-isolation
+
+# Diffusers ecosystem - Compatible versions
+diffusers==0.31.0
+transformers==4.45.2
+accelerate==0.35.0
+safetensors==0.4.5
+huggingface-hub==0.26.2
+
+# xformers - MUST match PyTorch 2.4.1
+xformers==0.0.28.post2
+
+# Core dependencies
+numpy==1.26.4
+pillow==10.4.0
+opencv-python==4.10.0.84
+requests==2.32.3
+scipy==1.14.1
+
+# Text processing
+tokenizers==0.20.3
+sentencepiece==0.2.0
+
+# Utilities
+tqdm==4.66.5
+pydantic==2.9.2
+typing-extensions==4.12.2
+einops==0.8.0
+
+# System utilities
+psutil==6.0.0
+imageio==2.36.0
+imageio-ffmpeg==0.5.1
+
+# Audio processing (for future)
+librosa==0.10.2
+soundfile==0.12.1
