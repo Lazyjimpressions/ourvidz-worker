@@ -1,6 +1,12 @@
-# sdxl_worker.py - LUSTIFY SDXL Worker for RTX 6000 ADA
-# Optimized for 48GB VRAM with concurrent Wan 2.1 operation
+# sdxl_worker.py - LUSTIFY SDXL Worker (Flash Attention Fix)
+# CRITICAL: Set environment variables BEFORE any imports
+
 import os
+# DISABLE FLASH ATTENTION BEFORE ANY IMPORTS
+os.environ["DISABLE_FLASH_ATTN"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+os.environ["DIFFUSERS_VERBOSITY"] = "error"
+
 import json
 import time
 import requests
@@ -8,11 +14,6 @@ import uuid
 import torch
 from pathlib import Path
 from PIL import Image
-
-# DISABLE FLASH ATTENTION to avoid CUDA compatibility issues
-os.environ["DISABLE_FLASH_ATTN"] = "1"
-os.environ["DISABLE_XFORMERS"] = "0"  # Keep xformers for memory efficiency
-
 from diffusers import StableDiffusionXLPipeline
 import logging
 
