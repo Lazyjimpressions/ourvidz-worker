@@ -37,8 +37,8 @@ class OptimizedVideoWorker:
             'image_fast': {
                 'content_type': 'image',
                 'file_extension': 'png',
-                'sample_steps': 20,
-                'sample_guide_scale': 8.0,
+                'sample_steps': 12,
+                'sample_guide_scale': 6.0,
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_fast',
@@ -47,8 +47,8 @@ class OptimizedVideoWorker:
             'image_high': {
                 'content_type': 'image', 
                 'file_extension': 'png',
-                'sample_steps': 100,
-                'sample_guide_scale': 20.0,
+                'sample_steps': 25,
+                'sample_guide_scale': 7.5,
                 'size': '832*480',
                 'frame_num': 1,
                 'storage_bucket': 'image_high',
@@ -57,20 +57,20 @@ class OptimizedVideoWorker:
             'video_fast': {
                 'content_type': 'video',
                 'file_extension': 'mp4',
-                'sample_steps': 20,
-                'sample_guide_scale': 8.0,
+                'sample_steps': 15,
+                'sample_guide_scale': 6.5,
                 'size': '480*832',
-                'frame_num': 81,  # 5 second at 16fps
+                'frame_num': 65,  # 5 second at 16fps
                 'storage_bucket': 'video_fast',
                 'expected_time': 180
             },
             'video_high': {
                 'content_type': 'video',
                 'file_extension': 'mp4', 
-                'sample_steps': 40,
-                'sample_guide_scale': 12.0,
+                'sample_steps': 25,
+                'sample_guide_scale': 8.0,
                 'size': '832*480',
-                'frame_num': 97,  # 6 second at 16fps
+                'frame_num': 81,  # 6 second at 16fps
                 'storage_bucket': 'video_high',
                 'expected_time': 280
             }
