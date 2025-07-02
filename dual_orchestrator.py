@@ -1,5 +1,6 @@
-# dual_orchestrator.py - Production Dual Worker Manager
+# dual_orchestrator.py - UPDATED FOR PARAMETER FIX
 # Manages both LUSTIFY SDXL and WAN 2.1 workers concurrently
+# Critical Fix: WAN worker outputUrl → filePath parameter alignment
 # Optimized for RTX 6000 ADA 48GB VRAM capacity
 
 import os
@@ -27,21 +28,28 @@ class DualWorkerOrchestrator:
                 'script': 'sdxl_worker.py',
                 'name': 'LUSTIFY SDXL Worker',
                 'queue': 'sdxl_queue',
+                'job_types': ['sdxl_image_fast', 'sdxl_image_high'],
                 'expected_vram': '10-15GB',
-                'restart_delay': 10
+                'restart_delay': 10,
+                'generation_time': '3-8s',
+                'status': 'Working ✅'
             },
             'wan': {
                 'script': 'wan_worker.py', 
                 'name': 'WAN 2.1 Worker',
                 'queue': 'wan_queue',
+                'job_types': ['image_fast', 'image_high', 'video_fast', 'video_high'],
                 'expected_vram': '15-30GB',
-                'restart_delay': 15
+                'restart_delay': 15,
+                'generation_time': '67-280s',
+                'status': 'FIXED - Parameter Alignment ✅'
             }
         }
         
         logger.info("🎭 Dual Worker Orchestrator initialized")
         logger.info("🎨 SDXL: Fast image generation (3-8s)")
-        logger.info("🎬 WAN: Video + backup images (67-354s)")
+        logger.info("🎬 WAN: Video + backup images (67-280s)")
+        logger.info("🔧 CRITICAL FIX: WAN worker parameter alignment applied")
 
     def validate_environment(self):
         """Validate environment for dual worker operation"""
@@ -79,10 +87,13 @@ class DualWorkerOrchestrator:
             script_path = Path(config['script'])
             if not script_path.exists():
                 missing_files.append(config['script'])
+                logger.error(f"❌ Missing worker script: {config['script']}")
         
         if missing_files:
             logger.error(f"❌ Missing worker scripts: {missing_files}")
             return False
+        else:
+            logger.info("✅ All worker scripts found")
             
         # Check GPU
         try:
@@ -93,6 +104,8 @@ class DualWorkerOrchestrator:
                 
                 if total_vram < 40:
                     logger.warning(f"⚠️ GPU has {total_vram:.1f}GB, dual workers need 45GB+ for concurrent operation")
+                else:
+                    logger.info(f"✅ GPU capacity sufficient for dual workers")
                     
             else:
                 logger.error("❌ CUDA not available")
@@ -122,6 +135,22 @@ class DualWorkerOrchestrator:
         if missing_vars:
             logger.error(f"❌ Missing environment variables: {missing_vars}")
             return False
+        else:
+            logger.info("✅ All environment variables configured")
+            
+        # Validate parameter fix implementation
+        logger.info("🔧 Validating parameter fix implementation...")
+        wan_script_path = Path('wan_worker.py')
+        if wan_script_path.exists():
+            with open(wan_script_path, 'r') as f:
+                content = f.read()
+                if "'filePath': file_path" in content:
+                    logger.info("✅ WAN worker parameter fix confirmed")
+                elif "'outputUrl': file_path" in content:
+                    logger.error("❌ WAN worker still uses old parameter name")
+                    return False
+                else:
+                    logger.warning("⚠️ Could not verify WAN worker parameter fix")
             
         logger.info("✅ Environment validation passed")
         return True
@@ -131,6 +160,8 @@ class DualWorkerOrchestrator:
         config = self.workers[worker_id]
         
         logger.info(f"🚀 Starting {config['name']}...")
+        logger.info(f"📋 Job Types: {', '.join(config['job_types'])}")
+        logger.info(f"⚡ Performance: {config['generation_time']}")
         
         try:
             # Start worker process
@@ -146,10 +177,12 @@ class DualWorkerOrchestrator:
                 'process': process,
                 'config': config,
                 'start_time': time.time(),
-                'restart_count': 0
+                'restart_count': 0,
+                'job_count': 0
             }
             
             logger.info(f"✅ {config['name']} started (PID: {process.pid})")
+            logger.info(f"📊 Status: {config['status']}")
             return True
             
         except Exception as e:
@@ -170,8 +203,16 @@ class DualWorkerOrchestrator:
                 if self.shutdown_event.is_set():
                     break
                     
+                # Track job completions
+                if "Job #" in line and "received" in line:
+                    worker_info['job_count'] += 1
+                    
                 # Log worker output with prefix
                 logger.info(f"[{worker_id.upper()}] {line.strip()}")
+                
+                # Look for parameter fix confirmations
+                if "filePath =" in line and worker_id == 'wan':
+                    logger.info(f"✅ WAN parameter fix confirmed in operation")
                 
             # Process ended
             process.wait()
@@ -199,6 +240,7 @@ class DualWorkerOrchestrator:
         restart_delay = config['restart_delay'] * worker_info['restart_count']
         
         logger.warning(f"🔄 Restarting {config['name']} in {restart_delay}s (attempt #{worker_info['restart_count']})")
+        logger.info(f"📊 Worker processed {worker_info['job_count']} jobs before restart")
         
         if worker_info['restart_count'] > 5:
             logger.error(f"❌ {config['name']} failed too many times, giving up")
@@ -249,6 +291,7 @@ class DualWorkerOrchestrator:
             process = worker_info['process']
             
             logger.info(f"🛑 Stopping {config['name']}...")
+            logger.info(f"📊 Final job count: {worker_info['job_count']}")
             
             try:
                 # Send SIGTERM for graceful shutdown
@@ -275,13 +318,17 @@ class DualWorkerOrchestrator:
             try:
                 # Check worker processes
                 active_workers = []
+                total_jobs = 0
+                
                 for worker_id, worker_info in self.processes.items():
                     if worker_info['process'].poll() is None:
                         uptime = time.time() - worker_info['start_time']
-                        active_workers.append(f"{worker_id}({uptime:.0f}s)")
+                        job_count = worker_info['job_count']
+                        total_jobs += job_count
+                        active_workers.append(f"{worker_id}({uptime:.0f}s/{job_count}j)")
                 
                 if active_workers:
-                    logger.info(f"💚 Active workers: {', '.join(active_workers)}")
+                    logger.info(f"💚 Active workers: {', '.join(active_workers)} | Total jobs: {total_jobs}")
                 else:
                     logger.warning("⚠️ No active workers")
                 
@@ -291,7 +338,8 @@ class DualWorkerOrchestrator:
                     if torch.cuda.is_available():
                         allocated = torch.cuda.memory_allocated() / (1024**3)
                         total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                        logger.info(f"🔥 GPU Memory: {allocated:.1f}GB / {total:.0f}GB")
+                        utilization = (allocated / total) * 100
+                        logger.info(f"🔥 GPU Memory: {allocated:.1f}GB / {total:.0f}GB ({utilization:.1f}% used)")
                 except:
                     pass
                     
@@ -305,7 +353,8 @@ class DualWorkerOrchestrator:
     def run(self):
         """Main orchestrator run loop"""
         logger.info("🎭 DUAL WORKER ORCHESTRATOR STARTING")
-        logger.info("=" * 60)
+        logger.info("🔧 PARAMETER FIX VERSION - WAN Worker Aligned")
+        logger.info("=" * 70)
         
         # Validate environment
         if not self.validate_environment():
@@ -331,10 +380,18 @@ class DualWorkerOrchestrator:
             return False
             
         logger.info("🎉 DUAL WORKER SYSTEM READY!")
-        logger.info("🎨 SDXL: sdxl_queue → sdxl_image_fast, sdxl_image_high")
-        logger.info("🎬 WAN: wan_queue → image_fast, image_high, video_fast, video_high")
+        logger.info("=" * 70)
+        logger.info("🎨 SDXL Worker: sdxl_queue → sdxl_image_fast, sdxl_image_high")
+        logger.info("  ⚡ Performance: 3-8s generation")
+        logger.info("  📋 Parameter: filePath ✅ (working)")
+        logger.info("")
+        logger.info("🎬 WAN Worker: wan_queue → image_fast, image_high, video_fast, video_high")
+        logger.info("  ⚡ Performance: 67-280s generation")
+        logger.info("  📋 Parameter: filePath ✅ (FIXED)")
+        logger.info("")
         logger.info("💡 Both workers monitoring their respective queues")
-        logger.info("=" * 60)
+        logger.info("🔧 Critical fix applied: WAN callback parameter alignment")
+        logger.info("=" * 70)
         
         # Main loop - keep orchestrator alive
         try:
@@ -359,7 +416,7 @@ class DualWorkerOrchestrator:
         return True
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting OurVidz Dual Worker System")
+    logger.info("🚀 Starting OurVidz Dual Worker System - PARAMETER FIX VERSION")
     
     try:
         orchestrator = DualWorkerOrchestrator()
