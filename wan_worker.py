@@ -243,4 +243,372 @@ class OptimizedWanWorker:
         config = self.job_type_mapping[job_type]
         
         if config['content_type'] != 'image':
-            raise ValueError(f"Batch generation only supporte
+            raise ValueError(f"Batch generation only supported for image jobs")d for image jobs")
+        
+        logger.info(f"🎨 Starting batch generation: {num_images} images for {job_type}")
+        logger.info(f"📝 Prompt: {prompt}")
+        
+        video_paths = []
+        batch_start_time = time.time()
+        
+        for i in range(num_images):
+            try:
+                logger.info(f"🔄 Generating image {i+1}/{num_images}")
+                video_path = self.generate_with_wan21(prompt, job_type, image_index=i+1)
+                
+                if video_path:
+                    video_paths.append(video_path)
+                    logger.info(f"✅ Image {i+1} generated successfully")
+                else:
+                    logger.warning(f"⚠️ Image {i+1} generation failed")
+                    video_paths.append(None)
+                
+                # Brief pause between generations to prevent overheating
+                if i < num_images - 1:  # Don't wait after the last one
+                    time.sleep(2)
+                    
+            except Exception as e:
+                logger.error(f"❌ Image {i+1} generation error: {e}")
+                video_paths.append(None)
+        
+        batch_time = time.time() - batch_start_time
+        successful_count = len([p for p in video_paths if p is not None])
+        
+        logger.info(f"🎉 Batch generation complete: {successful_count}/{num_images} successful")
+        logger.info(f"⏱️ Total batch time: {batch_time:.1f}s, avg per image: {batch_time/num_images:.1f}s")
+        
+        return video_paths
+
+    def extract_images_from_videos_batch(self, video_paths, job_id, user_id, config):
+        """Extract first frame from multiple videos and upload"""
+        upload_urls = []
+        timestamp = int(time.time())
+        
+        logger.info(f"🖼️ Extracting and uploading {len(video_paths)} images...")
+        
+        for i, video_path in enumerate(video_paths):
+            if video_path is None:
+                logger.warning(f"⚠️ Skipping image {i+1} - generation failed")
+                upload_urls.append(None)
+                continue
+                
+            try:
+                # Create unique filename for each image
+                filename = f"wan_{job_id}_{timestamp}_{i+1}.png"
+                image_path = Path(f"/tmp/{filename}")
+                
+                # Extract frame from video
+                if self.extract_image_from_video(video_path, image_path):
+                    # Upload image
+                    storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
+                    upload_path = self.upload_to_supabase(image_path, storage_path)
+                    
+                    if upload_path:
+                        upload_urls.append(upload_path)
+                        logger.info(f"✅ Image {i+1} uploaded: {upload_path}")
+                    else:
+                        logger.error(f"❌ Image {i+1} upload failed")
+                        upload_urls.append(None)
+                    
+                    # Cleanup temp files
+                    image_path.unlink(missing_ok=True)
+                else:
+                    logger.error(f"❌ Image {i+1} frame extraction failed")
+                    upload_urls.append(None)
+                
+                # Cleanup video file
+                Path(video_path).unlink(missing_ok=True)
+                
+            except Exception as e:
+                logger.error(f"❌ Image {i+1} processing failed: {e}")
+                upload_urls.append(None)
+        
+        # Filter out failed uploads
+        successful_uploads = [url for url in upload_urls if url is not None]
+        logger.info(f"📊 Upload summary: {len(successful_uploads)}/{len(video_paths)} images successful")
+        
+        return successful_uploads
+
+    def extract_image_from_video(self, video_path, output_path):
+        """Extract first frame from video for image jobs"""
+        try:
+            # Use OpenCV to extract first frame
+            cap = cv2.VideoCapture(str(video_path))
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret:
+                # Convert BGR to RGB and save as PNG
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(frame_rgb)
+                image.save(output_path, "PNG", quality=95, optimize=True)
+                return True
+            else:
+                print("❌ Failed to extract frame from video")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Frame extraction failed: {e}")
+            return False
+
+    def upload_to_supabase(self, file_path, storage_path):
+        """Upload file to Supabase storage with proper Content-Type"""
+        try:
+            # Verify file exists before upload
+            if not Path(file_path).exists():
+                logger.error(f"❌ File does not exist: {file_path}")
+                return None
+                
+            # Get file size for verification
+            file_size = Path(file_path).stat().st_size
+            
+            # Determine content type based on file extension
+            if storage_path.endswith('.png'):
+                content_type = 'image/png'
+            elif storage_path.endswith('.mp4'):
+                content_type = 'video/mp4'
+            else:
+                content_type = 'application/octet-stream'
+            
+            # Use proper binary upload with explicit Content-Type
+            with open(file_path, 'rb') as file:
+                file_data = file.read()
+            
+            headers = {
+                'Authorization': f"Bearer {self.supabase_service_key}",
+                'Content-Type': content_type,  # ✅ Explicit content type
+                'x-upsert': 'true'
+            }
+            
+            response = requests.post(
+                f"{self.supabase_url}/storage/v1/object/{storage_path}",
+                data=file_data,  # ✅ Raw binary data
+                headers=headers,
+                timeout=120  # Longer timeout for video uploads
+            )
+            
+            if response.status_code in [200, 201]:
+                # Extract relative path within bucket
+                path_parts = storage_path.split('/', 1)
+                if len(path_parts) == 2:
+                    relative_path = path_parts[1]
+                    return relative_path
+                else:
+                    logger.warning(f"⚠️ Unexpected storage path format: {storage_path}")
+                    return storage_path
+            else:
+                logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Upload error: {e}")
+            return None
+
+    def process_job(self, job_data):
+        """Process a single job with batch generation support"""
+        job_id = job_data['jobId']
+        job_type = job_data['jobType']
+        prompt = job_data['prompt']
+        user_id = job_data['userId']
+        video_id = job_data.get('videoId')
+        image_id = job_data.get('imageId')
+        
+        # Extract num_images from metadata (default to 6 for image jobs)
+        num_images = job_data.get('metadata', {}).get('num_images', 6 if 'image' in job_type else 1)
+        
+        print(f"\n🚀 === PROCESSING WAN JOB {job_id} ===")
+        print(f"Type: {job_type}")
+        print(f"Prompt: {prompt}")
+        if 'image' in job_type:
+            print(f"🖼️ Generating {num_images} images")
+        
+        try:
+            config = self.job_type_mapping[job_type]
+            start_time = time.time()
+            
+            if config['content_type'] == 'image' and num_images > 1:
+                # Batch image generation
+                video_paths = self.generate_images_batch(prompt, job_type, num_images)
+                
+                if not any(video_paths):
+                    raise Exception("All image generations failed")
+                
+                # Extract and upload all images
+                upload_urls = self.extract_images_from_videos_batch(video_paths, job_id, user_id, config)
+                
+                if not upload_urls:
+                    raise Exception("All image uploads failed")
+                
+                total_time = time.time() - start_time
+                print(f"✅ WAN Job {job_id} completed in {total_time:.1f}s")
+                print(f"📁 Generated {len(upload_urls)} images")
+                print(f"🪣 Bucket: {config['storage_bucket']}")
+                
+                # Notify completion with image URLs array
+                self.notify_completion(job_id, 'completed', image_urls=upload_urls)
+                
+            else:
+                # Single generation (video or single image)
+                output_path = self.generate_with_wan21(prompt, job_type)
+                
+                if not output_path:
+                    raise Exception("Generation failed - no output file")
+                
+                upload_path = None
+                
+                if config['content_type'] == 'image':
+                    # Single image - extract frame
+                    image_path = Path(output_path).with_suffix('.png')
+                    if self.extract_image_from_video(output_path, image_path):
+                        timestamp = int(time.time())
+                        filename = f"wan_{job_id}_{timestamp}.png"
+                        storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
+                        upload_path = self.upload_to_supabase(image_path, storage_path)
+                        
+                        # Cleanup temp files
+                        Path(output_path).unlink(missing_ok=True)
+                        image_path.unlink(missing_ok=True)
+                    else:
+                        raise Exception("Frame extraction failed")
+                        
+                else:  # video
+                    # Single video upload
+                    timestamp = int(time.time())
+                    filename = f"wan_{job_id}_{timestamp}.mp4"
+                    storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
+                    upload_path = self.upload_to_supabase(output_path, storage_path)
+                    
+                    # Cleanup temp file
+                    Path(output_path).unlink(missing_ok=True)
+                
+                if not upload_path:
+                    raise Exception("File upload failed")
+                
+                total_time = time.time() - start_time
+                print(f"✅ WAN Job {job_id} completed in {total_time:.1f}s")
+                print(f"📁 File: {upload_path}")
+                print(f"🪣 Bucket: {config['storage_bucket']}")
+                
+                # Notify completion with single file
+                self.notify_completion(job_id, 'completed', file_path=upload_path)
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ WAN Job {job_id} failed: {error_msg}")
+            self.notify_completion(job_id, 'failed', error_message=error_msg)
+        finally:
+            # Cleanup GPU memory and temp files
+            torch.cuda.empty_cache()
+            gc.collect()
+
+    def notify_completion(self, job_id, status, file_path=None, image_urls=None, error_message=None):
+        """Notify Supabase of job completion with batch support"""
+        try:
+            callback_data = {
+                'jobId': job_id,
+                'status': status,
+                'errorMessage': error_message
+            }
+            
+            # Add appropriate response data
+            if image_urls:
+                callback_data['imageUrls'] = image_urls  # ✅ Array for batch
+            elif file_path:
+                callback_data['filePath'] = file_path    # ✅ Single file
+            
+            response = requests.post(
+                f"{self.supabase_url}/functions/v1/job-callback",
+                json=callback_data,
+                headers={
+                    'Authorization': f"Bearer {self.supabase_service_key}",
+                    'Content-Type': 'application/json'
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                print(f"✅ Callback sent for WAN job {job_id}")
+                if image_urls:
+                    print(f"📊 Sent {len(image_urls)} image URLs")
+                elif file_path:
+                    print(f"📋 Sent file path: {file_path}")
+            else:
+                print(f"⚠️ Callback failed: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"❌ Callback error: {e}")
+
+    def poll_queue(self):
+        """Poll Redis WAN queue for new jobs"""
+        try:
+            response = requests.get(
+                f"{self.redis_url}/rpop/wan_queue",
+                headers={'Authorization': f"Bearer {self.redis_token}"},
+                timeout=10
+            )
+            
+            if response.status_code == 200 and response.json().get('result'):
+                return json.loads(response.json()['result'])
+                
+        except Exception as e:
+            if "timeout" not in str(e).lower():
+                logger.warning(f"⚠️ WAN queue poll error: {e}")
+        
+        return None
+
+    def run(self):
+        """Main WAN worker loop"""
+        print("🎬 WAN WORKER READY!")
+        print("⚡ Performance: 67-90s per image, ~8-9min for 6-image batch")
+        print("📬 Polling wan_queue for image_fast, image_high, video_fast, video_high")
+        print("🖼️ NEW: 6-image batch generation for image jobs")
+        print("🔧 UPLOAD FIX: Proper Content-Type headers")
+        
+        job_count = 0
+        
+        try:
+            while True:
+                try:
+                    job = self.poll_queue()
+                    if job:
+                        job_count += 1
+                        print(f"📬 WAN Job #{job_count} received")
+                        self.process_job(job)
+                        print("=" * 60)
+                    else:
+                        # No job available, wait
+                        time.sleep(5)  # Slower polling for longer WAN jobs
+                        
+                except Exception as e:
+                    logger.error(f"❌ WAN job processing error: {e}")
+                    time.sleep(15)  # Longer wait on errors
+                    
+        except KeyboardInterrupt:
+            print("👋 WAN Worker shutting down...")
+        finally:
+            # Cleanup on shutdown
+            torch.cuda.empty_cache()
+            gc.collect()
+            print("✅ WAN Worker cleanup complete")
+
+if __name__ == "__main__":
+    print("🚀 Starting WAN 2.1 Worker - BATCH GENERATION VERSION")
+    
+    # Environment validation
+    required_vars = [
+        'SUPABASE_URL', 
+        'SUPABASE_SERVICE_KEY', 
+        'UPSTASH_REDIS_REST_URL', 
+        'UPSTASH_REDIS_REST_TOKEN'
+    ]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
+        exit(1)
+    
+    try:
+        worker = OptimizedWanWorker()
+        worker.run()
+    except Exception as e:
+        print(f"❌ WAN Worker startup failed: {e}")
+        exit(1)
