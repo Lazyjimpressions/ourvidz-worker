@@ -1,6 +1,6 @@
-# sdxl_worker.py - FIXED UPLOAD METHOD
-# Critical Fix: Proper Content-Type headers for PNG uploads
-# Performance: 3.6s generation, 10.5GB VRAM peak on RTX 6000 ADA
+# sdxl_worker.py - BATCH GENERATION VERSION
+# NEW: Supports 6-image batch generation for better user experience
+# Performance: 3.6s per image, ~22s for 6 images on RTX 6000 ADA
 
 import os
 import json
@@ -20,21 +20,19 @@ logger = logging.getLogger(__name__)
 
 class LustifySDXLWorker:
     def __init__(self):
-        """Initialize LUSTIFY SDXL Worker for RTX 6000 ADA"""
-        print("🎨 LUSTIFY SDXL WORKER - PRODUCTION VERSION")
-        print("⚡ RTX 6000 ADA: 3-8s generation, 10.5GB VRAM peak")
+        """Initialize LUSTIFY SDXL Worker with batch generation support"""
+        print("🎨 LUSTIFY SDXL WORKER - BATCH GENERATION VERSION")
+        print("⚡ RTX 6000 ADA: 3-8s per image, supports 6-image batches")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
-        print("🚀 Phase 2: sdxl_image_premium, sdxl_img2img (preserved)")
+        print("🚀 NEW: 6-image batch generation for improved UX")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
         self.pipeline = None
         self.model_loaded = False
         
-        # Job configurations optimized for quality/speed
-        # ✅ CORRECTED: Bucket names match job type convention
+        # Job configurations with batch support
         self.job_configs = {
-            # PHASE 1 - ACTIVE VALIDATION
             'sdxl_image_fast': {
                 'content_type': 'image',
                 'file_extension': 'png',
@@ -42,10 +40,11 @@ class LustifySDXLWorker:
                 'width': 1024,
                 'num_inference_steps': 15,
                 'guidance_scale': 6.0,
-                'storage_bucket': 'sdxl_image_fast',  # ✅ Matches job type convention
-                'expected_time': 5,
+                'storage_bucket': 'sdxl_image_fast',
+                'expected_time_per_image': 4,
                 'quality_tier': 'fast',
-                'phase': 1
+                'phase': 1,
+                'supports_batch': True
             },
             'sdxl_image_high': {
                 'content_type': 'image', 
@@ -54,37 +53,11 @@ class LustifySDXLWorker:
                 'width': 1024,
                 'num_inference_steps': 25,
                 'guidance_scale': 7.5,
-                'storage_bucket': 'sdxl_image_high',  # ✅ Matches job type convention
-                'expected_time': 8,
+                'storage_bucket': 'sdxl_image_high',
+                'expected_time_per_image': 8,
                 'quality_tier': 'high',
-                'phase': 1
-            },
-            
-            # PHASE 2 - PRESERVED BUT NOT VALIDATED
-            'sdxl_image_premium': {
-                'content_type': 'image',
-                'file_extension': 'png', 
-                'height': 1280,
-                'width': 1280,
-                'num_inference_steps': 40,
-                'guidance_scale': 8.5,
-                'storage_bucket': 'sdxl_image_premium',  # ✅ Matches job type convention
-                'expected_time': 12,
-                'quality_tier': 'premium',
-                'phase': 2
-            },
-            'sdxl_img2img': {
-                'content_type': 'image',
-                'file_extension': 'png',
-                'height': 1024,
-                'width': 1024,
-                'num_inference_steps': 20,
-                'guidance_scale': 7.0,
-                'strength': 0.75,
-                'storage_bucket': 'sdxl_img2img',  # ✅ Matches job type convention
-                'expected_time': 6,
-                'quality_tier': 'img2img',
-                'phase': 2
+                'phase': 1,
+                'supports_batch': True
             }
         }
         
@@ -98,7 +71,7 @@ class LustifySDXLWorker:
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
         self.validate_environment()
-        logger.info("🎨 LUSTIFY SDXL Worker initialized successfully")
+        logger.info("🎨 LUSTIFY SDXL Worker with batch generation initialized")
 
     def validate_environment(self):
         """Comprehensive environment validation"""
@@ -183,8 +156,8 @@ class LustifySDXLWorker:
             logger.error(f"❌ Model loading failed: {e}")
             raise
 
-    def generate_image(self, prompt, job_type):
-        """Generate image with LUSTIFY SDXL"""
+    def generate_images_batch(self, prompt, job_type, num_images=6):
+        """Generate multiple images in a single batch for efficiency"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
             
@@ -193,7 +166,7 @@ class LustifySDXLWorker:
         # Ensure model is loaded
         self.load_model()
         
-        logger.info(f"🎨 Generating {job_type}: {prompt[:50]}...")
+        logger.info(f"🎨 Generating {num_images} images for {job_type}: {prompt[:50]}...")
         start_time = time.time()
         
         try:
@@ -201,46 +174,88 @@ class LustifySDXLWorker:
             torch.cuda.empty_cache()
             
             generation_kwargs = {
-                'prompt': prompt,
+                'prompt': [prompt] * num_images,  # Replicate prompt for batch
                 'height': config['height'],
                 'width': config['width'],
                 'num_inference_steps': config['num_inference_steps'],
                 'guidance_scale': config['guidance_scale'],
-                'num_images_per_prompt': 1,
-                'generator': torch.Generator(device="cuda").manual_seed(int(time.time()) % 2**32)
+                'num_images_per_prompt': 1,  # Generate 1 image per prompt in batch
+                'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]  # Different seeds for variety
             }
             
             # Add negative prompt for better quality
-            generation_kwargs['negative_prompt'] = (
+            generation_kwargs['negative_prompt'] = [
                 "blurry, low quality, distorted, deformed, bad anatomy, "
                 "watermark, signature, text, logo, extra limbs, missing limbs"
-            )
+            ] * num_images
             
-            # Generate image
+            # Generate batch of images
             with torch.inference_mode():
                 result = self.pipeline(**generation_kwargs)
-                image = result.images[0]
+                images = result.images  # List of PIL Images
             
             generation_time = time.time() - start_time
             peak_vram = torch.cuda.max_memory_allocated() / (1024**3)
             
-            logger.info(f"✅ Generated in {generation_time:.1f}s, peak VRAM: {peak_vram:.1f}GB")
+            logger.info(f"✅ Generated {len(images)} images in {generation_time:.1f}s, peak VRAM: {peak_vram:.1f}GB")
+            logger.info(f"📊 Average time per image: {generation_time/len(images):.1f}s")
             
             # Clear cache after generation
             torch.cuda.empty_cache()
             gc.collect()
             
-            return image
+            return images
             
         except Exception as e:
-            logger.error(f"❌ Generation failed: {e}")
+            logger.error(f"❌ Batch generation failed: {e}")
             # Clear cache on error
             torch.cuda.empty_cache()
             gc.collect()
             raise
 
+    def upload_images_batch(self, images, job_id, user_id, config):
+        """Upload multiple images and return array of URLs"""
+        upload_urls = []
+        timestamp = int(time.time())
+        
+        logger.info(f"📁 Uploading {len(images)} images...")
+        
+        for i, image in enumerate(images):
+            try:
+                # Create unique filename for each image
+                filename = f"sdxl_{job_id}_{timestamp}_{i+1}.{config['file_extension']}"
+                temp_path = f"/tmp/{filename}"
+                
+                # Save locally with optimization
+                image.save(temp_path, "PNG", quality=95, optimize=True)
+                logger.info(f"💾 Image {i+1} saved locally: {temp_path}")
+                
+                # Upload to Supabase
+                storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
+                upload_path = self.upload_to_supabase(temp_path, storage_path)
+                
+                if upload_path:
+                    upload_urls.append(upload_path)
+                    logger.info(f"✅ Image {i+1} uploaded: {upload_path}")
+                else:
+                    logger.error(f"❌ Image {i+1} upload failed")
+                    upload_urls.append(None)  # Placeholder for failed upload
+                
+                # Cleanup temp file
+                Path(temp_path).unlink(missing_ok=True)
+                
+            except Exception as e:
+                logger.error(f"❌ Image {i+1} processing failed: {e}")
+                upload_urls.append(None)
+        
+        # Filter out failed uploads
+        successful_uploads = [url for url in upload_urls if url is not None]
+        logger.info(f"📊 Upload summary: {len(successful_uploads)}/{len(images)} images successful")
+        
+        return successful_uploads
+
     def upload_to_supabase(self, file_path, storage_path):
-        """Upload image to Supabase storage with FIXED Content-Type"""
+        """Upload image to Supabase storage with proper Content-Type"""
         try:
             # Verify file exists before upload
             if not Path(file_path).exists():
@@ -249,21 +264,20 @@ class LustifySDXLWorker:
                 
             # Get file size for verification
             file_size = Path(file_path).stat().st_size
-            logger.info(f"📁 Uploading file: {file_size} bytes to {storage_path}")
             
-            # CRITICAL FIX: Use proper binary upload with explicit Content-Type
+            # Use proper binary upload with explicit Content-Type
             with open(file_path, 'rb') as file:
                 file_data = file.read()
             
             headers = {
                 'Authorization': f"Bearer {self.supabase_service_key}",
-                'Content-Type': 'image/png',  # ✅ FIXED: Explicit PNG content type
+                'Content-Type': 'image/png',  # ✅ Explicit PNG content type
                 'x-upsert': 'true'
             }
             
             response = requests.post(
                 f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                data=file_data,  # ✅ FIXED: Raw binary data instead of form data
+                data=file_data,  # ✅ Raw binary data
                 headers=headers,
                 timeout=60
             )
@@ -272,8 +286,6 @@ class LustifySDXLWorker:
                 # Return relative path within bucket
                 path_parts = storage_path.split('/', 1)
                 relative_path = path_parts[1] if len(path_parts) == 2 else storage_path
-                logger.info(f"✅ Upload successful: {relative_path}")
-                logger.info(f"📊 File size verified: {file_size} bytes")
                 return relative_path
             else:
                 logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
@@ -284,14 +296,19 @@ class LustifySDXLWorker:
             return None
 
     def process_job(self, job_data):
-        """Process a single SDXL job"""
+        """Process a single SDXL job with batch generation support"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         prompt = job_data['prompt']
         user_id = job_data['userId']
+        image_id = job_data.get('imageId')
+        
+        # Extract num_images from metadata (default to 6 for new requests)
+        num_images = job_data.get('metadata', {}).get('num_images', 6)
         
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")
+        logger.info(f"🖼️ Generating {num_images} images")
         
         # Phase validation
         if job_type not in self.phase_1_jobs:
@@ -301,39 +318,26 @@ class LustifySDXLWorker:
             return
         
         try:
-            # Generate image
+            # Generate batch of images
             start_time = time.time()
-            image = self.generate_image(prompt, job_type)
+            images = self.generate_images_batch(prompt, job_type, num_images)
             
-            if not image:
+            if not images:
                 raise Exception("Image generation failed")
             
-            # Save and upload
+            # Upload all images
             config = self.job_configs[job_type]
-            timestamp = int(time.time())
-            filename = f"sdxl_{job_id}_{timestamp}.{config['file_extension']}"
-            temp_path = f"/tmp/{filename}"
+            upload_urls = self.upload_images_batch(images, job_id, user_id, config)
             
-            # Save locally with optimization
-            image.save(temp_path, "PNG", quality=95, optimize=True)
-            logger.info(f"💾 Image saved locally: {temp_path}")
-            
-            # Upload to Supabase with corrected path
-            storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
-            upload_path = self.upload_to_supabase(temp_path, storage_path)
-            
-            if not upload_path:
-                raise Exception("File upload failed")
-            
-            # Cleanup
-            Path(temp_path).unlink(missing_ok=True)
+            if not upload_urls:
+                raise Exception("All image uploads failed")
             
             total_time = time.time() - start_time
             logger.info(f"✅ SDXL job {job_id} completed in {total_time:.1f}s")
-            logger.info(f"📁 File: {upload_path}")
+            logger.info(f"📁 Generated {len(upload_urls)} images")
             
-            # Notify completion
-            self.notify_completion(job_id, 'completed', upload_path)
+            # Notify completion with image URLs array
+            self.notify_completion(job_id, 'completed', image_urls=upload_urls)
             
         except Exception as e:
             error_msg = str(e)
@@ -344,13 +348,13 @@ class LustifySDXLWorker:
             torch.cuda.empty_cache()
             gc.collect()
 
-    def notify_completion(self, job_id, status, file_path=None, error_message=None):
-        """Notify Supabase of job completion"""
+    def notify_completion(self, job_id, status, image_urls=None, error_message=None):
+        """Notify Supabase of job completion with batch support"""
         try:
             callback_data = {
                 'jobId': job_id,
                 'status': status,
-                'filePath': file_path,  # ✅ Correct parameter name
+                'imageUrls': image_urls,  # ✅ Array of image URLs for batch
                 'errorMessage': error_message
             }
             
@@ -366,6 +370,8 @@ class LustifySDXLWorker:
             
             if response.status_code == 200:
                 logger.info(f"✅ Callback sent for job {job_id}")
+                if image_urls:
+                    logger.info(f"📊 Sent {len(image_urls)} image URLs")
             else:
                 logger.warning(f"⚠️ Callback failed: {response.status_code}")
                 
@@ -393,9 +399,9 @@ class LustifySDXLWorker:
     def run(self):
         """Main SDXL worker loop"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
-        logger.info("⚡ Performance: 3-8s generation, RTX 6000 ADA optimized")
+        logger.info("⚡ Performance: 3-8s per image, ~22s for 6-image batch")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
-        logger.info("🔒 Phase 1 validation: Only Phase 1 jobs accepted")
+        logger.info("🖼️ NEW: 6-image batch generation support")
         logger.info("🔧 UPLOAD FIX: Proper PNG Content-Type headers")
         
         job_count = 0
@@ -411,7 +417,7 @@ class LustifySDXLWorker:
                         logger.info("=" * 60)
                     else:
                         # No job available, wait briefly
-                        time.sleep(2)  # Fast polling for quick SDXL jobs
+                        time.sleep(2)  # Fast polling for SDXL jobs
                         
                 except Exception as e:
                     logger.error(f"❌ Job processing error: {e}")
@@ -428,7 +434,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - UPLOAD FIX VERSION")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - BATCH GENERATION VERSION")
     
     # Environment validation
     required_vars = [
