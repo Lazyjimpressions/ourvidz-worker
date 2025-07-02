@@ -47,6 +47,32 @@ class DualWorkerOrchestrator:
         """Validate environment for dual worker operation"""
         logger.info("🔍 Validating dual worker environment...")
         
+        # CRITICAL: Check PyTorch version first (prevent cascade failures)
+        try:
+            import torch
+            current_version = torch.__version__
+            current_cuda = torch.version.cuda
+            
+            logger.info(f"🔧 PyTorch: {current_version}")
+            logger.info(f"🔧 CUDA: {current_cuda}")
+            
+            # Verify we have the stable working versions
+            if not current_version.startswith('2.4.1'):
+                logger.error(f"❌ WRONG PyTorch version: {current_version} (need 2.4.1+cu124)")
+                logger.error("❌ DO NOT PROCEED - version cascade detected!")
+                return False
+                
+            if current_cuda != '12.4':
+                logger.error(f"❌ WRONG CUDA version: {current_cuda} (need 12.4)")
+                logger.error("❌ DO NOT PROCEED - CUDA version mismatch!")
+                return False
+                
+            logger.info("✅ PyTorch/CUDA versions confirmed stable")
+            
+        except ImportError:
+            logger.error("❌ PyTorch not available")
+            return False
+        
         # Check Python files exist
         missing_files = []
         for worker_id, config in self.workers.items():
@@ -60,7 +86,6 @@ class DualWorkerOrchestrator:
             
         # Check GPU
         try:
-            import torch
             if torch.cuda.is_available():
                 device_name = torch.cuda.get_device_name(0)
                 total_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
@@ -72,8 +97,18 @@ class DualWorkerOrchestrator:
             else:
                 logger.error("❌ CUDA not available")
                 return False
-        except ImportError:
-            logger.error("❌ PyTorch not available")
+                
+        except Exception as e:
+            logger.error(f"❌ GPU check failed: {e}")
+            return False
+            
+        # Check SDXL imports (should already work from previous session)
+        try:
+            from diffusers import StableDiffusionXLPipeline
+            logger.info("✅ SDXL imports confirmed working")
+        except ImportError as e:
+            logger.error(f"❌ SDXL imports failed: {e}")
+            logger.error("❌ DO NOT INSTALL PACKAGES - this will break PyTorch!")
             return False
             
         # Check environment variables
@@ -296,8 +331,8 @@ class DualWorkerOrchestrator:
             return False
             
         logger.info("🎉 DUAL WORKER SYSTEM READY!")
-        logger.info("🎨 SDXL: sdxl_queue → 3-8s image generation")
-        logger.info("🎬 WAN: wan_queue → 67-354s video/image generation")
+        logger.info("🎨 SDXL: sdxl_queue → sdxl_image_fast, sdxl_image_high")
+        logger.info("🎬 WAN: wan_queue → image_fast, image_high, video_fast, video_high")
         logger.info("💡 Both workers monitoring their respective queues")
         logger.info("=" * 60)
         
