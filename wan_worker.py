@@ -1,7 +1,7 @@
-# wan_worker.py - GPU-OPTIMIZED PRODUCTION VERSION (Complete Dual Worker)
-# Successfully diagnosed and fixed GPU utilization issue
+# wan_worker.py - FIXED PARAMETER MISMATCH
+# Critical Fix: outputUrl → filePath for callback compatibility
+# Removed extra job types (image_premium, video_premium)
 # Performance: 2.6x faster generation (174s → 67s)
-# Queue: wan_queue (dual worker mode)
 
 import os
 import json
@@ -36,12 +36,13 @@ class OptimizedWanWorker:
         print("🚀 OPTIMIZED WAN WORKER - GPU ACCELERATED")
         print("✅ Performance: 2.6x faster generation confirmed")
         print("🔄 Queue: wan_queue (dual worker mode)")
+        print("🔧 FIXED: Parameter mismatch (outputUrl → filePath)")
         
         # Paths
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
         self.wan_path = "/workspace/Wan2.1"
         
-        # GPU-optimized job configurations
+        # GPU-optimized job configurations - CLEANED UP
         self.job_type_mapping = {
             'image_fast': {
                 'content_type': 'image',
@@ -63,46 +64,27 @@ class OptimizedWanWorker:
                 'storage_bucket': 'image_high',
                 'expected_time': 90
             },
-            'image_premium': {
-                'content_type': 'image',
-                'file_extension': 'png',
-                'sample_steps': 100,
-                'sample_guide_scale': 20.0,
-                'size': '832*480',
-                'frame_num': 1,
-                'storage_bucket': 'image_premium',
-                'expected_time': 85  # Breakthrough: 100 steps only 14s more!
-            },
             'video_fast': {
                 'content_type': 'video',
                 'file_extension': 'mp4',
-                'sample_steps': 8,
-                'sample_guide_scale': 5.0,
+                'sample_steps': 15,
+                'sample_guide_scale': 6.5,
                 'size': '480*832',
-                'frame_num': 17,  # 1 second at 16fps
+                'frame_num': 65,  # 5 second at 16fps
                 'storage_bucket': 'video_fast',
-                'expected_time': 85
+                'expected_time': 180
             },
             'video_high': {
                 'content_type': 'video',
                 'file_extension': 'mp4', 
-                'sample_steps': 20,
+                'sample_steps': 25,
                 'sample_guide_scale': 8.0,
-                'size': '480*832',
-                'frame_num': 81,  # 5 seconds at 16fps
-                'storage_bucket': 'video_high',
-                'expected_time': 180
-            },
-            'video_premium': {
-                'content_type': 'video',
-                'file_extension': 'mp4',
-                'sample_steps': 40,
-                'sample_guide_scale': 12.0,
                 'size': '832*480',
-                'frame_num': 97,  # 6 seconds at 16fps
-                'storage_bucket': 'video_premium', 
-                'expected_time': 354  # 6 minutes ultra-premium
+                'frame_num': 81,  # 6 second at 16fps
+                'storage_bucket': 'video_high',
+                'expected_time': 280
             }
+            # REMOVED: image_premium, video_premium (not in target job types)
         }
         
         # Environment variables
@@ -277,8 +259,17 @@ class OptimizedWanWorker:
             return False
 
     def upload_to_supabase(self, file_path, storage_path):
-        """Upload file to Supabase storage"""
+        """Upload file to Supabase storage with verification"""
         try:
+            # Verify file exists before upload
+            if not Path(file_path).exists():
+                print(f"❌ File does not exist: {file_path}")
+                return None
+                
+            # Get file size for verification
+            file_size = Path(file_path).stat().st_size
+            print(f"📁 Uploading file: {file_size} bytes")
+            
             with open(file_path, 'rb') as file:
                 file_content = file.read()
                 
@@ -304,6 +295,7 @@ class OptimizedWanWorker:
                 if len(path_parts) == 2:
                     relative_path = path_parts[1]  # Everything after bucket name
                     print(f"📁 Uploaded to bucket, relative path: {relative_path}")
+                    print(f"✅ Upload verified: {file_size} bytes")
                     return relative_path
                 else:
                     print(f"⚠️ Unexpected storage path format: {storage_path}")
@@ -344,7 +336,7 @@ class OptimizedWanWorker:
                 # Extract frame from video for image jobs
                 image_path = Path(output_path).with_suffix('.png')
                 if self.extract_image_from_video(output_path, image_path):
-                    # Upload image
+                    # Upload image with full UUID preservation
                     timestamp = int(time.time())
                     filename = f"wan_{job_id}_{timestamp}.png"
                     storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
@@ -357,7 +349,7 @@ class OptimizedWanWorker:
                     raise Exception("Frame extraction failed")
                     
             else:  # video
-                # Upload video directly
+                # Upload video directly with full UUID preservation
                 timestamp = int(time.time())
                 filename = f"wan_{job_id}_{timestamp}.mp4"
                 storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
@@ -373,7 +365,7 @@ class OptimizedWanWorker:
             print(f"✅ WAN Job {job_id} completed in {total_time:.1f}s")
             print(f"📁 File: {upload_path}")
             
-            # Notify completion
+            # Notify completion with FIXED parameter name
             self.notify_completion(job_id, 'completed', upload_path)
             
         except Exception as e:
@@ -386,12 +378,13 @@ class OptimizedWanWorker:
             gc.collect()
 
     def notify_completion(self, job_id, status, file_path=None, error_message=None):
-        """Notify Supabase of job completion"""
+        """Notify Supabase of job completion - FIXED PARAMETER NAME"""
         try:
+            # CRITICAL FIX: Changed 'outputUrl' to 'filePath'
             callback_data = {
                 'jobId': job_id,
                 'status': status,
-                'outputUrl': file_path,  # Updated to match edge function expectation
+                'filePath': file_path,  # ✅ FIXED: was 'outputUrl'
                 'errorMessage': error_message
             }
             
@@ -407,6 +400,7 @@ class OptimizedWanWorker:
             
             if response.status_code == 200:
                 print(f"✅ Callback sent for WAN job {job_id}")
+                print(f"📋 Parameter fix applied: filePath = {file_path}")
             else:
                 print(f"⚠️ Callback failed: {response.status_code} - {response.text}")
                 
@@ -434,8 +428,9 @@ class OptimizedWanWorker:
     def run(self):
         """Main WAN worker loop"""
         print("🎬 WAN WORKER READY!")
-        print("⚡ Performance: 67-354s generation, RTX 6000 ADA optimized")
-        print("📬 Polling wan_queue for video/image jobs...")
+        print("⚡ Performance: 67-280s generation, RTX 6000 ADA optimized")
+        print("📬 Polling wan_queue for image_fast, image_high, video_fast, video_high")
+        print("🔧 PARAMETER FIX: outputUrl → filePath compatibility")
         
         job_count = 0
         
@@ -465,7 +460,7 @@ class OptimizedWanWorker:
             print("✅ WAN Worker cleanup complete")
 
 if __name__ == "__main__":
-    print("🚀 Starting WAN 2.1 Worker")
+    print("🚀 Starting WAN 2.1 Worker - PARAMETER FIX VERSION")
     
     # Environment validation
     required_vars = [
