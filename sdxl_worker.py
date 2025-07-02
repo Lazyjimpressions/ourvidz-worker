@@ -1,4 +1,5 @@
-# sdxl_worker.py - Production LUSTIFY SDXL Worker
+# sdxl_worker.py - CLEANED UP VERSION
+# Preserves Phase 2 job types but only validates Phase 1
 # Performance: 3.6s generation, 10.5GB VRAM peak on RTX 6000 ADA
 
 import os
@@ -22,6 +23,8 @@ class LustifySDXLWorker:
         """Initialize LUSTIFY SDXL Worker for RTX 6000 ADA"""
         print("🎨 LUSTIFY SDXL WORKER - PRODUCTION VERSION")
         print("⚡ RTX 6000 ADA: 3-8s generation, 10.5GB VRAM peak")
+        print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
+        print("🚀 Phase 2: sdxl_image_premium, sdxl_img2img (preserved)")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -30,6 +33,7 @@ class LustifySDXLWorker:
         
         # Job configurations optimized for quality/speed
         self.job_configs = {
+            # PHASE 1 - ACTIVE VALIDATION
             'sdxl_image_fast': {
                 'content_type': 'image',
                 'file_extension': 'png',
@@ -39,7 +43,8 @@ class LustifySDXLWorker:
                 'guidance_scale': 6.0,
                 'storage_bucket': 'sdxl_fast',
                 'expected_time': 5,
-                'quality_tier': 'fast'
+                'quality_tier': 'fast',
+                'phase': 1
             },
             'sdxl_image_high': {
                 'content_type': 'image', 
@@ -50,8 +55,11 @@ class LustifySDXLWorker:
                 'guidance_scale': 7.5,
                 'storage_bucket': 'sdxl_high',
                 'expected_time': 8,
-                'quality_tier': 'high'
+                'quality_tier': 'high',
+                'phase': 1
             },
+            
+            # PHASE 2 - PRESERVED BUT NOT VALIDATED
             'sdxl_image_premium': {
                 'content_type': 'image',
                 'file_extension': 'png', 
@@ -61,7 +69,8 @@ class LustifySDXLWorker:
                 'guidance_scale': 8.5,
                 'storage_bucket': 'sdxl_premium',
                 'expected_time': 12,
-                'quality_tier': 'premium'
+                'quality_tier': 'premium',
+                'phase': 2
             },
             'sdxl_img2img': {
                 'content_type': 'image',
@@ -73,9 +82,13 @@ class LustifySDXLWorker:
                 'strength': 0.75,
                 'storage_bucket': 'sdxl_img2img',
                 'expected_time': 6,
-                'quality_tier': 'img2img'
+                'quality_tier': 'img2img',
+                'phase': 2
             }
         }
+        
+        # Phase 1 job types for validation
+        self.phase_1_jobs = ['sdxl_image_fast', 'sdxl_image_high']
         
         # Environment setup
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -226,8 +239,17 @@ class LustifySDXLWorker:
             raise
 
     def upload_to_supabase(self, file_path, storage_path):
-        """Upload image to Supabase storage"""
+        """Upload image to Supabase storage with verification"""
         try:
+            # Verify file exists before upload
+            if not Path(file_path).exists():
+                print(f"❌ File does not exist: {file_path}")
+                return None
+                
+            # Get file size for verification
+            file_size = Path(file_path).stat().st_size
+            print(f"📁 Uploading file: {file_size} bytes")
+            
             with open(file_path, 'rb') as file:
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
@@ -244,6 +266,7 @@ class LustifySDXLWorker:
                 path_parts = storage_path.split('/', 1)
                 relative_path = path_parts[1] if len(path_parts) == 2 else storage_path
                 logger.info(f"📁 Uploaded to bucket: {relative_path}")
+                logger.info(f"✅ Upload verified: {file_size} bytes")
                 return relative_path
             else:
                 logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
@@ -262,6 +285,13 @@ class LustifySDXLWorker:
         
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")
+        
+        # Phase validation
+        if job_type not in self.phase_1_jobs:
+            error_msg = f"Job type {job_type} not supported in Phase 1"
+            logger.warning(f"⚠️ {error_msg}")
+            self.notify_completion(job_id, 'failed', error_message=error_msg)
+            return
         
         try:
             # Generate image
@@ -312,7 +342,7 @@ class LustifySDXLWorker:
             callback_data = {
                 'jobId': job_id,
                 'status': status,
-                'filePath': file_path,
+                'filePath': file_path,  # ✅ Correct parameter name
                 'errorMessage': error_message
             }
             
@@ -356,7 +386,8 @@ class LustifySDXLWorker:
         """Main SDXL worker loop"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
         logger.info("⚡ Performance: 3-8s generation, RTX 6000 ADA optimized")
-        logger.info("📬 Waiting for SDXL jobs...")
+        logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
+        logger.info("🔒 Phase 1 validation: Only Phase 1 jobs accepted")
         
         job_count = 0
         
@@ -388,7 +419,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - PHASE 1 VALIDATED")
     
     # Environment validation
     required_vars = [
