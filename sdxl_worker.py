@@ -1,5 +1,5 @@
-# sdxl_worker_fixed.py - Production LUSTIFY SDXL Worker
-# Fixed version with proper dependency management and error handling
+# sdxl_worker.py - Production LUSTIFY SDXL Worker
+# Performance: 3.6s generation, 10.5GB VRAM peak on RTX 6000 ADA
 
 import os
 import json
@@ -10,6 +10,7 @@ import torch
 import gc
 from pathlib import Path
 from PIL import Image
+from diffusers import StableDiffusionXLPipeline
 import logging
 
 # Configure logging
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 class LustifySDXLWorker:
     def __init__(self):
-        """Initialize LUSTIFY SDXL Worker with proper dependency management"""
-        print("🚀 LUSTIFY SDXL WORKER - PRODUCTION VERSION")
+        """Initialize LUSTIFY SDXL Worker for RTX 6000 ADA"""
+        print("🎨 LUSTIFY SDXL WORKER - PRODUCTION VERSION")
         print("⚡ RTX 6000 ADA: 3-8s generation, 10.5GB VRAM peak")
         
         # Model configuration
@@ -113,13 +114,6 @@ class LustifySDXLWorker:
         except ImportError:
             logger.error("❌ Diffusers not available")
             
-        # Check xformers
-        try:
-            import xformers
-            logger.info(f"✅ xformers: {xformers.__version__}")
-        except ImportError:
-            logger.warning("⚠️ xformers not available (performance will be reduced)")
-            
         # Check model file
         if Path(self.model_path).exists():
             model_size = Path(self.model_path).stat().st_size / (1024**3)
@@ -136,7 +130,7 @@ class LustifySDXLWorker:
             logger.info("✅ All environment variables configured")
 
     def load_model(self):
-        """Load LUSTIFY SDXL model with proper error handling"""
+        """Load LUSTIFY SDXL model with optimizations"""
         if self.model_loaded:
             return
             
@@ -144,15 +138,11 @@ class LustifySDXLWorker:
         start_time = time.time()
         
         try:
-            # Import diffusers components
-            from diffusers import StableDiffusionXLPipeline
-            
             # Load pipeline from single file
             self.pipeline = StableDiffusionXLPipeline.from_single_file(
                 self.model_path,
                 torch_dtype=torch.float16,
-                use_safetensors=True,
-                variant="fp16"
+                use_safetensors=True
             ).to("cuda")
             
             # Enable memory optimizations
@@ -169,13 +159,6 @@ class LustifySDXLWorker:
             except Exception as e:
                 logger.warning(f"⚠️ xformers optimization failed: {e}")
             
-            # Enable model CPU offloading if needed
-            try:
-                self.pipeline.enable_model_cpu_offload()
-                logger.info("✅ CPU offloading enabled")
-            except Exception as e:
-                logger.warning(f"⚠️ CPU offloading failed: {e}")
-            
             load_time = time.time() - start_time
             vram_used = torch.cuda.memory_allocated() / (1024**3)
             
@@ -184,10 +167,9 @@ class LustifySDXLWorker:
             
         except Exception as e:
             logger.error(f"❌ Model loading failed: {e}")
-            logger.error(f"Available CUDA memory: {torch.cuda.get_device_properties(0).total_memory / (1024**3):.1f}GB")
             raise
 
-    def generate_image(self, prompt, job_type, init_image=None):
+    def generate_image(self, prompt, job_type):
         """Generate image with LUSTIFY SDXL"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
@@ -211,7 +193,7 @@ class LustifySDXLWorker:
                 'num_inference_steps': config['num_inference_steps'],
                 'guidance_scale': config['guidance_scale'],
                 'num_images_per_prompt': 1,
-                'generator': torch.Generator(device="cuda").manual_seed(int(time.time()))
+                'generator': torch.Generator(device="cuda").manual_seed(int(time.time()) % 2**32)
             }
             
             # Add negative prompt for better quality
@@ -219,11 +201,6 @@ class LustifySDXLWorker:
                 "blurry, low quality, distorted, deformed, bad anatomy, "
                 "watermark, signature, text, logo, extra limbs, missing limbs"
             )
-            
-            # Handle img2img if applicable
-            if job_type == 'sdxl_img2img' and init_image:
-                # This would need img2img pipeline - placeholder for now
-                pass
             
             # Generate image
             with torch.inference_mode():
@@ -249,7 +226,7 @@ class LustifySDXLWorker:
             raise
 
     def upload_to_supabase(self, file_path, storage_path):
-        """Upload image to Supabase storage with proper error handling"""
+        """Upload image to Supabase storage"""
         try:
             with open(file_path, 'rb') as file:
                 response = requests.post(
@@ -277,7 +254,7 @@ class LustifySDXLWorker:
             return None
 
     def process_job(self, job_data):
-        """Process a single SDXL job with comprehensive error handling"""
+        """Process a single SDXL job"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         prompt = job_data['prompt']
@@ -376,7 +353,7 @@ class LustifySDXLWorker:
         return None
 
     def run(self):
-        """Main SDXL worker loop with proper shutdown handling"""
+        """Main SDXL worker loop"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
         logger.info("⚡ Performance: 3-8s generation, RTX 6000 ADA optimized")
         logger.info("📬 Waiting for SDXL jobs...")
@@ -423,15 +400,6 @@ if __name__ == "__main__":
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         logger.error(f"❌ Missing environment variables: {', '.join(missing_vars)}")
-        exit(1)
-    
-    # Quick dependency check
-    try:
-        import diffusers
-        import torch
-        logger.info(f"✅ Dependencies: PyTorch {torch.__version__}, Diffusers {diffusers.__version__}")
-    except ImportError as e:
-        logger.error(f"❌ Dependency check failed: {e}")
         exit(1)
     
     try:
