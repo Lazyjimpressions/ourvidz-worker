@@ -1,5 +1,5 @@
-# sdxl_worker.py - CLEANED UP VERSION
-# Preserves Phase 2 job types but only validates Phase 1
+# sdxl_worker.py - FIXED UPLOAD METHOD
+# Critical Fix: Proper Content-Type headers for PNG uploads
 # Performance: 3.6s generation, 10.5GB VRAM peak on RTX 6000 ADA
 
 import os
@@ -32,6 +32,7 @@ class LustifySDXLWorker:
         self.model_loaded = False
         
         # Job configurations optimized for quality/speed
+        # ✅ CORRECTED: Bucket names match job type convention
         self.job_configs = {
             # PHASE 1 - ACTIVE VALIDATION
             'sdxl_image_fast': {
@@ -41,7 +42,7 @@ class LustifySDXLWorker:
                 'width': 1024,
                 'num_inference_steps': 15,
                 'guidance_scale': 6.0,
-                'storage_bucket': 'sdxl_fast',
+                'storage_bucket': 'sdxl_image_fast',  # ✅ Matches job type convention
                 'expected_time': 5,
                 'quality_tier': 'fast',
                 'phase': 1
@@ -53,7 +54,7 @@ class LustifySDXLWorker:
                 'width': 1024,
                 'num_inference_steps': 25,
                 'guidance_scale': 7.5,
-                'storage_bucket': 'sdxl_high',
+                'storage_bucket': 'sdxl_image_high',  # ✅ Matches job type convention
                 'expected_time': 8,
                 'quality_tier': 'high',
                 'phase': 1
@@ -67,7 +68,7 @@ class LustifySDXLWorker:
                 'width': 1280,
                 'num_inference_steps': 40,
                 'guidance_scale': 8.5,
-                'storage_bucket': 'sdxl_premium',
+                'storage_bucket': 'sdxl_image_premium',  # ✅ Matches job type convention
                 'expected_time': 12,
                 'quality_tier': 'premium',
                 'phase': 2
@@ -80,7 +81,7 @@ class LustifySDXLWorker:
                 'num_inference_steps': 20,
                 'guidance_scale': 7.0,
                 'strength': 0.75,
-                'storage_bucket': 'sdxl_img2img',
+                'storage_bucket': 'sdxl_img2img',  # ✅ Matches job type convention
                 'expected_time': 6,
                 'quality_tier': 'img2img',
                 'phase': 2
@@ -239,34 +240,40 @@ class LustifySDXLWorker:
             raise
 
     def upload_to_supabase(self, file_path, storage_path):
-        """Upload image to Supabase storage with verification"""
+        """Upload image to Supabase storage with FIXED Content-Type"""
         try:
             # Verify file exists before upload
             if not Path(file_path).exists():
-                print(f"❌ File does not exist: {file_path}")
+                logger.error(f"❌ File does not exist: {file_path}")
                 return None
                 
             # Get file size for verification
             file_size = Path(file_path).stat().st_size
-            print(f"📁 Uploading file: {file_size} bytes")
+            logger.info(f"📁 Uploading file: {file_size} bytes to {storage_path}")
             
+            # CRITICAL FIX: Use proper binary upload with explicit Content-Type
             with open(file_path, 'rb') as file:
-                response = requests.post(
-                    f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                    files={'file': file},
-                    headers={
-                        'Authorization': f"Bearer {self.supabase_service_key}",
-                        'x-upsert': 'true'
-                    },
-                    timeout=60
-                )
+                file_data = file.read()
+            
+            headers = {
+                'Authorization': f"Bearer {self.supabase_service_key}",
+                'Content-Type': 'image/png',  # ✅ FIXED: Explicit PNG content type
+                'x-upsert': 'true'
+            }
+            
+            response = requests.post(
+                f"{self.supabase_url}/storage/v1/object/{storage_path}",
+                data=file_data,  # ✅ FIXED: Raw binary data instead of form data
+                headers=headers,
+                timeout=60
+            )
             
             if response.status_code in [200, 201]:
                 # Return relative path within bucket
                 path_parts = storage_path.split('/', 1)
                 relative_path = path_parts[1] if len(path_parts) == 2 else storage_path
-                logger.info(f"📁 Uploaded to bucket: {relative_path}")
-                logger.info(f"✅ Upload verified: {file_size} bytes")
+                logger.info(f"✅ Upload successful: {relative_path}")
+                logger.info(f"📊 File size verified: {file_size} bytes")
                 return relative_path
             else:
                 logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
@@ -309,8 +316,9 @@ class LustifySDXLWorker:
             
             # Save locally with optimization
             image.save(temp_path, "PNG", quality=95, optimize=True)
+            logger.info(f"💾 Image saved locally: {temp_path}")
             
-            # Upload to Supabase
+            # Upload to Supabase with corrected path
             storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
             upload_path = self.upload_to_supabase(temp_path, storage_path)
             
@@ -388,6 +396,7 @@ class LustifySDXLWorker:
         logger.info("⚡ Performance: 3-8s generation, RTX 6000 ADA optimized")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
         logger.info("🔒 Phase 1 validation: Only Phase 1 jobs accepted")
+        logger.info("🔧 UPLOAD FIX: Proper PNG Content-Type headers")
         
         job_count = 0
         
@@ -419,7 +428,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - PHASE 1 VALIDATED")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - UPLOAD FIX VERSION")
     
     # Environment validation
     required_vars = [
