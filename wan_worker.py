@@ -1,4 +1,4 @@
-# wan_worker.py - BATCH GENERATION VERSION
+# wan_worker.py - CLEAN VERSION - SYNTAX ERROR FIXED
 # NEW: Supports 6-image batch generation (6 separate Wan2.1 calls)
 # Performance: 67-90s per image, ~8-9 minutes for 6 images
 
@@ -74,7 +74,7 @@ class OptimizedWanWorker:
                 'frame_num': 65,
                 'storage_bucket': 'video_fast',
                 'expected_time': 180,
-                'supports_batch': False  # Videos remain single generation
+                'supports_batch': False
             },
             'video_high': {
                 'content_type': 'video',
@@ -85,7 +85,7 @@ class OptimizedWanWorker:
                 'frame_num': 81,
                 'storage_bucket': 'video_high',
                 'expected_time': 280,
-                'supports_batch': False  # Videos remain single generation
+                'supports_batch': False
             }
         }
         
@@ -201,7 +201,7 @@ class OptimizedWanWorker:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=600  # 10 minute timeout
+                timeout=600
             )
             
             generation_time = time.time() - start_time
@@ -217,7 +217,7 @@ class OptimizedWanWorker:
                 
                 # Verify output file exists
                 if temp_video_path.exists():
-                    file_size = temp_video_path.stat().st_size / 1024  # KB
+                    file_size = temp_video_path.stat().st_size / 1024
                     print(f"📁 Output file: {file_size:.0f}KB")
                     return str(temp_video_path)
                 else:
@@ -243,7 +243,7 @@ class OptimizedWanWorker:
         config = self.job_type_mapping[job_type]
         
         if config['content_type'] != 'image':
-            raise ValueError(f"Batch generation only supported for image jobs")d for image jobs")
+            raise ValueError("Batch generation only supported for image jobs")
         
         logger.info(f"🎨 Starting batch generation: {num_images} images for {job_type}")
         logger.info(f"📝 Prompt: {prompt}")
@@ -263,8 +263,8 @@ class OptimizedWanWorker:
                     logger.warning(f"⚠️ Image {i+1} generation failed")
                     video_paths.append(None)
                 
-                # Brief pause between generations to prevent overheating
-                if i < num_images - 1:  # Don't wait after the last one
+                # Brief pause between generations
+                if i < num_images - 1:
                     time.sleep(2)
                     
             except Exception as e:
@@ -376,15 +376,15 @@ class OptimizedWanWorker:
             
             headers = {
                 'Authorization': f"Bearer {self.supabase_service_key}",
-                'Content-Type': content_type,  # ✅ Explicit content type
+                'Content-Type': content_type,
                 'x-upsert': 'true'
             }
             
             response = requests.post(
                 f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                data=file_data,  # ✅ Raw binary data
+                data=file_data,
                 headers=headers,
-                timeout=120  # Longer timeout for video uploads
+                timeout=120
             )
             
             if response.status_code in [200, 201]:
@@ -413,7 +413,7 @@ class OptimizedWanWorker:
         video_id = job_data.get('videoId')
         image_id = job_data.get('imageId')
         
-        # Extract num_images from metadata (default to 6 for image jobs)
+        # Extract num_images from metadata
         num_images = job_data.get('metadata', {}).get('num_images', 6 if 'image' in job_type else 1)
         
         print(f"\n🚀 === PROCESSING WAN JOB {job_id} ===")
@@ -512,9 +512,9 @@ class OptimizedWanWorker:
             
             # Add appropriate response data
             if image_urls:
-                callback_data['imageUrls'] = image_urls  # ✅ Array for batch
+                callback_data['imageUrls'] = image_urls
             elif file_path:
-                callback_data['filePath'] = file_path    # ✅ Single file
+                callback_data['filePath'] = file_path
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -577,11 +577,11 @@ class OptimizedWanWorker:
                         print("=" * 60)
                     else:
                         # No job available, wait
-                        time.sleep(5)  # Slower polling for longer WAN jobs
+                        time.sleep(5)
                         
                 except Exception as e:
                     logger.error(f"❌ WAN job processing error: {e}")
-                    time.sleep(15)  # Longer wait on errors
+                    time.sleep(15)
                     
         except KeyboardInterrupt:
             print("👋 WAN Worker shutting down...")
@@ -592,7 +592,7 @@ class OptimizedWanWorker:
             print("✅ WAN Worker cleanup complete")
 
 if __name__ == "__main__":
-    print("🚀 Starting WAN 2.1 Worker - BATCH GENERATION VERSION")
+    print("🚀 Starting WAN 2.1 Worker - CLEAN SYNTAX VERSION")
     
     # Environment validation
     required_vars = [
