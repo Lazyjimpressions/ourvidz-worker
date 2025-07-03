@@ -539,22 +539,34 @@ class OptimizedWanWorker:
             print(f"❌ Callback error: {e}")
 
     def poll_queue(self):
-        """Poll Redis WAN queue for new jobs"""
+        """Poll Redis WAN queue for new jobs - FIXED UPSTASH API"""
         try:
-            response = requests.get(
-                f"{self.redis_url}/rpop/wan_queue",
-                headers={'Authorization': f"Bearer {self.redis_token}"},
+            # FIXED: Use proper Upstash Redis REST API format
+            response = requests.post(
+                f"{self.redis_url}/rpop/wan_queue",  # POST not GET
+                headers={
+                    'Authorization': f"Bearer {self.redis_token}",
+                    'Content-Type': 'application/json'
+                },
                 timeout=10
             )
             
-            if response.status_code == 200 and response.json().get('result'):
-                return json.loads(response.json()['result'])
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('result'):
+                    logger.info(f"📬 Job received from wan_queue: {result['result'][:100]}...")
+                    return json.loads(result['result'])
+                else:
+                    # No job in queue (normal)
+                    return None
+            else:
+                logger.warning(f"⚠️ Redis polling error: {response.status_code} - {response.text}")
+                return None
                 
         except Exception as e:
             if "timeout" not in str(e).lower():
                 logger.warning(f"⚠️ WAN queue poll error: {e}")
-        
-        return None
+            return None
 
     def run(self):
         """Main WAN worker loop"""
@@ -562,7 +574,7 @@ class OptimizedWanWorker:
         print("⚡ Performance: 67-90s per image, ~8-9min for 6-image batch")
         print("📬 Polling wan_queue for image_fast, image_high, video_fast, video_high")
         print("🖼️ NEW: 6-image batch generation for image jobs")
-        print("🔧 UPLOAD FIX: Proper Content-Type headers")
+        print("🔧 REDIS FIX: Proper Upstash REST API polling")
         
         job_count = 0
         
