@@ -196,6 +196,12 @@ class OptimizedWanWorker:
             os.chdir(self.wan_path)
             start_time = time.time()
             
+            print(f"🎬 STARTING WAN 2.1 GENERATION")
+            print(f"📁 Working directory: {os.getcwd()}")
+            print(f"📝 Full prompt: '{prompt}'")
+            print(f"🔧 Command: {' '.join(cmd)}")
+            print(f"⚙️ Environment vars: CUDA_VISIBLE_DEVICES={env.get('CUDA_VISIBLE_DEVICES', 'not set')}")
+            
             result = subprocess.run(
                 cmd,
                 env=env,
@@ -205,6 +211,29 @@ class OptimizedWanWorker:
             )
             
             generation_time = time.time() - start_time
+            
+            print(f"🏁 GENERATION COMPLETED")
+            print(f"⏱️ Total time: {generation_time:.1f}s")
+            print(f"🔢 Return code: {result.returncode}")
+            print(f"📁 Expected output: {temp_video_path}")
+            print(f"📁 File exists: {temp_video_path.exists()}")
+            
+            if temp_video_path.exists():
+                file_size = temp_video_path.stat().st_size
+                print(f"📊 File size: {file_size} bytes ({file_size/1024:.1f}KB)")
+            
+            # Always log stdout/stderr for debugging
+            if result.stdout:
+                print(f"📤 STDOUT ({len(result.stdout)} chars):")
+                print("=" * 50)
+                print(result.stdout[-2000:])  # Last 2000 chars
+                print("=" * 50)
+            
+            if result.stderr:
+                print(f"📥 STDERR ({len(result.stderr)} chars):")
+                print("=" * 50)
+                print(result.stderr[-2000:])  # Last 2000 chars
+                print("=" * 50)
             
             # Log GPU memory after
             self.log_gpu_memory()
@@ -221,12 +250,27 @@ class OptimizedWanWorker:
                     print(f"📁 Output file: {file_size:.0f}KB")
                     return str(temp_video_path)
                 else:
-                    print("❌ Output file not found")
+                    print("❌ Output file not found despite return code 0")
+                    print(f"📁 Checked path: {temp_video_path}")
+                    print(f"📁 Directory contents: {list(temp_processing.glob('*'))}")
                     return None
             else:
-                print(f"❌ Generation failed (code {result.returncode})")
-                if result.stderr:
-                    print(f"Error: {result.stderr[-500:]}")
+                print(f"❌ WAN 2.1 GENERATION FAILED")
+                print(f"🔢 Exit code: {result.returncode}")
+                print(f"📝 Original prompt: '{prompt}'")
+                print(f"🔧 Full command: {' '.join(cmd)}")
+                
+                # Check for common error patterns
+                full_output = (result.stdout or '') + (result.stderr or '')
+                if 'content' in full_output.lower():
+                    print("🚨 POSSIBLE CONTENT FILTERING DETECTED")
+                if 'safe' in full_output.lower():
+                    print("🚨 POSSIBLE SAFETY FILTER DETECTED")
+                if 'cuda' in full_output.lower():
+                    print("🚨 POSSIBLE CUDA/GPU ISSUE DETECTED")
+                if 'memory' in full_output.lower():
+                    print("🚨 POSSIBLE MEMORY ISSUE DETECTED")
+                
                 return None
                 
         except subprocess.TimeoutExpired:
@@ -405,7 +449,7 @@ class OptimizedWanWorker:
             return None
 
     def process_job(self, job_data):
-        """Process a single job with batch generation support"""
+        """Process a single job with enhanced debugging"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         prompt = job_data['prompt']
@@ -417,16 +461,23 @@ class OptimizedWanWorker:
         num_images = job_data.get('metadata', {}).get('num_images', 6 if 'image' in job_type else 1)
         
         print(f"\n🚀 === PROCESSING WAN JOB {job_id} ===")
-        print(f"Type: {job_type}")
-        print(f"Prompt: {prompt}")
+        print(f"📋 Job Type: {job_type}")
+        print(f"📝 Prompt: '{prompt}'")
+        print(f"👤 User ID: {user_id}")
+        print(f"🎬 Video ID: {video_id}")
+        print(f"🖼️ Image ID: {image_id}")
         if 'image' in job_type:
-            print(f"🖼️ Generating {num_images} images")
+            print(f"🔢 Number of Images: {num_images}")
+        print(f"📦 Full Job Data: {json.dumps(job_data, indent=2)}")
         
         try:
             config = self.job_type_mapping[job_type]
             start_time = time.time()
             
+            print(f"⚙️ Job Configuration: {json.dumps(config, indent=2)}")
+            
             if config['content_type'] == 'image' and num_images > 1:
+                print(f"🎨 BATCH IMAGE GENERATION MODE")
                 # Batch image generation
                 video_paths = self.generate_images_batch(prompt, job_type, num_images)
                 
@@ -448,15 +499,23 @@ class OptimizedWanWorker:
                 self.notify_completion(job_id, 'completed', image_urls=upload_urls)
                 
             else:
+                print(f"🎬 SINGLE GENERATION MODE")
+                print(f"🔧 Content Type: {config['content_type']}")
+                
                 # Single generation (video or single image)
                 output_path = self.generate_with_wan21(prompt, job_type)
                 
+                print(f"🎯 Generation Result: {output_path}")
+                
                 if not output_path:
-                    raise Exception("Generation failed - no output file")
+                    error_msg = f"WAN 2.1 generation failed - no output file produced"
+                    print(f"❌ {error_msg}")
+                    raise Exception(error_msg)
                 
                 upload_path = None
                 
                 if config['content_type'] == 'image':
+                    print(f"🖼️ PROCESSING AS IMAGE")
                     # Single image - extract frame
                     image_path = Path(output_path).with_suffix('.png')
                     if self.extract_image_from_video(output_path, image_path):
@@ -472,17 +531,21 @@ class OptimizedWanWorker:
                         raise Exception("Frame extraction failed")
                         
                 else:  # video
+                    print(f"📹 PROCESSING AS VIDEO")
                     # Single video upload
                     timestamp = int(time.time())
                     filename = f"wan_{job_id}_{timestamp}.mp4"
                     storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
+                    print(f"📁 Upload path: {storage_path}")
                     upload_path = self.upload_to_supabase(output_path, storage_path)
                     
                     # Cleanup temp file
                     Path(output_path).unlink(missing_ok=True)
                 
                 if not upload_path:
-                    raise Exception("File upload failed")
+                    error_msg = f"File upload to Supabase failed"
+                    print(f"❌ {error_msg}")
+                    raise Exception(error_msg)
                 
                 total_time = time.time() - start_time
                 print(f"✅ WAN Job {job_id} completed in {total_time:.1f}s")
@@ -494,12 +557,18 @@ class OptimizedWanWorker:
             
         except Exception as e:
             error_msg = str(e)
-            print(f"❌ WAN Job {job_id} failed: {error_msg}")
+            print(f"❌ WAN Job {job_id} FAILED")
+            print(f"💥 Error: {error_msg}")
+            print(f"📋 Job Type: {job_type}")
+            print(f"📝 Prompt: '{prompt}'")
+            print(f"🕒 Timestamp: {time.time()}")
             self.notify_completion(job_id, 'failed', error_message=error_msg)
         finally:
             # Cleanup GPU memory and temp files
             torch.cuda.empty_cache()
             gc.collect()
+            print(f"🧹 Cleanup completed for job {job_id}")
+            print(f"=" * 80)
 
     def notify_completion(self, job_id, status, file_path=None, image_urls=None, error_message=None):
         """Notify Supabase of job completion with batch support"""
@@ -574,7 +643,7 @@ class OptimizedWanWorker:
         print("⚡ Performance: 67-90s per image, ~8-9min for 6-image batch")
         print("📬 Polling wan_queue for image_fast, image_high, video_fast, video_high")
         print("🖼️ NEW: 6-image batch generation for image jobs")
-        print("🔧 REDIS FIX: Proper Upstash REST API polling")
+        print("🔧 DEBUG: Enhanced error logging for video generation")
         
         job_count = 0
         
