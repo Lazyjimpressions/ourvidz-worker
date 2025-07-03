@@ -1,12 +1,12 @@
-# requirements_locked.txt - Version-Locked for Stability
+# requirements.txt - FIXED VERSION
 # Base PyTorch ecosystem - MUST stay compatible
 torch==2.4.1+cu124
 torchvision==0.19.1+cu124
 torchaudio==2.4.1+cu124
 --find-links https://download.pytorch.org/whl/cu124/torch_stable.html
 
-# Flash Attention - Built for PyTorch 2.4.1
-flash-attn==2.8.0.post2 --no-build-isolation
+# Flash Attention - FIXED: Removed --no-build-isolation (will install separately if needed)
+# flash-attn==2.8.0.post2
 
 # Diffusers ecosystem - Compatible versions
 diffusers==0.31.0
@@ -43,3 +43,10 @@ imageio-ffmpeg==0.5.1
 # Audio processing (for future)
 librosa==0.10.2
 soundfile==0.12.1
+
+# WAN 2.1 Dependencies - ADDED
+easydict==1.13
+av==12.3.0
+decord==0.6.0
+omegaconf==2.3.0
+hydra-core==1.3.2
