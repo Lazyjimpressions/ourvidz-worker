@@ -639,7 +639,8 @@ class OptimizedWanWorker:
 
     def run(self):
         """Main WAN worker loop"""
-        print("🎬 WAN WORKER READY!")
+        print("🎬 WAN WORKER READY - ENHANCED DEBUG VERSION v2.0!")
+        print("🔍 DEBUG: Enhanced logging enabled for video generation debugging")
         print("⚡ Performance: 67-90s per image, ~8-9min for 6-image batch")
         print("📬 Polling wan_queue for image_fast, image_high, video_fast, video_high")
         print("🖼️ NEW: 6-image batch generation for image jobs")
@@ -673,7 +674,8 @@ class OptimizedWanWorker:
             print("✅ WAN Worker cleanup complete")
 
 if __name__ == "__main__":
-    print("🚀 Starting WAN 2.1 Worker - CLEAN SYNTAX VERSION")
+    print("🚀 Starting WAN 2.1 Worker - ENHANCED DEBUG VERSION v2.0")
+    print("🔍 DEBUG: This is the enhanced debugging version with detailed logging")
     
     # Environment validation
     required_vars = [
