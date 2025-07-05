@@ -1,5 +1,5 @@
 # wan_worker.py - Enhanced WAN Worker with Qwen 7B Integration
-# CRITICAL FIX: Upstash Redis REST API compatibility - uses RPOP instead of BRPOP
+# CRITICAL FIXES: Enhancement timeout, upload validation, graceful fallback
 # Date: July 5, 2025
 
 import os
@@ -9,8 +9,18 @@ import torch
 import requests
 import subprocess
 import tempfile
+import signal
+import mimetypes
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+class TimeoutException(Exception):
+    """Custom exception for timeouts"""
+    pass
+
+def timeout_handler(signum, frame):
+    """Signal handler for timeouts"""
+    raise TimeoutException("Operation timed out")
 
 class EnhancedWanWorker:
     def __init__(self):
@@ -36,6 +46,10 @@ class EnhancedWanWorker:
         # Model instances (loaded on demand)
         self.qwen_model = None
         self.qwen_tokenizer = None
+        
+        # Enhancement settings
+        self.enhancement_timeout = 60  # CRITICAL: 60 second timeout for Qwen enhancement
+        self.max_enhancement_attempts = 2  # Allow 2 attempts before fallback
         
         # Job type configurations - ALL 8 TYPES SUPPORTED
         self.job_configs = {
@@ -121,8 +135,10 @@ class EnhancedWanWorker:
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
         print(f"💾 HF Cache: {self.hf_cache_path}")
+        print(f"⏰ Enhancement Timeout: {self.enhancement_timeout}s")
         print("✨ Enhanced jobs include Qwen 7B prompt enhancement")
         print("🔧 FIXED: Upstash Redis REST API compatibility (RPOP instead of BRPOP)")
+        print("🔧 FIXED: Enhancement timeout and upload validation")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -157,12 +173,16 @@ class EnhancedWanWorker:
         return env
 
     def load_qwen_model(self):
-        """Load Qwen 2.5-7B model for prompt enhancement"""
+        """Load Qwen 2.5-7B model for prompt enhancement with timeout protection"""
         if self.qwen_model is None:
             print("🤖 Loading Qwen 2.5-7B for prompt enhancement...")
             enhancement_start = time.time()
             
             try:
+                # Set timeout for model loading
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(120)  # 2 minute timeout for model loading
+                
                 # Verify model path exists
                 if not os.path.exists(self.qwen_model_path):
                     print(f"⚠️ Qwen model not found at {self.qwen_model_path}")
@@ -187,11 +207,20 @@ class EnhancedWanWorker:
                     trust_remote_code=True
                 )
                 
+                # Clear timeout
+                signal.alarm(0)
+                
                 load_time = time.time() - enhancement_start
                 print(f"✅ Qwen 2.5-7B loaded successfully in {load_time:.1f}s")
                 self.log_gpu_memory()
                 
+            except TimeoutException:
+                signal.alarm(0)
+                print(f"❌ Qwen model loading timed out after 120s")
+                self.qwen_model = None
+                self.qwen_tokenizer = None
             except Exception as e:
+                signal.alarm(0)
                 print(f"❌ Failed to load Qwen model: {e}")
                 print("⚠️ Prompt enhancement will be disabled for this job")
                 # Fall back to no enhancement
@@ -210,18 +239,24 @@ class EnhancedWanWorker:
             print("✅ Qwen 2.5-7B unloaded")
             self.log_gpu_memory()
 
-    def enhance_prompt(self, original_prompt):
-        """Use Qwen 2.5-7B to enhance user prompt"""
+    def enhance_prompt_with_timeout(self, original_prompt):
+        """Enhanced prompt generation with strict timeout control"""
         enhancement_start = time.time()
-        print(f"🤖 Enhancing prompt: {original_prompt[:50]}...")
-        
-        self.load_qwen_model()
-        
-        if self.qwen_model is None:
-            print("⚠️ Qwen model not available, using original prompt")
-            return original_prompt
+        print(f"🤖 Enhancing prompt with {self.enhancement_timeout}s timeout: {original_prompt[:50]}...")
         
         try:
+            # Set timeout signal
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(self.enhancement_timeout)
+            
+            # Load model if not already loaded
+            self.load_qwen_model()
+            
+            if self.qwen_model is None:
+                signal.alarm(0)
+                print("⚠️ Qwen model not available, using original prompt")
+                return original_prompt
+            
             system_prompt = """你是一个专业的视频制作提示词专家。请将用户的简单描述转换为详细的视频生成提示词。
 
 要求：
@@ -246,7 +281,7 @@ class EnhancedWanWorker:
                 add_generation_prompt=True
             )
             
-            # Tokenize and generate
+            # Tokenize and generate with timeout protection
             model_inputs = self.qwen_tokenizer([text], return_tensors="pt").to("cuda")
             
             with torch.no_grad():
@@ -255,7 +290,9 @@ class EnhancedWanWorker:
                     max_new_tokens=300,
                     temperature=0.7,
                     do_sample=True,
-                    pad_token_id=self.qwen_tokenizer.eos_token_id
+                    pad_token_id=self.qwen_tokenizer.eos_token_id,
+                    # Additional timeout protection
+                    max_time=self.enhancement_timeout - 10  # Leave 10s buffer
                 )
             
             # Extract enhanced prompt
@@ -265,20 +302,93 @@ class EnhancedWanWorker:
             
             enhanced_prompt = self.qwen_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
             
-            self.unload_qwen_model()
+            # Clear timeout
+            signal.alarm(0)
             
             enhancement_time = time.time() - enhancement_start
             print(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
             print(f"📝 Enhanced: {enhanced_prompt[:100]}...")
             return enhanced_prompt.strip()
             
-        except Exception as e:
-            print(f"❌ Prompt enhancement failed: {e}")
-            self.unload_qwen_model()
+        except TimeoutException:
+            signal.alarm(0)
+            print(f"⚠️ Enhancement timed out after {self.enhancement_timeout}s, using original prompt")
             return original_prompt
+        except Exception as e:
+            signal.alarm(0)
+            print(f"❌ Prompt enhancement failed: {e}")
+            return original_prompt
+        finally:
+            # Always unload model to free memory
+            self.unload_qwen_model()
+
+    def enhance_prompt(self, original_prompt):
+        """Enhanced prompt with retry logic and graceful fallback"""
+        for attempt in range(self.max_enhancement_attempts):
+            try:
+                print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
+                enhanced = self.enhance_prompt_with_timeout(original_prompt)
+                
+                # Validate enhancement worked
+                if enhanced and enhanced != original_prompt and len(enhanced) > len(original_prompt):
+                    print(f"✅ Enhancement successful on attempt {attempt + 1}")
+                    return enhanced
+                else:
+                    print(f"⚠️ Enhancement attempt {attempt + 1} produced insufficient output")
+                    if attempt < self.max_enhancement_attempts - 1:
+                        time.sleep(5)  # Wait before retry
+                    
+            except Exception as e:
+                print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
+                if attempt < self.max_enhancement_attempts - 1:
+                    time.sleep(5)  # Wait before retry
+        
+        print("⚠️ All enhancement attempts failed, using original prompt")
+        return original_prompt
+
+    def validate_output_file(self, file_path, expected_content_type):
+        """Validate that output file is correct type before upload"""
+        try:
+            if not os.path.exists(file_path):
+                print(f"❌ Output file does not exist: {file_path}")
+                return False
+            
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                print(f"❌ Output file is empty: {file_path}")
+                return False
+            
+            # Check MIME type
+            mime_type, _ = mimetypes.guess_type(file_path)
+            print(f"🔍 File validation: {file_path}")
+            print(f"📁 Size: {file_size / 1024**2:.2f}MB")
+            print(f"📄 MIME type: {mime_type}")
+            
+            # Validate based on expected content type
+            if expected_content_type == 'video':
+                if mime_type not in ['video/mp4', 'video/webm', 'video/avi']:
+                    print(f"❌ Invalid video MIME type: {mime_type}")
+                    return False
+                if file_size < 100000:  # Less than 100KB is suspicious for video
+                    print(f"❌ Video file too small: {file_size} bytes")
+                    return False
+            elif expected_content_type == 'image':
+                if mime_type not in ['image/png', 'image/jpeg', 'image/jpg']:
+                    print(f"❌ Invalid image MIME type: {mime_type}")
+                    return False
+                if file_size < 10000:  # Less than 10KB is suspicious for image
+                    print(f"❌ Image file too small: {file_size} bytes")
+                    return False
+            
+            print(f"✅ File validation passed")
+            return True
+            
+        except Exception as e:
+            print(f"❌ File validation error: {e}")
+            return False
 
     def generate_content(self, prompt, job_type):
-        """Generate image or video content using WAN 2.1"""
+        """Generate image or video content using WAN 2.1 with validation"""
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
@@ -315,7 +425,7 @@ class EnhancedWanWorker:
             print(f"📝 Final prompt: {prompt[:100]}...")
             print(f"🔧 Frame count: {config['frame_num']} ({'image' if config['frame_num'] == 1 else 'video'})")
             
-            # Execute WAN generation
+            # Execute WAN generation with timeout
             generation_start = time.time()
             result = subprocess.run(
                 cmd,
@@ -332,16 +442,25 @@ class EnhancedWanWorker:
             os.chdir(original_cwd)
             
             if result.returncode == 0:
-                if temp_video_path.exists() and temp_video_path.stat().st_size > 0:
+                # Validate output file before returning
+                if self.validate_output_file(str(temp_video_path), config['content_type']):
                     file_size = temp_video_path.stat().st_size / 1024**2  # MB
                     print(f"✅ WAN generation successful in {generation_time:.1f}s: {file_size:.1f}MB")
                     return str(temp_video_path)
                 else:
-                    raise Exception("Output file not created or empty")
+                    raise Exception("Generated file failed validation")
             else:
                 error_output = result.stderr if result.stderr else result.stdout
+                print(f"❌ WAN generation failed with return code {result.returncode}")
+                print(f"📄 Error output: {error_output[:500]}...")  # First 500 chars
                 raise Exception(f"WAN generation failed: {error_output}")
                 
+        except subprocess.TimeoutExpired:
+            os.chdir(original_cwd)
+            print(f"❌ WAN generation timed out after 600s")
+            if temp_video_path.exists():
+                temp_video_path.unlink()
+            return None
         except Exception as e:
             os.chdir(original_cwd)  # Ensure we restore directory
             print(f"❌ WAN generation error: {e}")
@@ -350,15 +469,28 @@ class EnhancedWanWorker:
             return None
 
     def upload_to_supabase(self, file_path, storage_path):
-        """Upload file to Supabase storage"""
+        """Upload file to Supabase storage with enhanced validation"""
         try:
+            # Double-check file before upload
+            if not os.path.exists(file_path):
+                raise Exception(f"File does not exist: {file_path}")
+            
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                raise Exception(f"File is empty: {file_path}")
+            
+            # Check MIME type for additional safety
+            mime_type, _ = mimetypes.guess_type(file_path)
+            print(f"📤 Uploading {mime_type} file ({file_size / 1024**2:.2f}MB)")
+            
             with open(file_path, 'rb') as file:
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
                     files={'file': file},
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
-                    }
+                    },
+                    timeout=120  # 2 minute upload timeout
                 )
             
             if response.status_code == 200:
@@ -368,7 +500,10 @@ class EnhancedWanWorker:
                 print(f"✅ Upload successful: {relative_path}")
                 return relative_path
             else:
-                raise Exception(f"Upload failed: {response.status_code} - {response.text}")
+                error_text = response.text[:500]  # First 500 chars of error
+                print(f"❌ Upload failed: {response.status_code}")
+                print(f"📄 Error response: {error_text}")
+                raise Exception(f"Upload failed: {response.status_code} - {error_text}")
                 
         except Exception as e:
             print(f"❌ Supabase upload error: {e}")
@@ -403,7 +538,7 @@ class EnhancedWanWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process a single job with enhanced support"""
+        """Process a single job with enhanced error handling and validation"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         original_prompt = job_data['prompt']
@@ -423,27 +558,34 @@ class EnhancedWanWorker:
             config = self.job_configs[job_type]
             print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
             
-            # Step 1: Enhance prompt if required
+            # Step 1: Enhance prompt if required (with timeout protection)
             if config['enhance_prompt']:
-                print("🤖 Starting prompt enhancement...")
+                print("🤖 Starting prompt enhancement with timeout protection...")
                 enhanced_prompt = self.enhance_prompt(original_prompt)
                 actual_prompt = enhanced_prompt
+                
+                # Log enhancement result
+                if enhanced_prompt != original_prompt:
+                    print(f"✅ Prompt successfully enhanced")
+                    print(f"📝 Length: {len(original_prompt)} → {len(enhanced_prompt)} chars")
+                else:
+                    print(f"⚠️ Using original prompt (enhancement failed or timed out)")
             else:
                 print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
             
-            # Step 2: Generate content with WAN 2.1
-            print("🎬 Starting WAN generation...")
+            # Step 2: Generate content with WAN 2.1 (with validation)
+            print("🎬 Starting WAN generation with validation...")
             output_file = self.generate_content(actual_prompt, job_type)
             
             if not output_file:
-                raise Exception("Content generation failed")
+                raise Exception("Content generation failed or produced invalid output")
             
-            # Step 3: Upload to Supabase
+            # Step 3: Upload to Supabase (with additional validation)
             file_extension = 'png' if config['content_type'] == 'image' else 'mp4'
             storage_path = f"{job_type}/{video_id}.{file_extension}"
             
-            print(f"📤 Uploading to: {storage_path}")
+            print(f"📤 Uploading validated file to: {storage_path}")
             relative_path = self.upload_to_supabase(output_file, storage_path)
             
             # Step 4: Cleanup local file
@@ -460,6 +602,15 @@ class EnhancedWanWorker:
             error_msg = str(e)
             total_time = time.time() - job_start_time
             print(f"❌ Job {job_id} failed after {total_time:.1f}s: {error_msg}")
+            
+            # Enhanced error logging
+            if "timeout" in error_msg.lower():
+                print("💡 Timeout detected - consider optimizing enhancement process")
+            elif "mime" in error_msg.lower() or "validation" in error_msg.lower():
+                print("💡 File validation failed - WAN generation produced invalid output")
+            elif "upload" in error_msg.lower():
+                print("💡 Upload failed - check storage bucket configuration")
+            
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
@@ -493,9 +644,10 @@ class EnhancedWanWorker:
             return None
 
     def run(self):
-        """Main worker loop with enhanced job support and Upstash compatibility"""
+        """Main worker loop with enhanced job support and error handling"""
         print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
+        print("🔧 ENHANCED FEATURES: Timeout protection, upload validation, graceful fallback")
         print("📋 Supported job types:")
         for job_type, config in self.job_configs.items():
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
@@ -504,6 +656,8 @@ class EnhancedWanWorker:
         print("⏳ Waiting for jobs...")
         
         job_count = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 5
         
         while True:
             try:
@@ -511,6 +665,7 @@ class EnhancedWanWorker:
                 
                 if job_data:
                     job_count += 1
+                    consecutive_errors = 0  # Reset error counter on successful job
                     print(f"\n📬 WAN Job #{job_count} received")
                     self.process_job(job_data)
                     print("=" * 60)
@@ -522,8 +677,17 @@ class EnhancedWanWorker:
                 print("🛑 Worker stopped by user")
                 break
             except Exception as e:
-                print(f"❌ Worker error: {e}")
-                time.sleep(30)
+                consecutive_errors += 1
+                print(f"❌ Worker error #{consecutive_errors}: {e}")
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    print(f"❌ Too many consecutive errors ({consecutive_errors}), shutting down worker")
+                    break
+                
+                # Exponential backoff for errors
+                sleep_time = min(30, 5 * consecutive_errors)
+                print(f"⏳ Waiting {sleep_time}s before retry...")
+                time.sleep(sleep_time)
 
 if __name__ == "__main__":
     # Environment variable validation
@@ -556,5 +720,12 @@ if __name__ == "__main__":
         exit(1)
     
     print("✅ All paths validated, starting worker...")
-    worker = EnhancedWanWorker()
-    worker.run()
+    
+    try:
+        worker = EnhancedWanWorker()
+        worker.run()
+    except Exception as e:
+        print(f"❌ Worker startup failed: {e}")
+        exit(1)
+    finally:
+        print("👋 Enhanced WAN Worker shutdown complete")
