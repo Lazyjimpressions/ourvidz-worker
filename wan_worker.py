@@ -502,7 +502,7 @@ class EnhancedWanWorker:
             return False
 
     def generate_content(self, prompt, job_type):
-        """Generate image or video content using WAN 2.1 with validation"""
+        """Generate image or video content using WAN 2.1 with real-time logging and validation"""
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
@@ -542,35 +542,161 @@ class EnhancedWanWorker:
             print(f"📝 Final prompt: {prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
             print(f"💾 Output path: {temp_output_path}")
+            print(f"📁 Working directory: {self.wan_code_path}")
+            print(f"🔧 Command: {' '.join(cmd)}")
             
-            # Execute WAN generation with timeout
+            # ENHANCED: Add environment validation before execution
+            print("🔍 Validating environment before WAN execution...")
+            print(f"   PYTHONPATH: {env.get('PYTHONPATH', 'NOT SET')}")
+            print(f"   HF_HOME: {env.get('HF_HOME', 'NOT SET')}")
+            print(f"   CUDA_VISIBLE_DEVICES: {env.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}")
+            
+            # ENHANCED: Execute WAN generation with REAL-TIME OUTPUT and 350s timeout
             generation_start = time.time()
-            result = subprocess.run(
+            print(f"⏰ Starting WAN subprocess with 350s timeout at {time.strftime('%H:%M:%S')}")
+            
+            # Use Popen for real-time output instead of subprocess.run
+            process = subprocess.Popen(
                 cmd,
                 cwd=self.wan_code_path,
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Combine stderr with stdout
                 text=True,
-                timeout=600  # 10 minute timeout
+                bufsize=1,  # Line buffered
+                universal_newlines=True
             )
             
+            # Real-time output monitoring with timeout
+            output_lines = []
+            max_output_lines = 100  # Limit stored lines to prevent memory issues
+            start_time = time.time()
+            timeout = 350  # 350 seconds as requested
+            last_progress_time = start_time
+            
+            # Enhanced WAN error patterns
+            wan_error_patterns = [
+                'error', 'failed', 'exception', 'traceback', 'cuda error',
+                'out of memory', 'no module named', 'import error', 
+                'file not found', 'permission denied', 'cuda out of memory',
+                'runtime error', 'assertion error', 'key error', 'value error'
+            ]
+            
+            wan_progress_patterns = [
+                'generated', 'saved', 'loading', 'processing', 'step', 
+                'progress', 'completed', 'finished', 'done', 'success',
+                'creating', 'writing', 'encoding', 'frame'
+            ]
+            
+            print("📺 WAN Real-time Output:")
+            print("=" * 50)
+            
+            while True:
+                # Check if process has finished
+                if process.poll() is not None:
+                    break
+                    
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    print(f"⏰ TIMEOUT: WAN generation exceeded {timeout}s, killing process...")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)  # Give it 10s to terminate gracefully
+                    except subprocess.TimeoutExpired:
+                        print("🔥 Force killing WAN process...")
+                        process.kill()
+                        process.wait()
+                    raise subprocess.TimeoutExpired(cmd, timeout, None)
+                
+                # Cross-platform output reading with simpler approach
+                try:
+                    # Use readline with a small timeout approach
+                    line = None
+                    try:
+                        # Try to read a line (this will block if no data)
+                        import fcntl
+                        import os
+                        
+                        # Make stdout non-blocking (Unix only)
+                        if hasattr(fcntl, 'F_GETFL'):
+                            fd = process.stdout.fileno()
+                            fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+                            fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+                            line = process.stdout.readline()
+                        else:
+                            # Fallback for Windows or systems without fcntl
+                            line = process.stdout.readline()
+                            
+                    except (IOError, OSError):
+                        # No data available, continue
+                        pass
+                    except ImportError:
+                        # fcntl not available (Windows), use simple readline
+                        line = process.stdout.readline()
+                    
+                    if line and line.strip():
+                        line = line.strip()
+                        
+                        # Buffer management - keep only last N lines
+                        output_lines.append(line)
+                        if len(output_lines) > max_output_lines:
+                            output_lines.pop(0)  # Remove oldest line
+                        
+                        print(f"[WAN] {line}")
+                        
+                        # Enhanced error pattern detection
+                        line_lower = line.lower()
+                        for error_pattern in wan_error_patterns:
+                            if error_pattern in line_lower:
+                                print(f"🚨 WAN ERROR DETECTED: {line}")
+                                break
+                        
+                        # Enhanced progress pattern detection
+                        for progress_pattern in wan_progress_patterns:
+                            if progress_pattern in line_lower:
+                                print(f"✅ WAN PROGRESS: {line}")
+                                break
+                    else:
+                        # No output, small delay to prevent busy waiting
+                        time.sleep(0.1)
+                            
+                except Exception as e:
+                    print(f"⚠️ Error reading WAN output: {e}")
+                    time.sleep(1)  # Small delay before retry
+                    continue
+                
+                # Progress indicator every 30 seconds
+                if elapsed - last_progress_time >= 30:
+                    print(f"⏱️ WAN generation progress: {elapsed:.0f}s / {timeout}s")
+                    last_progress_time = elapsed
+            
+            # Get final return code
+            return_code = process.returncode
             generation_time = time.time() - generation_start
+            
+            print("=" * 50)
+            print(f"✅ WAN subprocess completed in {generation_time:.1f}s")
+            print(f"📄 WAN return code: {return_code}")
+            print(f"📝 Total output lines: {len(output_lines)}")
             
             # Restore original directory
             os.chdir(original_cwd)
             
-            print(f"📄 WAN return code: {result.returncode}")
-            if result.stdout:
-                print(f"📄 WAN stdout (last 200 chars): ...{result.stdout[-200:]}")
-            if result.stderr:
-                print(f"📄 WAN stderr (last 200 chars): ...{result.stderr[-200:]}")
-            
-            if result.returncode == 0:
+            if return_code == 0:
                 # Check if output file exists and has content
                 if os.path.exists(temp_output_path) and os.path.getsize(temp_output_path) > 0:
                     file_size = os.path.getsize(temp_output_path) / 1024**2  # MB
-                    print(f"✅ WAN generation successful in {generation_time:.1f}s: {file_size:.1f}MB")
-                    return temp_output_path
+                    print(f"✅ WAN generation successful: {file_size:.1f}MB file created")
+                    print(f"📁 Output file: {temp_output_path}")
+                    
+                    # Enhanced file validation
+                    if self.validate_output_file(temp_output_path, config['content_type']):
+                        print(f"✅ Output file validation passed")
+                        return temp_output_path
+                    else:
+                        print(f"❌ Output file validation failed")
+                        raise Exception("Generated file failed validation")
                 else:
                     print(f"❌ WAN completed but no output file created at: {temp_output_path}")
                     # Try to find files that WAN might have created
@@ -585,25 +711,35 @@ class EnhancedWanWorker:
                             return actual_file
                     raise Exception("WAN generation completed but no valid output file found")
             else:
-                error_output = result.stderr if result.stderr else result.stdout
-                print(f"❌ WAN generation failed with return code {result.returncode}")
-                print(f"📄 Error output: {error_output[:500]}...")  # First 500 chars
-                raise Exception(f"WAN generation failed: {error_output}")
+                # Process failed
+                error_output = '\n'.join(output_lines[-10:]) if output_lines else "No output captured"
+                print(f"❌ WAN generation failed with return code {return_code}")
+                print(f"📄 Last 10 lines of output:")
+                for line in output_lines[-10:]:
+                    print(f"   {line}")
+                raise Exception(f"WAN generation failed with return code {return_code}: {error_output}")
                 
         except subprocess.TimeoutExpired:
             os.chdir(original_cwd)
-            print(f"❌ WAN generation timed out after 600s")
+            print(f"❌ WAN generation timed out after {timeout}s")
+            print(f"📄 Output captured before timeout:")
+            for line in output_lines[-5:] if 'output_lines' in locals() else []:
+                print(f"   {line}")
             # Cleanup any partial files
             import glob
             for partial_file in glob.glob(f"{temp_base_path}*"):
                 try:
                     os.unlink(partial_file)
+                    print(f"🗑️ Cleaned up partial file: {partial_file}")
                 except:
                     pass
-            return None
+            raise Exception(f"WAN generation timed out after {timeout} seconds")
         except Exception as e:
             os.chdir(original_cwd)  # Ensure we restore directory
             print(f"❌ WAN generation error: {e}")
+            print(f"📄 Output captured before error:")
+            for line in output_lines[-5:] if 'output_lines' in locals() else []:
+                print(f"   {line}")
             # Cleanup any partial files
             import glob
             for partial_file in glob.glob(f"{temp_base_path}*"):
@@ -611,7 +747,7 @@ class EnhancedWanWorker:
                     os.unlink(partial_file)
                 except:
                     pass
-            return None
+            raise
 
     def upload_to_supabase(self, file_path, storage_path):
         """Upload file to Supabase storage with enhanced validation"""
