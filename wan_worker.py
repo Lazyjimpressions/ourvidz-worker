@@ -1,570 +1,351 @@
-# wan_worker.py - ENHANCED WITH QWEN 7B INTEGRATION
-# NEW: Supports 4 enhanced job types with Qwen 2.5-7B prompt enhancement
-# Performance: Standard jobs + 14s enhancement time
+# enhanced_wan_worker.py - OurVidz Enhanced WAN Worker with Qwen 7B Integration
+# Updated with correct HuggingFace cache path structure
+# Date: July 5, 2025
 
 import os
 import json
 import time
+import torch
 import requests
 import subprocess
-import uuid
-import shutil
-import gc
+import tempfile
 from pathlib import Path
-from PIL import Image
-import cv2
-import sys
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Clean environment first
-for key in ['WORLD_SIZE', 'RANK', 'LOCAL_RANK', 'MASTER_ADDR', 'MASTER_PORT']:
-    if key in os.environ:
-        del os.environ[key]
-
-# Import torch after cleaning environment
-import torch
-import torch.nn as nn
-import numpy as np
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 class EnhancedWanWorker:
     def __init__(self):
-        logger.info("🚀 ENHANCED WAN WORKER - WITH QWEN 7B INTEGRATION")
-        logger.info("✨ NEW: 4 enhanced job types with AI prompt enhancement")
-        logger.info("⚡ Performance: Standard generation + 14s enhancement")
-        logger.info("🎯 Qwen 2.5-7B: Superior quality, 9x faster than 14B")
-        
-        # Model paths
+        """Initialize Enhanced WAN Worker with Qwen 7B integration"""
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
-        self.wan_path = "/workspace/Wan2.1"
+        self.wan_code_path = "/workspace/Wan2.1"
         
-        # Enhancement configuration
-        self.enhancement_config = {
-            'model_name': 'Qwen/Qwen2.5-7B-Instruct',  # ✅ Tested and working
-            'hf_home': '/workspace/models/huggingface_cache',
-            'expected_time': 14,  # seconds (measured performance)
-            'pythonpath': '/workspace/python_deps/lib/python3.11/site-packages'
-        }
+        # Updated HuggingFace cache configuration
+        self.hf_cache_path = "/workspace/models/huggingface_cache"
+        self.qwen_model_path = f"{self.hf_cache_path}/hub/models--Qwen--Qwen2.5-7B-Instruct"
         
-        # ENHANCED JOB CONFIGURATIONS - Complete settings for all job types
-        self.job_type_mapping = {
-            # ===== STANDARD JOB TYPES (Existing) =====
-            'image_fast': {
-                'content_type': 'image',
-                'file_extension': 'png',
-                'sample_steps': 12,
-                'sample_guide_scale': 6.0,
-                'size': '832*480',
-                'frame_num': 1,
-                'storage_bucket': 'image_fast',
-                'expected_time_per_image': 73,
-                'supports_batch': True,
-                'enhancement': False
-            },
-            'image_high': {
-                'content_type': 'image', 
-                'file_extension': 'png',
-                'sample_steps': 25,
-                'sample_guide_scale': 7.5,
-                'size': '832*480',
-                'frame_num': 1,
-                'storage_bucket': 'image_high',
-                'expected_time_per_image': 90,
-                'supports_batch': True,
-                'enhancement': False
-            },
-            'video_fast': {
-                'content_type': 'video',
-                'file_extension': 'mp4',
-                'sample_steps': 15,
-                'sample_guide_scale': 6.5,
-                'size': '480*832',
-                'frame_num': 65,
-                'storage_bucket': 'video_fast',
-                'expected_time': 180,
-                'supports_batch': False,
-                'enhancement': False
-            },
-            'video_high': {
-                'content_type': 'video',
-                'file_extension': 'mp4', 
-                'sample_steps': 25,
-                'sample_guide_scale': 8.0,
-                'size': '832*480',
-                'frame_num': 81,
-                'storage_bucket': 'video_high',
-                'expected_time': 280,
-                'supports_batch': False,
-                'enhancement': False
-            },
-            
-            # ===== ENHANCED JOB TYPES (New with Qwen 7B) =====
-            'image7b_fast_enhanced': {
-                'content_type': 'image',
-                'file_extension': 'png',
-                'sample_steps': 12,                    # Same as image_fast
-                'sample_guide_scale': 6.0,             # Same as image_fast
-                'size': '832*480',                     # Same as image_fast
-                'frame_num': 1,                        # Same as image_fast
-                'storage_bucket': 'image7b_fast_enhanced',  # Matches job type exactly
-                'expected_time_per_image': 87,         # 73s + 14s enhancement
-                'supports_batch': True,
-                'enhancement': True,
-                'enhancement_model': 'Qwen/Qwen2.5-7B-Instruct'
-            },
-            'image7b_high_enhanced': {
-                'content_type': 'image',
-                'file_extension': 'png',
-                'sample_steps': 25,                    # Same as image_high
-                'sample_guide_scale': 7.5,             # Same as image_high
-                'size': '832*480',                     # Same as image_high
-                'frame_num': 1,                        # Same as image_high
-                'storage_bucket': 'image7b_high_enhanced', # Matches job type exactly
-                'expected_time_per_image': 104,        # 90s + 14s enhancement
-                'supports_batch': True,
-                'enhancement': True,
-                'enhancement_model': 'Qwen/Qwen2.5-7B-Instruct'
-            },
-            'video7b_fast_enhanced': {
-                'content_type': 'video',
-                'file_extension': 'mp4',
-                'sample_steps': 15,                    # Same as video_fast
-                'sample_guide_scale': 6.5,             # Same as video_fast
-                'size': '480*832',                     # Same as video_fast
-                'frame_num': 65,                       # Same as video_fast
-                'storage_bucket': 'video7b_fast_enhanced', # Matches job type exactly
-                'expected_time': 194,                  # 180s + 14s enhancement
-                'supports_batch': False,
-                'enhancement': True,
-                'enhancement_model': 'Qwen/Qwen2.5-7B-Instruct'
-            },
-            'video7b_high_enhanced': {
-                'content_type': 'video',
-                'file_extension': 'mp4',
-                'sample_steps': 25,                    # Same as video_high
-                'sample_guide_scale': 8.0,             # Same as video_high
-                'size': '832*480',                     # Same as video_high
-                'frame_num': 81,                       # Same as video_high
-                'storage_bucket': 'video7b_high_enhanced', # Matches job type exactly
-                'expected_time': 294,                  # 280s + 14s enhancement
-                'supports_batch': False,
-                'enhancement': True,
-                'enhancement_model': 'Qwen/Qwen2.5-7B-Instruct'
-            }
-        }
-        
-        # Environment variables
+        # Environment configuration
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY')
         self.redis_url = os.getenv('UPSTASH_REDIS_REST_URL')
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
-        # Validate environment
-        self.validate_environment()
+        # Model instances (loaded on demand)
+        self.qwen_model = None
+        self.qwen_tokenizer = None
         
-        logger.info("🎯 Enhanced WAN Worker ready - 8 job types supported")
-        logger.info("📋 Standard: image_fast, image_high, video_fast, video_high")
-        logger.info("✨ Enhanced: image7b_fast_enhanced, image7b_high_enhanced, video7b_fast_enhanced, video7b_high_enhanced")
+        # Job type configurations
+        self.job_configs = {
+            # Standard job types (no enhancement)
+            'image_fast': {
+                'size': '480*832',
+                'sample_steps': 4,
+                'sample_guide_scale': 3.0,
+                'frame_num': 1,
+                'enhance_prompt': False,
+                'expected_time': 73
+            },
+            'image_high': {
+                'size': '480*832',
+                'sample_steps': 6,
+                'sample_guide_scale': 4.0,
+                'frame_num': 1,
+                'enhance_prompt': False,
+                'expected_time': 90
+            },
+            'video_fast': {
+                'size': '480*832',
+                'sample_steps': 4,
+                'sample_guide_scale': 3.0,
+                'frame_num': 17,
+                'enhance_prompt': False,
+                'expected_time': 180
+            },
+            'video_high': {
+                'size': '480*832',
+                'sample_steps': 6,
+                'sample_guide_scale': 4.0,
+                'frame_num': 17,
+                'enhance_prompt': False,
+                'expected_time': 280
+            },
+            
+            # Enhanced job types (with Qwen 7B enhancement)
+            'image7b_fast_enhanced': {
+                'size': '480*832',
+                'sample_steps': 4,
+                'sample_guide_scale': 3.0,
+                'frame_num': 1,
+                'enhance_prompt': True,
+                'expected_time': 87  # 73s + 14s enhancement
+            },
+            'image7b_high_enhanced': {
+                'size': '480*832',
+                'sample_steps': 6,
+                'sample_guide_scale': 4.0,
+                'frame_num': 1,
+                'enhance_prompt': True,
+                'expected_time': 104  # 90s + 14s enhancement
+            },
+            'video7b_fast_enhanced': {
+                'size': '480*832',
+                'sample_steps': 4,
+                'sample_guide_scale': 3.0,
+                'frame_num': 17,
+                'enhance_prompt': True,
+                'expected_time': 194  # 180s + 14s enhancement
+            },
+            'video7b_high_enhanced': {
+                'size': '480*832',
+                'sample_steps': 6,
+                'sample_guide_scale': 4.0,
+                'frame_num': 17,
+                'enhance_prompt': True,
+                'expected_time': 294  # 280s + 14s enhancement
+            }
+        }
+        
+        print("🎬 Enhanced OurVidz WAN Worker initialized")
+        print(f"📁 WAN Model Path: {self.model_path}")
+        print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
+        print(f"💾 HF Cache: {self.hf_cache_path}")
+        self.log_gpu_memory()
 
-    def validate_environment(self):
-        """Validate all required components including Qwen 7B"""
-        logger.info("🔍 VALIDATING ENHANCED WAN ENVIRONMENT")
-        logger.info("-" * 50)
-        
-        # Check PyTorch GPU
+    def log_gpu_memory(self):
+        """Monitor RTX 6000 ADA 48GB VRAM usage"""
         if torch.cuda.is_available():
-            device_name = torch.cuda.get_device_name(0)
-            total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            logger.info(f"✅ GPU: {device_name} ({total_memory:.1f}GB)")
-        else:
-            logger.error("❌ CUDA not available")
-            
-        # Check WAN models
-        if Path(self.model_path).exists():
-            logger.info(f"✅ WAN 2.1 models: {self.model_path}")
-        else:
-            logger.error(f"❌ WAN models missing: {self.model_path}")
-            
-        # Check WAN installation
-        if Path(self.wan_path).exists():
-            generate_script = Path(self.wan_path) / "generate.py"
-            if generate_script.exists():
-                logger.info(f"✅ WAN generate script: {generate_script}")
-            else:
-                logger.error(f"❌ Generate script missing: {generate_script}")
-        else:
-            logger.error(f"❌ WAN 2.1 missing: {self.wan_path}")
-            
-        # Check Qwen 7B model
-        qwen_path = Path(self.enhancement_config['hf_home']) / "models--Qwen--Qwen2.5-7B-Instruct"
-        if qwen_path.exists():
-            logger.info(f"✅ Qwen 2.5-7B model: {qwen_path}")
-        else:
-            logger.error(f"❌ Qwen 7B model missing: {qwen_path}")
-            
-        # Check Python dependencies
-        deps_path = Path(self.enhancement_config['pythonpath'])
-        if deps_path.exists():
-            logger.info(f"✅ Python dependencies: {deps_path}")
-        else:
-            logger.error(f"❌ Python deps missing: {deps_path}")
-            
-        # Check environment variables
-        required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']
-        missing = [var for var in required_vars if not os.getenv(var)]
-        if missing:
-            logger.error(f"❌ Missing env vars: {missing}")
-        else:
-            logger.info("✅ All environment variables configured")
+            memory_allocated = torch.cuda.memory_allocated() / 1024**3
+            memory_reserved = torch.cuda.memory_reserved() / 1024**3
+            total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            print(f"🔥 GPU Memory - Used: {memory_allocated:.2f}GB / {total_memory:.0f}GB")
 
-    def enhance_prompt_with_qwen7b(self, original_prompt):
-        """Enhance prompt using Qwen 2.5-7B model - TESTED AND WORKING"""
-        logger.info(f"✨ Enhancing prompt with Qwen 7B: '{original_prompt}'")
-        start_time = time.time()
-        
-        # Set environment for Qwen
+    def setup_environment(self):
+        """Configure environment variables for WAN and Qwen - VERIFIED PATHS"""
         env = os.environ.copy()
-        env.update({
-            'HF_HOME': self.enhancement_config['hf_home'],
-            'PYTHONPATH': self.enhancement_config['pythonpath'],
-            'CUDA_VISIBLE_DEVICES': '0'
-        })
         
-        # Create enhancement command - EXACTLY AS TESTED
-        cmd = [
-            "python", "generate.py",
-            "--task", "t2v-1.3B",
-            "--ckpt_dir", self.model_path,
-            "--use_prompt_extend",
-            "--prompt_extend_method", "local_qwen", 
-            "--prompt_extend_model", self.enhancement_config['model_name'],
-            "--size", "832*480",  # Dummy size (not used for enhancement only)
-            "--frame_num", "1",   # Dummy frame (not used for enhancement only)
-            "--prompt", original_prompt,
-            "--save_file", "/tmp/dummy_enhancement.mp4"  # Won't be used
-        ]
-        
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(self.wan_path)
-            
-            # Run enhancement - capture both stdout and stderr
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=120  # 2 minute timeout for enhancement
-            )
-            
-            enhancement_time = time.time() - start_time
-            
-            if result.returncode == 0:
-                # Parse enhanced prompt from output
-                output = result.stdout + result.stderr
-                
-                # Look for "Extended prompt:" in the output
-                for line in output.split('\n'):
-                    if 'Extended prompt:' in line:
-                        enhanced_prompt = line.split('Extended prompt:', 1)[1].strip()
-                        if enhanced_prompt:
-                            logger.info(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
-                            logger.info(f"🎨 Enhanced: {enhanced_prompt[:100]}...")
-                            return enhanced_prompt
-                
-                # Fallback: return original if parsing failed
-                logger.warning(f"⚠️ Enhancement parsing failed, using original prompt")
-                return original_prompt
-            else:
-                logger.error(f"❌ Enhancement failed: {result.stderr}")
-                return original_prompt
-                
-        except subprocess.TimeoutExpired:
-            logger.error("❌ Enhancement timed out")
-            return original_prompt
-        except Exception as e:
-            logger.error(f"❌ Enhancement error: {e}")
-            return original_prompt
-        finally:
-            os.chdir(original_cwd)
-            # Cleanup dummy file if created
-            Path("/tmp/dummy_enhancement.mp4").unlink(missing_ok=True)
-
-    def generate_with_wan21(self, prompt, job_type, image_index=None):
-        """Generate single image/video with WAN 2.1 - Enhanced with Qwen support"""
-        
-        if job_type not in self.job_type_mapping:
-            raise ValueError(f"Unknown job type: {job_type}")
-            
-        config = self.job_type_mapping[job_type]
-        job_id = str(uuid.uuid4())[:8]
-        
-        # Apply enhancement if needed
-        if config.get('enhancement', False):
-            logger.info(f"✨ ENHANCED JOB: Applying Qwen 7B enhancement")
-            enhanced_prompt = self.enhance_prompt_with_qwen7b(prompt)
-            actual_prompt = enhanced_prompt
+        # CRITICAL: Add persistent dependencies to Python path
+        python_deps_path = '/workspace/python_deps/lib/python3.11/site-packages'
+        current_pythonpath = env.get('PYTHONPATH', '')
+        if current_pythonpath:
+            new_pythonpath = f"{python_deps_path}:{current_pythonpath}"
         else:
-            logger.info(f"📝 STANDARD JOB: Using original prompt")
-            actual_prompt = prompt
+            new_pythonpath = python_deps_path
         
-        if image_index is not None:
-            logger.info(f"🎬 Starting {job_type} generation {image_index}: {actual_prompt[:50]}...")
-        else:
-            logger.info(f"🎬 Starting {job_type} generation: {actual_prompt[:50]}...")
-            
-        logger.info(f"📋 Config: {config['size']}, {config['frame_num']} frames, {config['sample_steps']} steps")
-        
-        # Create temp directories
-        temp_base = Path("/tmp/ourvidz")
-        temp_base.mkdir(exist_ok=True)
-        temp_processing = temp_base / "processing"
-        temp_processing.mkdir(exist_ok=True)
-        
-        temp_video_path = temp_processing / f"wan21_{job_id}.mp4"
-        
-        # WAN generation command - SAME AS BEFORE
-        cmd = [
-            "python", "generate.py",
-            "--task", "t2v-1.3B",
-            "--ckpt_dir", str(self.model_path),
-            "--offload_model", "False",
-            "--size", config['size'],
-            "--sample_steps", str(config['sample_steps']),
-            "--sample_guide_scale", str(config['sample_guide_scale']),
-            "--frame_num", str(config['frame_num']),
-            "--prompt", actual_prompt,  # ✅ Use enhanced prompt
-            "--save_file", str(temp_video_path.absolute())
-        ]
-        
-        # Environment for WAN generation
-        env = os.environ.copy()
         env.update({
             'CUDA_VISIBLE_DEVICES': '0',
             'TORCH_USE_CUDA_DSA': '1',
             'PYTHONUNBUFFERED': '1',
-            'HF_HOME': self.enhancement_config['hf_home'],
-            'PYTHONPATH': self.enhancement_config['pythonpath']
+            'PYTHONPATH': new_pythonpath,  # VERIFIED: Dependencies exist here
+            'HF_HOME': self.hf_cache_path,  # VERIFIED: /workspace/models/huggingface_cache
+            'TRANSFORMERS_CACHE': self.hf_cache_path,
+            'HUGGINGFACE_HUB_CACHE': f"{self.hf_cache_path}/hub"  # VERIFIED: /hub/ subdirectory
         })
+        return env
+
+    def load_qwen_model(self):
+        """Load Qwen 2.5-7B model for prompt enhancement"""
+        if self.qwen_model is None:
+            print("🤖 Loading Qwen 2.5-7B for prompt enhancement...")
+            
+            try:
+                # Verify model path exists
+                if not os.path.exists(self.qwen_model_path):
+                    raise FileNotFoundError(f"Qwen model not found at {self.qwen_model_path}")
+                
+                # Load tokenizer and model from local cache
+                self.qwen_tokenizer = AutoTokenizer.from_pretrained(
+                    self.qwen_model_path,
+                    cache_dir=self.hf_cache_path,
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+                
+                self.qwen_model = AutoModelForCausalLM.from_pretrained(
+                    self.qwen_model_path,
+                    torch_dtype=torch.float16,
+                    device_map="auto",
+                    cache_dir=self.hf_cache_path,
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+                
+                print("✅ Qwen 2.5-7B loaded successfully")
+                self.log_gpu_memory()
+                
+            except Exception as e:
+                print(f"❌ Failed to load Qwen model: {e}")
+                # Fall back to no enhancement
+                self.qwen_model = None
+                self.qwen_tokenizer = None
+
+    def unload_qwen_model(self):
+        """Free Qwen memory for WAN generation"""
+        if self.qwen_model is not None:
+            print("🗑️ Unloading Qwen 2.5-7B...")
+            del self.qwen_model
+            del self.qwen_tokenizer
+            self.qwen_model = None
+            self.qwen_tokenizer = None
+            torch.cuda.empty_cache()
+            print("✅ Qwen 2.5-7B unloaded")
+            self.log_gpu_memory()
+
+    def enhance_prompt(self, original_prompt):
+        """Use Qwen 2.5-7B to enhance user prompt"""
+        self.load_qwen_model()
         
-        # Execute WAN generation
-        original_cwd = os.getcwd()
+        if self.qwen_model is None:
+            print("⚠️ Qwen model not available, using original prompt")
+            return original_prompt
+        
         try:
-            os.chdir(self.wan_path)
-            start_time = time.time()
+            system_prompt = """你是一个专业的视频制作提示词专家。请将用户的简单描述转换为详细的视频生成提示词。
+
+要求：
+1. 保持原始含义和主要元素
+2. 添加具体的视觉细节（外观、服装、环境）
+3. 包含镜头运动和拍摄角度
+4. 添加光影效果和氛围描述
+5. 确保描述适合5秒视频生成
+6. 使用中文回复，内容要专业且具有电影感
+
+请将以下用户输入转换为专业的视频生成提示词："""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": original_prompt}
+            ]
             
-            logger.info(f"🎬 STARTING WAN 2.1 GENERATION")
-            logger.info(f"📝 Using prompt: '{actual_prompt[:100]}...'")
+            # Apply chat template
+            text = self.qwen_tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
             
+            # Tokenize and generate
+            model_inputs = self.qwen_tokenizer([text], return_tensors="pt").to("cuda")
+            
+            with torch.no_grad():
+                generated_ids = self.qwen_model.generate(
+                    **model_inputs,
+                    max_new_tokens=300,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=self.qwen_tokenizer.eos_token_id
+                )
+            
+            # Extract enhanced prompt
+            generated_ids = [
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+            ]
+            
+            enhanced_prompt = self.qwen_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+            self.unload_qwen_model()
+            
+            print(f"✅ Prompt enhanced: {original_prompt[:50]}... → {enhanced_prompt[:50]}...")
+            return enhanced_prompt.strip()
+            
+        except Exception as e:
+            print(f"❌ Prompt enhancement failed: {e}")
+            self.unload_qwen_model()
+            return original_prompt
+
+    def generate_content(self, prompt, job_type):
+        """Generate image or video content using WAN 2.1"""
+        config = self.job_configs.get(job_type, self.job_configs['image_fast'])
+        
+        # Create temporary file for output
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_file:
+            temp_video_path = Path(temp_file.name)
+        
+        try:
+            # Change to WAN code directory
+            original_cwd = os.getcwd()
+            os.chdir(self.wan_code_path)
+            
+            # Build WAN generation command (VERIFIED OPTIMAL CONFIGURATION)
+            cmd = [
+                "python", "generate.py",
+                "--task", "t2v-1.3B",
+                "--ckpt_dir", self.model_path,
+                "--offload_model", "False",  # ✅ CORRECT - prevents model offloading
+                "--size", config['size'],
+                "--sample_steps", str(config['sample_steps']),
+                "--sample_guide_scale", str(config['sample_guide_scale']),
+                "--frame_num", str(config['frame_num']),
+                "--prompt", prompt,
+                "--save_file", str(temp_video_path.absolute())
+            ]
+            
+            # Configure environment
+            env = self.setup_environment()
+            
+            print(f"🎬 Starting WAN generation: {job_type}")
+            print(f"📝 Prompt: {prompt[:100]}...")
+            
+            # Execute WAN generation
             result = subprocess.run(
                 cmd,
+                cwd=self.wan_code_path,
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=600
+                timeout=600  # 10 minute timeout
             )
             
-            generation_time = time.time() - start_time
-            
-            if result.returncode == 0 and temp_video_path.exists():
-                file_size = temp_video_path.stat().st_size / 1024
-                logger.info(f"✅ Generation successful in {generation_time:.1f}s ({file_size:.0f}KB)")
-                return str(temp_video_path)
-            else:
-                logger.error(f"❌ WAN generation failed: {result.stderr}")
-                return None
-                
-        except subprocess.TimeoutExpired:
-            logger.error("❌ Generation timed out")
-            return None
-        except Exception as e:
-            logger.error(f"❌ Generation error: {e}")
-            return None
-        finally:
+            # Restore original directory
             os.chdir(original_cwd)
-
-    def extract_image_from_video(self, video_path, output_path):
-        """Extract first frame from video for image jobs"""
-        try:
-            cap = cv2.VideoCapture(str(video_path))
-            ret, frame = cap.read()
-            cap.release()
             
-            if ret:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image = Image.fromarray(frame_rgb)
-                image.save(output_path, "PNG", quality=95, optimize=True)
-                return Path(output_path).exists()
-            return False
+            if result.returncode == 0:
+                if temp_video_path.exists() and temp_video_path.stat().st_size > 0:
+                    print(f"✅ WAN generation successful: {temp_video_path.stat().st_size} bytes")
+                    return str(temp_video_path)
+                else:
+                    raise Exception("Output file not created or empty")
+            else:
+                raise Exception(f"WAN generation failed: {result.stderr}")
                 
         except Exception as e:
-            logger.error(f"❌ Frame extraction failed: {e}")
-            return False
+            os.chdir(original_cwd)  # Ensure we restore directory
+            print(f"❌ WAN generation error: {e}")
+            if temp_video_path.exists():
+                temp_video_path.unlink()
+            return None
 
     def upload_to_supabase(self, file_path, storage_path):
         """Upload file to Supabase storage"""
         try:
-            if not Path(file_path).exists():
-                return None
-                
-            # Determine content type
-            content_type = 'image/png' if storage_path.endswith('.png') else 'video/mp4'
-            
             with open(file_path, 'rb') as file:
-                file_data = file.read()
+                response = requests.post(
+                    f"{self.supabase_url}/storage/v1/object/{storage_path}",
+                    files={'file': file},
+                    headers={
+                        'Authorization': f"Bearer {self.supabase_service_key}",
+                    }
+                )
             
-            response = requests.post(
-                f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                data=file_data,
-                headers={
-                    'Authorization': f"Bearer {self.supabase_service_key}",
-                    'Content-Type': content_type,
-                    'x-upsert': 'true'
-                },
-                timeout=120
-            )
-            
-            if response.status_code in [200, 201]:
+            if response.status_code == 200:
+                # Return only relative path within bucket (avoid double-prefixing)
                 path_parts = storage_path.split('/', 1)
-                return path_parts[1] if len(path_parts) == 2 else storage_path
-            return None
-                
-        except Exception as e:
-            logger.error(f"❌ Upload error: {e}")
-            return None
-
-    def process_job(self, job_data):
-        """Process enhanced or standard job"""
-        job_id = job_data['jobId']
-        job_type = job_data['jobType']
-        prompt = job_data['prompt']
-        user_id = job_data['userId']
-        video_id = job_data.get('videoId')
-        image_id = job_data.get('imageId')
-        
-        logger.info(f"🚀 === PROCESSING WAN JOB {job_id} ===")
-        logger.info(f"📋 Job Type: {job_type}")
-        logger.info(f"📝 Original Prompt: '{prompt}'")
-        
-        config = self.job_type_mapping.get(job_type)
-        if not config:
-            error_msg = f"Unknown job type: {job_type}"
-            logger.error(f"❌ {error_msg}")
-            self.notify_completion(job_id, 'failed', error_message=error_msg)
-            return
-        
-        # Log enhancement status
-        if config.get('enhancement', False):
-            logger.info(f"✨ ENHANCED JOB with {config['enhancement_model']}")
-        else:
-            logger.info(f"📝 STANDARD JOB")
-        
-        try:
-            start_time = time.time()
-            
-            # Handle batch vs single generation
-            is_image_job = config['content_type'] == 'image'
-            num_images = job_data.get('metadata', {}).get('num_images', 6 if is_image_job else 1)
-            
-            if is_image_job and num_images > 1:
-                # Batch image generation
-                upload_urls = []
-                
-                for i in range(num_images):
-                    video_path = self.generate_with_wan21(prompt, job_type, image_index=i+1)
-                    
-                    if video_path:
-                        timestamp = int(time.time())
-                        filename = f"wan_{job_id}_{timestamp}_{i+1}.png"
-                        image_path = Path(f"/tmp/{filename}")
-                        
-                        if self.extract_image_from_video(video_path, image_path):
-                            storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
-                            upload_path = self.upload_to_supabase(image_path, storage_path)
-                            
-                            if upload_path:
-                                upload_urls.append(upload_path)
-                            
-                            image_path.unlink(missing_ok=True)
-                        
-                        Path(video_path).unlink(missing_ok=True)
-                
-                if upload_urls:
-                    total_time = time.time() - start_time
-                    logger.info(f"✅ Enhanced batch job completed in {total_time:.1f}s")
-                    self.notify_completion(job_id, 'completed', image_urls=upload_urls)
-                else:
-                    raise Exception("All batch generations failed")
-                    
+                relative_path = path_parts[1] if len(path_parts) == 2 else storage_path
+                print(f"✅ Upload successful: {relative_path}")
+                return relative_path
             else:
-                # Single generation
-                output_path = self.generate_with_wan21(prompt, job_type)
+                raise Exception(f"Upload failed: {response.status_code} - {response.text}")
                 
-                if not output_path:
-                    raise Exception("Generation failed")
-                
-                timestamp = int(time.time())
-                
-                if is_image_job:
-                    # Single image
-                    filename = f"wan_{job_id}_{timestamp}.png"
-                    image_path = Path(f"/tmp/{filename}")
-                    
-                    if self.extract_image_from_video(output_path, image_path):
-                        storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
-                        upload_path = self.upload_to_supabase(image_path, storage_path)
-                        
-                        image_path.unlink(missing_ok=True)
-                        Path(output_path).unlink(missing_ok=True)
-                        
-                        if upload_path:
-                            total_time = time.time() - start_time
-                            logger.info(f"✅ Enhanced single image completed in {total_time:.1f}s")
-                            self.notify_completion(job_id, 'completed', image_urls=[upload_path])
-                        else:
-                            raise Exception("Image upload failed")
-                    else:
-                        raise Exception("Frame extraction failed")
-                        
-                else:
-                    # Video
-                    filename = f"wan_{job_id}_{timestamp}.mp4"
-                    storage_path = f"{config['storage_bucket']}/{user_id}/{filename}"
-                    upload_path = self.upload_to_supabase(output_path, storage_path)
-                    
-                    Path(output_path).unlink(missing_ok=True)
-                    
-                    if upload_path:
-                        total_time = time.time() - start_time
-                        logger.info(f"✅ Enhanced video completed in {total_time:.1f}s")
-                        self.notify_completion(job_id, 'completed', file_path=upload_path)
-                    else:
-                        raise Exception("Video upload failed")
-            
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"❌ Enhanced job {job_id} failed: {error_msg}")
-            self.notify_completion(job_id, 'failed', error_message=error_msg)
-        finally:
-            torch.cuda.empty_cache()
-            gc.collect()
+            print(f"❌ Supabase upload error: {e}")
+            raise
 
-    def notify_completion(self, job_id, status, file_path=None, image_urls=None, error_message=None):
+    def notify_completion(self, job_id, status, output_url=None, error_message=None):
         """Notify Supabase of job completion"""
         try:
             callback_data = {
                 'jobId': job_id,
                 'status': status,
+                'outputUrl': output_url,
                 'errorMessage': error_message
             }
-            
-            if image_urls:
-                callback_data['imageUrls'] = image_urls
-            elif file_path:
-                callback_data['filePath'] = file_path
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -572,102 +353,141 @@ class EnhancedWanWorker:
                 headers={
                     'Authorization': f"Bearer {self.supabase_service_key}",
                     'Content-Type': 'application/json'
-                },
-                timeout=30
+                }
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ Callback sent for job {job_id}")
+                print(f"✅ Job {job_id} callback sent successfully")
             else:
-                logger.error(f"⚠️ Callback failed: {response.status_code}")
+                print(f"❌ Callback failed: {response.status_code} - {response.text}")
                 
         except Exception as e:
-            logger.error(f"❌ Callback error: {e}")
+            print(f"❌ Callback error: {e}")
+
+    def process_job(self, job_data):
+        """Process a single job"""
+        job_id = job_data['jobId']
+        job_type = job_data['jobType']
+        original_prompt = job_data['prompt']
+        video_id = job_data['videoId']
+        
+        print(f"🔄 Processing job {job_id} ({job_type})")
+        
+        try:
+            # Validate job type
+            if job_type not in self.job_configs:
+                raise Exception(f"Unknown job type: {job_type}")
+            
+            config = self.job_configs[job_type]
+            
+            # Step 1: Enhance prompt if required
+            if config['enhance_prompt']:
+                print("🤖 Starting prompt enhancement...")
+                enhanced_prompt = self.enhance_prompt(original_prompt)
+                actual_prompt = enhanced_prompt
+            else:
+                actual_prompt = original_prompt
+            
+            # Step 2: Generate content with WAN 2.1
+            print("🎬 Starting WAN generation...")
+            output_file = self.generate_content(actual_prompt, job_type)
+            
+            if not output_file:
+                raise Exception("Content generation failed")
+            
+            # Step 3: Upload to Supabase
+            file_extension = 'png' if config['frame_num'] == 1 else 'mp4'
+            storage_path = f"{job_type}/{video_id}.{file_extension}"
+            
+            relative_path = self.upload_to_supabase(output_file, storage_path)
+            
+            # Step 4: Cleanup local file
+            os.unlink(output_file)
+            
+            # Step 5: Notify completion
+            self.notify_completion(job_id, 'completed', relative_path)
+            
+            print(f"🎉 Job {job_id} completed successfully")
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Job {job_id} failed: {error_msg}")
+            self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
-        """Poll Redis WAN queue for new jobs"""
+        """Poll Redis queue for new jobs"""
         try:
-            response = requests.post(
-                f"{self.redis_url}/rpop/wan_queue",
+            response = requests.get(
+                f"{self.redis_url}/brpop/wan_queue/5",
                 headers={
-                    'Authorization': f"Bearer {self.redis_token}",
-                    'Content-Type': 'application/json'
-                },
-                timeout=10
+                    'Authorization': f"Bearer {self.redis_token}"
+                }
             )
             
             if response.status_code == 200:
                 result = response.json()
                 if result.get('result'):
-                    return json.loads(result['result'])
+                    queue_name, job_json = result['result']
+                    job_data = json.loads(job_json)
+                    return job_data
+            
             return None
-                
+            
         except Exception as e:
-            if "timeout" not in str(e).lower():
-                logger.warning(f"⚠️ Queue poll error: {e}")
+            print(f"❌ Queue polling error: {e}")
             return None
 
     def run(self):
-        """Main enhanced WAN worker loop"""
-        logger.info("🎬 ENHANCED WAN WORKER READY!")
-        logger.info("✨ AI Enhancement: Qwen 2.5-7B integration active")
-        logger.info("⚡ Performance: Standard times + 14s enhancement")
-        logger.info("📬 Polling wan_queue for 8 job types:")
-        logger.info("  📝 Standard: image_fast, image_high, video_fast, video_high")
-        logger.info("  ✨ Enhanced: image7b_fast_enhanced, image7b_high_enhanced, video7b_fast_enhanced, video7b_high_enhanced")
+        """Main worker loop"""
+        print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
+        print("⏳ Waiting for jobs...")
         
-        job_count = 0
-        
-        try:
-            while True:
-                try:
-                    job = self.poll_queue()
-                    if job:
-                        job_count += 1
-                        job_type = job.get('jobType', 'unknown')
-                        is_enhanced = 'enhanced' in job_type
-                        
-                        logger.info(f"📬 WAN Job #{job_count} received")
-                        logger.info(f"🎯 Type: {job_type} {'✨ (Enhanced)' if is_enhanced else '📝 (Standard)'}")
-                        
-                        self.process_job(job)
-                        logger.info("=" * 70)
-                    else:
-                        time.sleep(5)
-                        
-                except Exception as e:
-                    logger.error(f"❌ Job processing error: {e}")
-                    import traceback
-                    logger.error(f"❌ Traceback: {traceback.format_exc()}")
-                    time.sleep(15)
+        while True:
+            try:
+                job_data = self.poll_queue()
+                
+                if job_data:
+                    self.process_job(job_data)
+                else:
+                    print("💤 No jobs, waiting...")
                     
-        except KeyboardInterrupt:
-            logger.info("👋 Enhanced WAN Worker shutting down...")
-        finally:
-            torch.cuda.empty_cache()
-            gc.collect()
-            logger.info("✅ Enhanced WAN Worker cleanup complete")
+            except KeyboardInterrupt:
+                print("🛑 Worker stopped by user")
+                break
+            except Exception as e:
+                print(f"❌ Worker error: {e}")
+                time.sleep(30)
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting Enhanced WAN Worker - Qwen 7B Integration")
-    logger.info("✨ Supports both standard and AI-enhanced video generation")
-    
+    # Environment variable validation
     required_vars = [
-        'SUPABASE_URL', 
+        'SUPABASE_URL',
         'SUPABASE_SERVICE_KEY', 
-        'UPSTASH_REDIS_REST_URL', 
+        'UPSTASH_REDIS_REST_URL',
         'UPSTASH_REDIS_REST_TOKEN'
     ]
+    
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
-        logger.error(f"❌ Missing environment variables: {', '.join(missing_vars)}")
+        print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
         exit(1)
     
-    try:
-        worker = EnhancedWanWorker()
-        worker.run()
-    except Exception as e:
-        logger.error(f"❌ Enhanced WAN Worker startup failed: {e}")
-        import traceback
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+    # Verify critical paths
+    model_path = "/workspace/models/wan2.1-t2v-1.3b"
+    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B-Instruct"
+    wan_code_path = "/workspace/Wan2.1"
+    
+    if not os.path.exists(model_path):
+        print(f"❌ WAN model not found: {model_path}")
         exit(1)
+        
+    if not os.path.exists(qwen_path):
+        print(f"⚠️ Qwen model not found: {qwen_path} (enhancement will be disabled)")
+        
+    if not os.path.exists(wan_code_path):
+        print(f"❌ WAN code not found: {wan_code_path}")
+        exit(1)
+    
+    print("✅ All paths validated, starting worker...")
+    worker = EnhancedWanWorker()
+    worker.run()
