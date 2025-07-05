@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import signal
 import mimetypes
+import fcntl        # ✅ CRITICAL: Import fcntl at module level (Unix systems)
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -620,31 +621,27 @@ class EnhancedWanWorker:
                         process.wait()
                     raise subprocess.TimeoutExpired(cmd, timeout, None)
                 
-                # Cross-platform output reading with simpler approach
+                # Cross-platform output reading - FIXED VERSION
                 try:
-                    # Use readline with a small timeout approach
                     line = None
-                    try:
-                        # Try to read a line (this will block if no data)
-                        import fcntl
-                        import os
-                        
-                        # Make stdout non-blocking (Unix only)
-                        if hasattr(fcntl, 'F_GETFL'):
+                    
+                    # Check if we're on Unix-like system and fcntl is available
+                    if hasattr(fcntl, 'F_GETFL') and hasattr(os, 'O_NONBLOCK'):
+                        try:
+                            # Make stdout non-blocking (Unix only)
                             fd = process.stdout.fileno()
                             fl = fcntl.fcntl(fd, fcntl.F_GETFL)
                             fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
                             line = process.stdout.readline()
-                        else:
-                            # Fallback for Windows or systems without fcntl
+                        except (IOError, OSError):
+                            # No data available or fcntl failed, continue
+                            pass
+                    else:
+                        # Fallback for Windows or systems without fcntl/O_NONBLOCK
+                        try:
                             line = process.stdout.readline()
-                            
-                    except (IOError, OSError):
-                        # No data available, continue
-                        pass
-                    except ImportError:
-                        # fcntl not available (Windows), use simple readline
-                        line = process.stdout.readline()
+                        except:
+                            pass
                     
                     if line and line.strip():
                         line = line.strip()
