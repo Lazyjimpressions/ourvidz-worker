@@ -1,5 +1,5 @@
-# enhanced_wan_worker.py - OurVidz Enhanced WAN Worker with Qwen 7B Integration
-# Updated with correct HuggingFace cache path structure
+# wan_worker.py - Enhanced WAN Worker with Qwen 7B Integration
+# Fixed: Polling issue resolved - proper 5-second intervals
 # Date: July 5, 2025
 
 import os
@@ -17,6 +17,11 @@ class EnhancedWanWorker:
         """Initialize Enhanced WAN Worker with Qwen 7B integration"""
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
         self.wan_code_path = "/workspace/Wan2.1"
+        
+        # CRITICAL: Set environment variables immediately (VERIFIED FIX)
+        os.environ['PYTHONPATH'] = '/workspace/python_deps/lib/python3.11/site-packages'
+        os.environ['HF_HOME'] = '/workspace/models/huggingface_cache'
+        os.environ['HUGGINGFACE_HUB_CACHE'] = '/workspace/models/huggingface_cache/hub'
         
         # Updated HuggingFace cache configuration
         self.hf_cache_path = "/workspace/models/huggingface_cache"
@@ -438,7 +443,7 @@ class EnhancedWanWorker:
             return None
 
     def run(self):
-        """Main worker loop"""
+        """Main worker loop - FIXED: Proper 5-second polling"""
         print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
         print("⏳ Waiting for jobs...")
         
@@ -449,7 +454,7 @@ class EnhancedWanWorker:
                 if job_data:
                     self.process_job(job_data)
                 else:
-                    print("💤 No jobs, waiting...")
+                    time.sleep(5)  # ✅ FIXED: Proper 5-second delay, no log spam
                     
             except KeyboardInterrupt:
                 print("🛑 Worker stopped by user")
