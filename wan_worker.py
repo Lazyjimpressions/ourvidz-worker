@@ -824,35 +824,121 @@ class EnhancedWanWorker:
         except Exception as e:
             print(f"❌ Callback error: {e}")
 
-    def process_job(self, job_data):
-        """Process a single job with enhanced error handling and validation"""
+    def test_wan_dependencies(self):
+        """Test if WAN dependencies are accessible before job processing"""
+        print("🔍 Testing WAN dependencies accessibility...")
+        try:
+            import sys
+            print(f"📍 Current Python path: {sys.path}")
+            test_imports = [
+                ('easydict', 'easydict'),
+                ('omegaconf', 'omegaconf'),
+                ('einops', 'einops'),
+                ('diffusers', 'diffusers'),
+                ('transformers', 'transformers'),
+                ('flash_attn', 'flash_attn'),
+                ('wan', 'wan')
+            ]
+            for module_name, import_name in test_imports:
+                try:
+                    __import__(import_name)
+                    print(f"✅ {module_name}: Available")
+                except ImportError as e:
+                    print(f"❌ {module_name}: MISSING - {e}")
+            wan_generate_path = os.path.join(self.wan_code_path, 'generate.py')
+            if os.path.exists(wan_generate_path):
+                print(f"✅ WAN generate.py found: {wan_generate_path}")
+            else:
+                print(f"❌ WAN generate.py NOT FOUND: {wan_generate_path}")
+            if os.path.exists(self.model_path):
+                model_files = os.listdir(self.model_path)
+                print(f"✅ WAN model directory accessible: {len(model_files)} files")
+                print(f"📁 Model files: {model_files[:5]}...")
+            else:
+                print(f"❌ WAN model directory NOT FOUND: {self.model_path}")
+        except Exception as e:
+            print(f"❌ Dependency test failed: {e}")
+
+    def test_wan_basic_execution(self):
+        """Test basic WAN execution before processing jobs"""
+        print("🧪 Testing basic WAN execution...")
+        try:
+            original_cwd = os.getcwd()
+            os.chdir(self.wan_code_path)
+            env = self.setup_environment()
+            test_cmd = ["python", "generate.py", "--help"]
+            print(f"🔧 Testing command: {' '.join(test_cmd)}")
+            result = subprocess.run(
+                test_cmd,
+                cwd=self.wan_code_path,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            os.chdir(original_cwd)
+            if result.returncode == 0:
+                print("✅ WAN help command successful")
+                print(f"📄 Output preview: {result.stdout[:200]}...")
+            else:
+                print(f"❌ WAN help command failed: {result.returncode}")
+                print(f"📄 stderr: {result.stderr}")
+                print(f"📄 stdout: {result.stdout}")
+        except Exception as e:
+            os.chdir(original_cwd)
+            print(f"❌ WAN basic execution test failed: {e}")
+
+    def enhanced_environment_setup(self):
+        """Enhanced environment setup with validation"""
+        env = self.setup_environment()
+        print("🔍 ENHANCED Environment Validation:")
+        print(f"   Working Directory: {os.getcwd()}")
+        print(f"   WAN Code Path: {self.wan_code_path}")
+        print(f"   Model Path: {self.model_path}")
+        critical_env_vars = [
+            'PYTHONPATH',
+            'HF_HOME',
+            'HUGGINGFACE_HUB_CACHE',
+            'CUDA_VISIBLE_DEVICES'
+        ]
+        for var in critical_env_vars:
+            value = env.get(var, 'NOT SET')
+            print(f"   {var}: {value}")
+            if var in ['HF_HOME', 'HUGGINGFACE_HUB_CACHE'] and value != 'NOT SET':
+                exists = os.path.exists(value)
+                print(f"     -> Path exists: {exists}")
+            elif var == 'PYTHONPATH' and value != 'NOT SET':
+                paths = value.split(':')
+                for path in paths:
+                    exists = os.path.exists(path)
+                    print(f"     -> {path}: {exists}")
+        return env
+
+    def process_job_with_enhanced_diagnostics(self, job_data):
+        """Enhanced process_job with additional diagnostics"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         original_prompt = job_data['prompt']
         video_id = job_data['videoId']
-        
-        print(f"🔄 Processing job {job_id} ({job_type})")
+        print(f"🔄 Processing job {job_id} ({job_type}) with enhanced diagnostics")
         print(f"📝 Original prompt: {original_prompt}")
         print(f"🎯 Video ID: {video_id}")
-        
+        print("\n🔍 PRE-JOB DIAGNOSTICS:")
+        self.test_wan_dependencies()
+        print("\n🧪 WAN EXECUTION TEST:")
+        self.test_wan_basic_execution()
+        print("\n" + "="*60)
         job_start_time = time.time()
-        
         try:
-            # Validate job type
             if job_type not in self.job_configs:
                 available_types = list(self.job_configs.keys())
                 raise Exception(f"Unknown job type: {job_type}. Available: {available_types}")
-            
             config = self.job_configs[job_type]
             print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
-            
-            # Step 1: Enhance prompt if required (with timeout protection)
             if config['enhance_prompt']:
                 print("🤖 Starting prompt enhancement with timeout protection...")
                 enhanced_prompt = self.enhance_prompt(original_prompt)
                 actual_prompt = enhanced_prompt
-                
-                # Log enhancement result
                 if enhanced_prompt != original_prompt:
                     print(f"✅ Prompt successfully enhanced")
                     print(f"📝 Length: {len(original_prompt)} → {len(enhanced_prompt)} chars")
@@ -861,45 +947,83 @@ class EnhancedWanWorker:
             else:
                 print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
-            
-            # Step 2: Generate content with WAN 2.1 (with validation)
-            print("🎬 Starting WAN generation with validation...")
+            print("🎬 Starting WAN generation with enhanced diagnostics...")
+            print(f"🔍 About to call generate_content with:")
+            print(f"   Prompt: {actual_prompt[:100]}...")
+            print(f"   Job type: {job_type}")
+            print(f"   Config: {config}")
+            print("\n🔍 FINAL ENVIRONMENT CHECK BEFORE WAN:")
+            test_env = self.enhanced_environment_setup()
             output_file = self.generate_content(actual_prompt, job_type)
-            
             if not output_file:
                 raise Exception("Content generation failed or produced invalid output")
-            
-            # Step 3: Upload to Supabase (with additional validation)
             file_extension = 'png' if config['content_type'] == 'image' else 'mp4'
             storage_path = f"{job_type}/{video_id}.{file_extension}"
-            
             print(f"📤 Uploading validated file to: {storage_path}")
             relative_path = self.upload_to_supabase(output_file, storage_path)
-            
-            # Step 4: Cleanup local file
             os.unlink(output_file)
-            
-            # Step 5: Notify completion with FIXED callback format
             self.notify_completion(job_id, 'completed', relative_path)
-            
             total_time = time.time() - job_start_time
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
             print(f"📁 Output: {relative_path}")
-            
         except Exception as e:
             error_msg = str(e)
             total_time = time.time() - job_start_time
             print(f"❌ Job {job_id} failed after {total_time:.1f}s: {error_msg}")
-            
-            # Enhanced error logging
             if "timeout" in error_msg.lower():
-                print("💡 Timeout detected - consider optimizing enhancement process")
+                print("💡 Timeout detected - WAN subprocess hanging")
             elif "mime" in error_msg.lower() or "validation" in error_msg.lower():
                 print("💡 File validation failed - WAN generation produced invalid output")
             elif "upload" in error_msg.lower():
                 print("💡 Upload failed - check storage bucket configuration")
-            
+            elif "import" in error_msg.lower() or "module" in error_msg.lower():
+                print("💡 Import error - WAN dependencies not accessible")
             self.notify_completion(job_id, 'failed', error_message=error_msg)
+
+    def run_with_enhanced_diagnostics(self):
+        """Main worker loop with startup diagnostics"""
+        print("🎬 Enhanced OurVidz WAN Worker with ENHANCED DIAGNOSTICS started!")
+        print("\n🔍 STARTUP DIAGNOSTICS:")
+        print("="*60)
+        self.test_wan_dependencies()
+        print("\n🧪 STARTUP WAN EXECUTION TEST:")
+        self.test_wan_basic_execution()
+        print("="*60)
+        print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
+        print("🔧 ENHANCED FEATURES: Timeout protection, upload validation, graceful fallback")
+        print("🔧 CALLBACK FORMAT: Fixed for Supabase edge function compatibility")
+        print("📋 Supported job types:")
+        for job_type, config in self.job_configs.items():
+            enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
+            content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
+            print(f"  • {job_type}: {content} ({config['expected_time']}s) {enhancement}")
+        print("⏳ Waiting for jobs...")
+        job_count = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        while True:
+            try:
+                job_data = self.poll_queue()
+                if job_data:
+                    job_count += 1
+                    consecutive_errors = 0
+                    print(f"\n📬 WAN Job #{job_count} received")
+                    self.process_job_with_enhanced_diagnostics(job_data)
+                    print("=" * 60)
+                else:
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                print("🛑 Worker stopped by user")
+                break
+            except Exception as e:
+                consecutive_errors += 1
+                print(f"❌ Worker error #{consecutive_errors}: {e}")
+                if consecutive_errors >= max_consecutive_errors:
+                    print(f"❌ Too many consecutive errors ({consecutive_errors}), shutting down worker")
+                    break
+                sleep_time = min(30, 5 * consecutive_errors)
+                print(f"⏳ Waiting {sleep_time}s before retry...")
+                time.sleep(sleep_time)
 
     def poll_queue(self):
         """Poll Redis queue for new jobs with non-blocking RPOP (Upstash REST API compatible)"""
@@ -930,53 +1054,6 @@ class EnhancedWanWorker:
         except Exception as e:
             print(f"❌ Queue polling error: {e}")
             return None
-
-    def run(self):
-        """Main worker loop with enhanced job support and error handling"""
-        print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
-        print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
-        print("🔧 ENHANCED FEATURES: Timeout protection, upload validation, graceful fallback")
-        print("🔧 CALLBACK FORMAT: Fixed for Supabase edge function compatibility")
-        print("📋 Supported job types:")
-        for job_type, config in self.job_configs.items():
-            enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
-            content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
-            print(f"  • {job_type}: {content} ({config['expected_time']}s) {enhancement}")
-        print("⏳ Waiting for jobs...")
-        
-        job_count = 0
-        consecutive_errors = 0
-        max_consecutive_errors = 5
-        
-        while True:
-            try:
-                job_data = self.poll_queue()
-                
-                if job_data:
-                    job_count += 1
-                    consecutive_errors = 0  # Reset error counter on successful job
-                    print(f"\n📬 WAN Job #{job_count} received")
-                    self.process_job(job_data)
-                    print("=" * 60)
-                else:
-                    # No job available - sleep between polls since we're using non-blocking RPOP
-                    time.sleep(5)  # 5-second polling interval for non-blocking approach
-                    
-            except KeyboardInterrupt:
-                print("🛑 Worker stopped by user")
-                break
-            except Exception as e:
-                consecutive_errors += 1
-                print(f"❌ Worker error #{consecutive_errors}: {e}")
-                
-                if consecutive_errors >= max_consecutive_errors:
-                    print(f"❌ Too many consecutive errors ({consecutive_errors}), shutting down worker")
-                    break
-                
-                # Exponential backoff for errors
-                sleep_time = min(30, 5 * consecutive_errors)
-                print(f"⏳ Waiting {sleep_time}s before retry...")
-                time.sleep(sleep_time)
 
 if __name__ == "__main__":
     # Environment variable validation
@@ -1012,7 +1089,7 @@ if __name__ == "__main__":
     
     try:
         worker = EnhancedWanWorker()
-        worker.run()
+        worker.run_with_enhanced_diagnostics()
     except Exception as e:
         print(f"❌ Worker startup failed: {e}")
         exit(1)
