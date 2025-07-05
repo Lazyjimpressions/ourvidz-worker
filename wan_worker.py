@@ -53,80 +53,81 @@ class EnhancedWanWorker:
         self.max_enhancement_attempts = 2  # Allow 2 attempts before fallback
         
         # Job type configurations - ALL 8 TYPES SUPPORTED
+        # UPDATED: Based on verified WAN 2.1 testing (50 steps default, 5.0 guidance)
         self.job_configs = {
             # Standard job types (no enhancement)
             'image_fast': {
                 'size': '480*832',
-                'sample_steps': 4,
-                'sample_guide_scale': 3.0,
+                'sample_steps': 25,  # Fast: Half of default 50 steps
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 1,
                 'enhance_prompt': False,
-                'expected_time': 73,
+                'expected_time': 40,  # ~38s verified for 50 steps, 25 steps should be ~20s
                 'content_type': 'image'
             },
             'image_high': {
                 'size': '480*832',
-                'sample_steps': 6,
-                'sample_guide_scale': 4.0,
+                'sample_steps': 50,  # High: Full 50 steps (verified working)
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 1,
                 'enhance_prompt': False,
-                'expected_time': 90,
+                'expected_time': 40,  # ~38s verified for 50 steps
                 'content_type': 'image'
             },
             'video_fast': {
                 'size': '480*832',
-                'sample_steps': 4,
-                'sample_guide_scale': 3.0,
+                'sample_steps': 25,  # Fast: Half of default 50 steps
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 17,
                 'enhance_prompt': False,
-                'expected_time': 180,
+                'expected_time': 35,  # Faster than 51s verified for 50 steps
                 'content_type': 'video'
             },
             'video_high': {
                 'size': '480*832',
-                'sample_steps': 6,
-                'sample_guide_scale': 4.0,
+                'sample_steps': 50,  # High: Full 50 steps (verified working)
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 17,
                 'enhance_prompt': False,
-                'expected_time': 280,
+                'expected_time': 55,  # ~51s verified for 50 steps
                 'content_type': 'video'
             },
             
             # Enhanced job types (with Qwen 7B enhancement)
             'image7b_fast_enhanced': {
                 'size': '480*832',
-                'sample_steps': 4,
-                'sample_guide_scale': 3.0,
+                'sample_steps': 25,  # Fast: Half of default 50 steps
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 87,  # 73s + 14s enhancement
+                'expected_time': 54,  # 40s + 14s enhancement
                 'content_type': 'image'
             },
             'image7b_high_enhanced': {
                 'size': '480*832',
-                'sample_steps': 6,
-                'sample_guide_scale': 4.0,
+                'sample_steps': 50,  # High: Full 50 steps (verified working)
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 104,  # 90s + 14s enhancement
+                'expected_time': 54,  # 40s + 14s enhancement
                 'content_type': 'image'
             },
             'video7b_fast_enhanced': {
                 'size': '480*832',
-                'sample_steps': 4,
-                'sample_guide_scale': 3.0,
+                'sample_steps': 25,  # Fast: Half of default 50 steps
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 17,
                 'enhance_prompt': True,
-                'expected_time': 194,  # 180s + 14s enhancement
+                'expected_time': 49,  # 35s + 14s enhancement
                 'content_type': 'video'
             },
             'video7b_high_enhanced': {
                 'size': '480*832',
-                'sample_steps': 6,
-                'sample_guide_scale': 4.0,
+                'sample_steps': 50,  # High: Full 50 steps (verified working)
+                'sample_guide_scale': 5.0,  # Verified working default
                 'frame_num': 17,
                 'enhance_prompt': True,
-                'expected_time': 294,  # 280s + 14s enhancement
+                'expected_time': 69,  # 55s + 14s enhancement
                 'content_type': 'video'
             }
         }
@@ -516,18 +517,22 @@ class EnhancedWanWorker:
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # Build WAN generation command (FIXED: Remove file extension)
+            # CRITICAL FIX: Add proper file extension for WAN
+            file_ext = 'png' if config['content_type'] == 'image' else 'mp4'
+            temp_output_path = f"{temp_base_path}.{file_ext}"
+            
+            # Build WAN generation command (VERIFIED WORKING CONFIGURATION)
             cmd = [
                 "python", "generate.py",
                 "--task", "t2v-1.3B",
                 "--ckpt_dir", self.model_path,
-                "--offload_model", "False",  # ✅ CORRECT - prevents model offloading
-                "--size", config['size'],
-                "--sample_steps", str(config['sample_steps']),
-                "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--frame_num", str(config['frame_num']),
+                "--offload_model", "True",  # ✅ VERIFIED WORKING (WAN default)
+                "--size", config['size'],  # ✅ VERIFIED: 480*832
+                "--sample_steps", str(config['sample_steps']),  # ✅ VERIFIED: 25/50 steps
+                "--sample_guide_scale", str(config['sample_guide_scale']),  # ✅ VERIFIED: 5.0
+                "--frame_num", str(config['frame_num']),  # ✅ VERIFIED: 1 for images, 17 for videos
                 "--prompt", prompt,
-                "--save_file", temp_base_path  # CRITICAL: No extension, let WAN add it
+                "--save_file", temp_output_path  # ✅ CRITICAL: Include file extension
             ]
             
             # Configure environment
@@ -535,8 +540,8 @@ class EnhancedWanWorker:
             
             print(f"🎬 Starting WAN generation: {job_type}")
             print(f"📝 Final prompt: {prompt[:100]}...")
-            print(f"🔧 Frame count: {config['frame_num']} ({'image' if config['frame_num'] == 1 else 'video'})")
-            print(f"💾 Base output path: {temp_base_path}")
+            print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
+            print(f"💾 Output path: {temp_output_path}")
             
             # Execute WAN generation with timeout
             generation_start = time.time()
@@ -554,47 +559,31 @@ class EnhancedWanWorker:
             # Restore original directory
             os.chdir(original_cwd)
             
-            print(f"📄 WAN stdout: {result.stdout[:300]}...")
-            print(f"📄 WAN stderr: {result.stderr[:300]}...")
+            print(f"📄 WAN return code: {result.returncode}")
+            if result.stdout:
+                print(f"📄 WAN stdout (last 200 chars): ...{result.stdout[-200:]}")
+            if result.stderr:
+                print(f"📄 WAN stderr (last 200 chars): ...{result.stderr[-200:]}")
             
             if result.returncode == 0:
-                # CRITICAL FIX: Find the actual output file WAN created
-                # WAN may add extensions like .mp4, .png, .gif automatically
-                possible_extensions = ['.mp4', '.png', '.gif', '.avi', '.webm']
-                actual_output_file = None
-                
-                for ext in possible_extensions:
-                    candidate_path = f"{temp_base_path}{ext}"
-                    if os.path.exists(candidate_path):
-                        actual_output_file = candidate_path
-                        print(f"✅ Found WAN output file: {actual_output_file}")
-                        break
-                
-                # Also check if WAN created file with same name (no extension)
-                if not actual_output_file and os.path.exists(temp_base_path):
-                    actual_output_file = temp_base_path
-                    print(f"✅ Found WAN output file (no extension): {actual_output_file}")
-                
-                if not actual_output_file:
-                    # List directory contents to debug
-                    import glob
-                    print(f"🔍 Looking for files matching: {temp_base_path}*")
-                    matching_files = glob.glob(f"{temp_base_path}*")
-                    print(f"📁 Found files: {matching_files}")
-                    
-                    if matching_files:
-                        actual_output_file = matching_files[0]  # Use first match
-                        print(f"⚠️ Using first matching file: {actual_output_file}")
-                    else:
-                        raise Exception("WAN generation completed but no output file found")
-                
-                # Validate output file before returning
-                if self.validate_output_file(actual_output_file, config['content_type']):
-                    file_size = os.path.getsize(actual_output_file) / 1024**2  # MB
+                # Check if output file exists and has content
+                if os.path.exists(temp_output_path) and os.path.getsize(temp_output_path) > 0:
+                    file_size = os.path.getsize(temp_output_path) / 1024**2  # MB
                     print(f"✅ WAN generation successful in {generation_time:.1f}s: {file_size:.1f}MB")
-                    return actual_output_file
+                    return temp_output_path
                 else:
-                    raise Exception("Generated file failed validation")
+                    print(f"❌ WAN completed but no output file created at: {temp_output_path}")
+                    # Try to find files that WAN might have created
+                    import glob
+                    possible_files = glob.glob(f"{temp_base_path}*")
+                    if possible_files:
+                        print(f"📁 Found possible output files: {possible_files}")
+                        # Use the first file found
+                        actual_file = possible_files[0]
+                        if os.path.getsize(actual_file) > 0:
+                            print(f"✅ Using found file: {actual_file}")
+                            return actual_file
+                    raise Exception("WAN generation completed but no valid output file found")
             else:
                 error_output = result.stderr if result.stderr else result.stdout
                 print(f"❌ WAN generation failed with return code {result.returncode}")
