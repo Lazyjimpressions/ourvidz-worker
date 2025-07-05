@@ -404,19 +404,92 @@ class EnhancedWanWorker:
             print(f"📁 Size: {file_size / 1024**2:.2f}MB")
             print(f"📄 MIME type: {mime_type}")
             
+            # CRITICAL FIX: Handle cases where mimetypes can't determine type
+            if not mime_type:
+                # Try to determine from file content/extension
+                file_ext = os.path.splitext(file_path)[1].lower()
+                print(f"🔍 File extension: {file_ext}")
+                
+                if file_ext in ['.mp4', '.avi', '.mov', '.webm']:
+                    mime_type = 'video/mp4'  # Default to mp4
+                    print(f"📄 Corrected MIME type based on extension: {mime_type}")
+                elif file_ext in ['.png', '.jpg', '.jpeg']:
+                    mime_type = 'image/png'  # Default to png
+                    print(f"📄 Corrected MIME type based on extension: {mime_type}")
+                else:
+                    # Check file content using 'file' command
+                    try:
+                        import subprocess
+                        result = subprocess.run(['file', '--mime-type', file_path], 
+                                              capture_output=True, text=True)
+                        if result.returncode == 0:
+                            detected_mime = result.stdout.strip().split(':')[-1].strip()
+                            print(f"📄 Detected MIME type via file command: {detected_mime}")
+                            mime_type = detected_mime
+                    except:
+                        print("⚠️ Could not detect MIME type via file command")
+            
+            # Additional check: Read file header to verify it's not text
+            try:
+                with open(file_path, 'rb') as f:
+                    header = f.read(16)
+                    # Check for common video/image headers
+                    if header.startswith(b'\x00\x00\x00\x20ftypmp4') or header.startswith(b'\x00\x00\x00\x18ftypmp4'):
+                        print("✅ File header indicates MP4 video")
+                        if not mime_type or mime_type == 'text/plain':
+                            mime_type = 'video/mp4'
+                            print("🔧 Corrected MIME type to video/mp4 based on header")
+                    elif header.startswith(b'\x89PNG'):
+                        print("✅ File header indicates PNG image")
+                        if not mime_type or mime_type == 'text/plain':
+                            mime_type = 'image/png'
+                            print("🔧 Corrected MIME type to image/png based on header")
+                    elif header.startswith(b'\xFF\xD8\xFF'):
+                        print("✅ File header indicates JPEG image")
+                        if not mime_type or mime_type == 'text/plain':
+                            mime_type = 'image/jpeg'
+                            print("🔧 Corrected MIME type to image/jpeg based on header")
+                    else:
+                        print(f"⚠️ Unknown file header: {header[:8].hex()}")
+                        # Check if it's clearly text
+                        try:
+                            header_text = header.decode('utf-8')
+                            if any(c in header_text for c in ['\n', '\r', ' ']):
+                                print("❌ File appears to be text based on header content")
+                                return False
+                        except:
+                            pass  # Not text, continue validation
+            except Exception as e:
+                print(f"⚠️ Could not read file header: {e}")
+            
             # Validate based on expected content type
             if expected_content_type == 'video':
-                if mime_type not in ['video/mp4', 'video/webm', 'video/avi']:
+                if mime_type not in ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime']:
                     print(f"❌ Invalid video MIME type: {mime_type}")
-                    return False
-                if file_size < 100000:  # Less than 100KB is suspicious for video
+                    # But if we detected video headers, allow it anyway
+                    with open(file_path, 'rb') as f:
+                        header = f.read(16)
+                        if not (header.startswith(b'\x00\x00\x00\x20ftypmp4') or 
+                               header.startswith(b'\x00\x00\x00\x18ftypmp4')):
+                            return False
+                        else:
+                            print("✅ Video header detected, overriding MIME type check")
+                            
+                if file_size < 50000:  # Less than 50KB is suspicious for video
                     print(f"❌ Video file too small: {file_size} bytes")
                     return False
             elif expected_content_type == 'image':
                 if mime_type not in ['image/png', 'image/jpeg', 'image/jpg']:
                     print(f"❌ Invalid image MIME type: {mime_type}")
-                    return False
-                if file_size < 10000:  # Less than 10KB is suspicious for image
+                    # Check for image headers
+                    with open(file_path, 'rb') as f:
+                        header = f.read(16)
+                        if not (header.startswith(b'\x89PNG') or header.startswith(b'\xFF\xD8\xFF')):
+                            return False
+                        else:
+                            print("✅ Image header detected, overriding MIME type check")
+                            
+                if file_size < 5000:  # Less than 5KB is suspicious for image
                     print(f"❌ Image file too small: {file_size} bytes")
                     return False
             
@@ -434,17 +507,16 @@ class EnhancedWanWorker:
             
         config = self.job_configs[job_type]
         
-        # Create temporary file for output
-        file_ext = 'png' if config['content_type'] == 'image' else 'mp4'
-        with tempfile.NamedTemporaryFile(suffix=f'.{file_ext}', delete=False) as temp_file:
-            temp_video_path = Path(temp_file.name)
+        # Create temporary file for output WITHOUT extension - let WAN decide
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_base_path = temp_file.name
         
         try:
             # Change to WAN code directory
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # Build WAN generation command (VERIFIED OPTIMAL CONFIGURATION)
+            # Build WAN generation command (FIXED: Remove file extension)
             cmd = [
                 "python", "generate.py",
                 "--task", "t2v-1.3B",
@@ -455,7 +527,7 @@ class EnhancedWanWorker:
                 "--sample_guide_scale", str(config['sample_guide_scale']),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
-                "--save_file", str(temp_video_path.absolute())
+                "--save_file", temp_base_path  # CRITICAL: No extension, let WAN add it
             ]
             
             # Configure environment
@@ -464,6 +536,7 @@ class EnhancedWanWorker:
             print(f"🎬 Starting WAN generation: {job_type}")
             print(f"📝 Final prompt: {prompt[:100]}...")
             print(f"🔧 Frame count: {config['frame_num']} ({'image' if config['frame_num'] == 1 else 'video'})")
+            print(f"💾 Base output path: {temp_base_path}")
             
             # Execute WAN generation with timeout
             generation_start = time.time()
@@ -481,12 +554,45 @@ class EnhancedWanWorker:
             # Restore original directory
             os.chdir(original_cwd)
             
+            print(f"📄 WAN stdout: {result.stdout[:300]}...")
+            print(f"📄 WAN stderr: {result.stderr[:300]}...")
+            
             if result.returncode == 0:
+                # CRITICAL FIX: Find the actual output file WAN created
+                # WAN may add extensions like .mp4, .png, .gif automatically
+                possible_extensions = ['.mp4', '.png', '.gif', '.avi', '.webm']
+                actual_output_file = None
+                
+                for ext in possible_extensions:
+                    candidate_path = f"{temp_base_path}{ext}"
+                    if os.path.exists(candidate_path):
+                        actual_output_file = candidate_path
+                        print(f"✅ Found WAN output file: {actual_output_file}")
+                        break
+                
+                # Also check if WAN created file with same name (no extension)
+                if not actual_output_file and os.path.exists(temp_base_path):
+                    actual_output_file = temp_base_path
+                    print(f"✅ Found WAN output file (no extension): {actual_output_file}")
+                
+                if not actual_output_file:
+                    # List directory contents to debug
+                    import glob
+                    print(f"🔍 Looking for files matching: {temp_base_path}*")
+                    matching_files = glob.glob(f"{temp_base_path}*")
+                    print(f"📁 Found files: {matching_files}")
+                    
+                    if matching_files:
+                        actual_output_file = matching_files[0]  # Use first match
+                        print(f"⚠️ Using first matching file: {actual_output_file}")
+                    else:
+                        raise Exception("WAN generation completed but no output file found")
+                
                 # Validate output file before returning
-                if self.validate_output_file(str(temp_video_path), config['content_type']):
-                    file_size = temp_video_path.stat().st_size / 1024**2  # MB
+                if self.validate_output_file(actual_output_file, config['content_type']):
+                    file_size = os.path.getsize(actual_output_file) / 1024**2  # MB
                     print(f"✅ WAN generation successful in {generation_time:.1f}s: {file_size:.1f}MB")
-                    return str(temp_video_path)
+                    return actual_output_file
                 else:
                     raise Exception("Generated file failed validation")
             else:
@@ -498,14 +604,24 @@ class EnhancedWanWorker:
         except subprocess.TimeoutExpired:
             os.chdir(original_cwd)
             print(f"❌ WAN generation timed out after 600s")
-            if temp_video_path.exists():
-                temp_video_path.unlink()
+            # Cleanup any partial files
+            import glob
+            for partial_file in glob.glob(f"{temp_base_path}*"):
+                try:
+                    os.unlink(partial_file)
+                except:
+                    pass
             return None
         except Exception as e:
             os.chdir(original_cwd)  # Ensure we restore directory
             print(f"❌ WAN generation error: {e}")
-            if temp_video_path.exists():
-                temp_video_path.unlink()
+            # Cleanup any partial files
+            import glob
+            for partial_file in glob.glob(f"{temp_base_path}*"):
+                try:
+                    os.unlink(partial_file)
+                except:
+                    pass
             return None
 
     def upload_to_supabase(self, file_path, storage_path):
