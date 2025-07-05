@@ -183,28 +183,32 @@ class EnhancedWanWorker:
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(120)  # 2 minute timeout for model loading
                 
-                # Verify model path exists
-                if not os.path.exists(self.qwen_model_path):
-                    print(f"⚠️ Qwen model not found at {self.qwen_model_path}")
-                    print("🔄 Attempting to load from HuggingFace cache...")
-                    # Try loading from model name instead
-                    model_name = "Qwen/Qwen2.5-7B-Instruct"
-                else:
-                    model_name = self.qwen_model_path
+                # CRITICAL FIX: Always use model name, not local path
+                # The local cached model has config issues, load from HF directly
+                model_name = "Qwen/Qwen2.5-7B-Instruct"
+                print(f"🔄 Loading from HuggingFace: {model_name}")
+                print(f"💾 Using cache directory: {self.hf_cache_path}")
                 
-                # Load tokenizer and model
+                # Load tokenizer first
+                print("📝 Loading tokenizer...")
                 self.qwen_tokenizer = AutoTokenizer.from_pretrained(
                     model_name,
                     cache_dir=self.hf_cache_path,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    revision="main"  # Use main branch explicitly
                 )
                 
+                # Load model with enhanced error handling
+                print("🧠 Loading model...")
                 self.qwen_model = AutoModelForCausalLM.from_pretrained(
                     model_name,
                     torch_dtype=torch.float16,
                     device_map="auto",
                     cache_dir=self.hf_cache_path,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    revision="main",  # Use main branch explicitly
+                    low_cpu_mem_usage=True,  # Optimize memory usage
+                    attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager"
                 )
                 
                 # Clear timeout
@@ -217,15 +221,43 @@ class EnhancedWanWorker:
             except TimeoutException:
                 signal.alarm(0)
                 print(f"❌ Qwen model loading timed out after 120s")
+                print("💡 Try: Increase timeout or use smaller model")
                 self.qwen_model = None
                 self.qwen_tokenizer = None
             except Exception as e:
                 signal.alarm(0)
-                print(f"❌ Failed to load Qwen model: {e}")
-                print("⚠️ Prompt enhancement will be disabled for this job")
-                # Fall back to no enhancement
-                self.qwen_model = None
-                self.qwen_tokenizer = None
+                error_msg = str(e)
+                print(f"❌ Failed to load Qwen model: {error_msg}")
+                
+                # Enhanced error diagnosis
+                if "model_type" in error_msg:
+                    print("💡 Model type error - trying alternative loading method...")
+                    # Try loading with AutoModel instead
+                    try:
+                        from transformers import AutoModel
+                        print("🔄 Attempting AutoModel fallback...")
+                        self.qwen_model = AutoModel.from_pretrained(
+                            model_name,
+                            torch_dtype=torch.float16,
+                            cache_dir=self.hf_cache_path,
+                            trust_remote_code=True
+                        )
+                        print("✅ AutoModel fallback successful")
+                    except Exception as fallback_error:
+                        print(f"❌ AutoModel fallback failed: {fallback_error}")
+                        self.qwen_model = None
+                        self.qwen_tokenizer = None
+                elif "revision" in error_msg:
+                    print("💡 Revision error - model may not exist or be accessible")
+                elif "cache" in error_msg:
+                    print("💡 Cache error - try clearing HuggingFace cache")
+                
+                if self.qwen_model is None:
+                    print("⚠️ All loading attempts failed - enhancement will be disabled")
+                    print("💡 Consider using standard jobs without enhancement")
+                    # Fall back to no enhancement
+                    self.qwen_model = None
+                    self.qwen_tokenizer = None
 
     def unload_qwen_model(self):
         """Free Qwen memory for WAN generation"""
@@ -324,26 +356,32 @@ class EnhancedWanWorker:
 
     def enhance_prompt(self, original_prompt):
         """Enhanced prompt with retry logic and graceful fallback"""
+        print(f"🤖 Starting enhancement for: {original_prompt[:50]}...")
+        
         for attempt in range(self.max_enhancement_attempts):
             try:
                 print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
                 enhanced = self.enhance_prompt_with_timeout(original_prompt)
                 
-                # Validate enhancement worked
-                if enhanced and enhanced != original_prompt and len(enhanced) > len(original_prompt):
+                # Validate enhancement worked (be more lenient with validation)
+                if enhanced and enhanced.strip() != original_prompt.strip():
                     print(f"✅ Enhancement successful on attempt {attempt + 1}")
+                    print(f"📊 Original: {len(original_prompt)} chars → Enhanced: {len(enhanced)} chars")
                     return enhanced
                 else:
-                    print(f"⚠️ Enhancement attempt {attempt + 1} produced insufficient output")
+                    print(f"⚠️ Enhancement attempt {attempt + 1} returned original prompt")
                     if attempt < self.max_enhancement_attempts - 1:
+                        print("⏳ Waiting 5s before retry...")
                         time.sleep(5)  # Wait before retry
                     
             except Exception as e:
                 print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
                 if attempt < self.max_enhancement_attempts - 1:
+                    print("⏳ Waiting 5s before retry...")
                     time.sleep(5)  # Wait before retry
         
         print("⚠️ All enhancement attempts failed, using original prompt")
+        print("💡 Continuing with standard WAN generation...")
         return original_prompt
 
     def validate_output_file(self, file_path, expected_content_type):
