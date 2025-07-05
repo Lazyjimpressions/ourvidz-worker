@@ -502,24 +502,24 @@ class EnhancedWanWorker:
             return False
 
     def generate_content(self, prompt, job_type):
-        """Generate image or video content using WAN 2.1 with real-time logging and validation"""
+        """Generate image or video content using WAN 2.1 with predictable file paths"""
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
         config = self.job_configs[job_type]
         
-        # Create temporary file for output WITHOUT extension - let WAN decide
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_base_path = temp_file.name
+        # CRITICAL FIX: Use simple, predictable file paths like manual testing
+        file_ext = 'png' if config['content_type'] == 'image' else 'mp4'
+        timestamp = int(time.time())
+        simple_filename = f"wan_output_{timestamp}.{file_ext}"
+        temp_output_path = f"/tmp/{simple_filename}"
+        
+        print(f"🎯 Using simple output path: {temp_output_path}")
         
         try:
             # Change to WAN code directory
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
-            
-            # CRITICAL FIX: Add proper file extension for WAN
-            file_ext = 'png' if config['content_type'] == 'image' else 'mp4'
-            temp_output_path = f"{temp_base_path}.{file_ext}"
             
             # Build WAN generation command (VERIFIED WORKING CONFIGURATION)
             cmd = [
@@ -550,6 +550,17 @@ class EnhancedWanWorker:
             print(f"   PYTHONPATH: {env.get('PYTHONPATH', 'NOT SET')}")
             print(f"   HF_HOME: {env.get('HF_HOME', 'NOT SET')}")
             print(f"   CUDA_VISIBLE_DEVICES: {env.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}")
+            
+            # Test that we can write to the output path
+            test_write_path = f"/tmp/test_write_{timestamp}.txt"
+            try:
+                with open(test_write_path, 'w') as f:
+                    f.write("test")
+                os.remove(test_write_path)
+                print(f"✅ Output directory writable: /tmp/")
+            except Exception as e:
+                print(f"❌ Cannot write to /tmp/: {e}")
+                raise Exception(f"Output directory not writable: {e}")
             
             # ENHANCED: Execute WAN generation with REAL-TIME OUTPUT and 350s timeout
             generation_start = time.time()
@@ -701,10 +712,9 @@ class EnhancedWanWorker:
                     print(f"❌ WAN completed but no output file created at: {temp_output_path}")
                     # Try to find files that WAN might have created
                     import glob
-                    possible_files = glob.glob(f"{temp_base_path}*")
+                    possible_files = glob.glob(f"/tmp/wan_output_{timestamp}*")
                     if possible_files:
                         print(f"📁 Found possible output files: {possible_files}")
-                        # Use the first file found
                         actual_file = possible_files[0]
                         if os.path.getsize(actual_file) > 0:
                             print(f"✅ Using found file: {actual_file}")
@@ -727,7 +737,7 @@ class EnhancedWanWorker:
                 print(f"   {line}")
             # Cleanup any partial files
             import glob
-            for partial_file in glob.glob(f"{temp_base_path}*"):
+            for partial_file in glob.glob(f"/tmp/wan_output_{timestamp}*"):
                 try:
                     os.unlink(partial_file)
                     print(f"🗑️ Cleaned up partial file: {partial_file}")
@@ -742,7 +752,7 @@ class EnhancedWanWorker:
                 print(f"   {line}")
             # Cleanup any partial files
             import glob
-            for partial_file in glob.glob(f"{temp_base_path}*"):
+            for partial_file in glob.glob(f"/tmp/wan_output_{timestamp}*"):
                 try:
                     os.unlink(partial_file)
                 except:
