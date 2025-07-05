@@ -1,5 +1,5 @@
 # wan_worker.py - Enhanced WAN Worker with Qwen 7B Integration
-# CRITICAL FIXES: Enhancement timeout, upload validation, graceful fallback
+# CRITICAL FIXES: Enhancement timeout, upload validation, graceful fallback, CALLBACK FORMAT
 # Date: July 5, 2025
 
 import os
@@ -140,6 +140,7 @@ class EnhancedWanWorker:
         print("✨ Enhanced jobs include Qwen 7B prompt enhancement")
         print("🔧 FIXED: Upstash Redis REST API compatibility (RPOP instead of BRPOP)")
         print("🔧 FIXED: Enhancement timeout and upload validation")
+        print("🔧 FIXED: Callback format for Supabase edge function compatibility")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -549,14 +550,20 @@ class EnhancedWanWorker:
             raise
 
     def notify_completion(self, job_id, status, output_url=None, error_message=None):
-        """Notify Supabase of job completion"""
+        """Notify Supabase of job completion with FIXED callback format"""
         try:
+            # CRITICAL FIX: Use the correct callback format expected by edge function
             callback_data = {
                 'jobId': job_id,
                 'status': status,
                 'outputUrl': output_url,
                 'errorMessage': error_message
             }
+            
+            print(f"📞 Sending callback for job {job_id}:")
+            print(f"   Status: {status}")
+            print(f"   Output URL: {output_url}")
+            print(f"   Error: {error_message}")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -585,6 +592,7 @@ class EnhancedWanWorker:
         
         print(f"🔄 Processing job {job_id} ({job_type})")
         print(f"📝 Original prompt: {original_prompt}")
+        print(f"🎯 Video ID: {video_id}")
         
         job_start_time = time.time()
         
@@ -630,7 +638,7 @@ class EnhancedWanWorker:
             # Step 4: Cleanup local file
             os.unlink(output_file)
             
-            # Step 5: Notify completion
+            # Step 5: Notify completion with FIXED callback format
             self.notify_completion(job_id, 'completed', relative_path)
             
             total_time = time.time() - job_start_time
@@ -687,6 +695,7 @@ class EnhancedWanWorker:
         print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
         print("🔧 ENHANCED FEATURES: Timeout protection, upload validation, graceful fallback")
+        print("🔧 CALLBACK FORMAT: Fixed for Supabase edge function compatibility")
         print("📋 Supported job types:")
         for job_type, config in self.job_configs.items():
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
