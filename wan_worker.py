@@ -1,5 +1,5 @@
 # wan_worker.py - Enhanced WAN Worker with Qwen 7B Integration
-# CRITICAL FIX: Proper job type support for all 8 job types
+# CRITICAL FIX: Upstash Redis REST API compatibility - uses RPOP instead of BRPOP
 # Date: July 5, 2025
 
 import os
@@ -122,6 +122,7 @@ class EnhancedWanWorker:
         print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
         print(f"💾 HF Cache: {self.hf_cache_path}")
         print("✨ Enhanced jobs include Qwen 7B prompt enhancement")
+        print("🔧 FIXED: Upstash Redis REST API compatibility (RPOP instead of BRPOP)")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -462,11 +463,12 @@ class EnhancedWanWorker:
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
-        """Poll Redis queue for new jobs with proper error handling"""
+        """Poll Redis queue for new jobs with non-blocking RPOP (Upstash REST API compatible)"""
         try:
-            # Use blocking pop with 5-second timeout
+            # CRITICAL FIX: Use non-blocking RPOP instead of BRPOP 
+            # Upstash Redis REST API doesn't support blocking commands like BRPOP
             response = requests.get(
-                f"{self.redis_url}/brpop/wan_queue/5",
+                f"{self.redis_url}/rpop/wan_queue",  # Changed from brpop to rpop
                 headers={
                     'Authorization': f"Bearer {self.redis_token}"
                 },
@@ -476,7 +478,8 @@ class EnhancedWanWorker:
             if response.status_code == 200:
                 result = response.json()
                 if result.get('result'):
-                    queue_name, job_json = result['result']
+                    # RPOP returns job data directly (not array like BRPOP)
+                    job_json = result['result']
                     job_data = json.loads(job_json)
                     return job_data
             
@@ -490,8 +493,9 @@ class EnhancedWanWorker:
             return None
 
     def run(self):
-        """Main worker loop with enhanced job support"""
+        """Main worker loop with enhanced job support and Upstash compatibility"""
         print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
+        print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
         print("📋 Supported job types:")
         for job_type, config in self.job_configs.items():
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
@@ -511,8 +515,8 @@ class EnhancedWanWorker:
                     self.process_job(job_data)
                     print("=" * 60)
                 else:
-                    # No job available, wait briefly
-                    time.sleep(5)  # ✅ Proper 5-second delay, no log spam
+                    # No job available - sleep between polls since we're using non-blocking RPOP
+                    time.sleep(5)  # 5-second polling interval for non-blocking approach
                     
             except KeyboardInterrupt:
                 print("🛑 Worker stopped by user")
