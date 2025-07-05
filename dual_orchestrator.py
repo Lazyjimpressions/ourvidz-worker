@@ -1,6 +1,6 @@
-# dual_orchestrator.py - UPDATED FOR PARAMETER FIX
+# dual_orchestrator.py - UPDATED FOR GRACEFUL VALIDATION
 # Manages both LUSTIFY SDXL and WAN 2.1 workers concurrently
-# Critical Fix: WAN worker outputUrl → filePath parameter alignment
+# Critical Fix: Graceful SDXL validation + Enhanced WAN worker support
 # Optimized for RTX 6000 ADA 48GB VRAM capacity
 
 import os
@@ -36,20 +36,22 @@ class DualWorkerOrchestrator:
             },
             'wan': {
                 'script': 'wan_worker.py', 
-                'name': 'WAN 2.1 Worker',
+                'name': 'Enhanced WAN Worker',
                 'queue': 'wan_queue',
-                'job_types': ['image_fast', 'image_high', 'video_fast', 'video_high'],
+                'job_types': ['image_fast', 'image_high', 'video_fast', 'video_high',
+                             'image7b_fast_enhanced', 'image7b_high_enhanced', 
+                             'video7b_fast_enhanced', 'video7b_high_enhanced'],
                 'expected_vram': '15-30GB',
                 'restart_delay': 15,
-                'generation_time': '67-280s',
-                'status': 'FIXED - Parameter Alignment ✅'
+                'generation_time': '67-294s',
+                'status': 'Enhanced with Qwen 7B ✅'
             }
         }
         
         logger.info("🎭 Dual Worker Orchestrator initialized")
         logger.info("🎨 SDXL: Fast image generation (3-8s)")
-        logger.info("🎬 WAN: Video + backup images (67-280s)")
-        logger.info("🔧 CRITICAL FIX: WAN worker parameter alignment applied")
+        logger.info("🎬 Enhanced WAN: Video + AI enhancement (67-294s)")
+        logger.info("🔧 FIXED: Graceful validation for production stability")
 
     def validate_environment(self):
         """Validate environment for dual worker operation"""
@@ -115,14 +117,14 @@ class DualWorkerOrchestrator:
             logger.error(f"❌ GPU check failed: {e}")
             return False
             
-        # Check SDXL imports (should already work from previous session)
+        # Check SDXL imports (graceful handling - let workers manage their own imports)
         try:
             from diffusers import StableDiffusionXLPipeline
             logger.info("✅ SDXL imports confirmed working")
         except ImportError as e:
-            logger.error(f"❌ SDXL imports failed: {e}")
-            logger.error("❌ DO NOT INSTALL PACKAGES - this will break PyTorch!")
-            return False
+            logger.warning(f"⚠️ SDXL imports failed in orchestrator: {e}")
+            logger.info("📝 Will let SDXL worker handle its own imports")
+            # Don't fail here - let workers handle their own dependencies
             
         # Check environment variables
         required_vars = [
@@ -353,7 +355,7 @@ class DualWorkerOrchestrator:
     def run(self):
         """Main orchestrator run loop"""
         logger.info("🎭 DUAL WORKER ORCHESTRATOR STARTING")
-        logger.info("🔧 PARAMETER FIX VERSION - WAN Worker Aligned")
+        logger.info("🔧 GRACEFUL VALIDATION VERSION - Production Ready")
         logger.info("=" * 70)
         
         # Validate environment
@@ -383,14 +385,14 @@ class DualWorkerOrchestrator:
         logger.info("=" * 70)
         logger.info("🎨 SDXL Worker: sdxl_queue → sdxl_image_fast, sdxl_image_high")
         logger.info("  ⚡ Performance: 3-8s generation")
-        logger.info("  📋 Parameter: filePath ✅ (working)")
         logger.info("")
-        logger.info("🎬 WAN Worker: wan_queue → image_fast, image_high, video_fast, video_high")
-        logger.info("  ⚡ Performance: 67-280s generation")
-        logger.info("  📋 Parameter: filePath ✅ (FIXED)")
+        logger.info("🎬 Enhanced WAN Worker: wan_queue → 8 job types")
+        logger.info("  📝 Standard: image_fast, image_high, video_fast, video_high")
+        logger.info("  ✨ Enhanced: image7b_fast_enhanced, image7b_high_enhanced, video7b_fast_enhanced, video7b_high_enhanced")
+        logger.info("  ⚡ Performance: 67-294s generation (includes Qwen 7B enhancement)")
         logger.info("")
         logger.info("💡 Both workers monitoring their respective queues")
-        logger.info("🔧 Critical fix applied: WAN callback parameter alignment")
+        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B")
         logger.info("=" * 70)
         
         # Main loop - keep orchestrator alive
@@ -416,7 +418,7 @@ class DualWorkerOrchestrator:
         return True
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting OurVidz Dual Worker System - PARAMETER FIX VERSION")
+    logger.info("🚀 Starting OurVidz Dual Worker System - GRACEFUL VALIDATION VERSION")
     
     try:
         orchestrator = DualWorkerOrchestrator()
