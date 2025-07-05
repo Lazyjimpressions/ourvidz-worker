@@ -35,7 +35,8 @@ class EnhancedWanWorker:
         
         # Updated HuggingFace cache configuration
         self.hf_cache_path = "/workspace/models/huggingface_cache"
-        self.qwen_model_path = f"{self.hf_cache_path}/hub/models--Qwen--Qwen2.5-7B-Instruct"
+        # CORRECTED PATH: 7B model is in root cache dir, not hub/ subdirectory
+        self.qwen_model_path = f"{self.hf_cache_path}/models--Qwen--Qwen2.5-7B-Instruct"
         
         # Environment configuration
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -743,7 +744,7 @@ if __name__ == "__main__":
     
     # Verify critical paths
     model_path = "/workspace/models/wan2.1-t2v-1.3b"
-    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B-Instruct"
+    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-14B-Instruct"  # Updated to 14B
     wan_code_path = "/workspace/Wan2.1"
     
     if not os.path.exists(model_path):
