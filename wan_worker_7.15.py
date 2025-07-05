@@ -1,5 +1,5 @@
 # wan_worker.py - Enhanced WAN Worker with Qwen 7B Integration
-# CRITICAL FIX: Proper job type support for all 8 job types
+# Fixed: Polling issue resolved - proper 5-second intervals
 # Date: July 5, 2025
 
 import os
@@ -37,7 +37,7 @@ class EnhancedWanWorker:
         self.qwen_model = None
         self.qwen_tokenizer = None
         
-        # Job type configurations - ALL 8 TYPES SUPPORTED
+        # Job type configurations
         self.job_configs = {
             # Standard job types (no enhancement)
             'image_fast': {
@@ -46,8 +46,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 3.0,
                 'frame_num': 1,
                 'enhance_prompt': False,
-                'expected_time': 73,
-                'content_type': 'image'
+                'expected_time': 73
             },
             'image_high': {
                 'size': '480*832',
@@ -55,8 +54,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 4.0,
                 'frame_num': 1,
                 'enhance_prompt': False,
-                'expected_time': 90,
-                'content_type': 'image'
+                'expected_time': 90
             },
             'video_fast': {
                 'size': '480*832',
@@ -64,8 +62,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 3.0,
                 'frame_num': 17,
                 'enhance_prompt': False,
-                'expected_time': 180,
-                'content_type': 'video'
+                'expected_time': 180
             },
             'video_high': {
                 'size': '480*832',
@@ -73,8 +70,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 4.0,
                 'frame_num': 17,
                 'enhance_prompt': False,
-                'expected_time': 280,
-                'content_type': 'video'
+                'expected_time': 280
             },
             
             # Enhanced job types (with Qwen 7B enhancement)
@@ -84,8 +80,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 3.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 87,  # 73s + 14s enhancement
-                'content_type': 'image'
+                'expected_time': 87  # 73s + 14s enhancement
             },
             'image7b_high_enhanced': {
                 'size': '480*832',
@@ -93,8 +88,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 4.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 104,  # 90s + 14s enhancement
-                'content_type': 'image'
+                'expected_time': 104  # 90s + 14s enhancement
             },
             'video7b_fast_enhanced': {
                 'size': '480*832',
@@ -102,8 +96,7 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 3.0,
                 'frame_num': 17,
                 'enhance_prompt': True,
-                'expected_time': 194,  # 180s + 14s enhancement
-                'content_type': 'video'
+                'expected_time': 194  # 180s + 14s enhancement
             },
             'video7b_high_enhanced': {
                 'size': '480*832',
@@ -111,17 +104,14 @@ class EnhancedWanWorker:
                 'sample_guide_scale': 4.0,
                 'frame_num': 17,
                 'enhance_prompt': True,
-                'expected_time': 294,  # 280s + 14s enhancement
-                'content_type': 'video'
+                'expected_time': 294  # 280s + 14s enhancement
             }
         }
         
         print("🎬 Enhanced OurVidz WAN Worker initialized")
-        print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
         print(f"💾 HF Cache: {self.hf_cache_path}")
-        print("✨ Enhanced jobs include Qwen 7B prompt enhancement")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -159,40 +149,34 @@ class EnhancedWanWorker:
         """Load Qwen 2.5-7B model for prompt enhancement"""
         if self.qwen_model is None:
             print("🤖 Loading Qwen 2.5-7B for prompt enhancement...")
-            enhancement_start = time.time()
             
             try:
                 # Verify model path exists
                 if not os.path.exists(self.qwen_model_path):
-                    print(f"⚠️ Qwen model not found at {self.qwen_model_path}")
-                    print("🔄 Attempting to load from HuggingFace cache...")
-                    # Try loading from model name instead
-                    model_name = "Qwen/Qwen2.5-7B-Instruct"
-                else:
-                    model_name = self.qwen_model_path
+                    raise FileNotFoundError(f"Qwen model not found at {self.qwen_model_path}")
                 
-                # Load tokenizer and model
+                # Load tokenizer and model from local cache
                 self.qwen_tokenizer = AutoTokenizer.from_pretrained(
-                    model_name,
+                    self.qwen_model_path,
                     cache_dir=self.hf_cache_path,
+                    local_files_only=True,
                     trust_remote_code=True
                 )
                 
                 self.qwen_model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
+                    self.qwen_model_path,
                     torch_dtype=torch.float16,
                     device_map="auto",
                     cache_dir=self.hf_cache_path,
+                    local_files_only=True,
                     trust_remote_code=True
                 )
                 
-                load_time = time.time() - enhancement_start
-                print(f"✅ Qwen 2.5-7B loaded successfully in {load_time:.1f}s")
+                print("✅ Qwen 2.5-7B loaded successfully")
                 self.log_gpu_memory()
                 
             except Exception as e:
                 print(f"❌ Failed to load Qwen model: {e}")
-                print("⚠️ Prompt enhancement will be disabled for this job")
                 # Fall back to no enhancement
                 self.qwen_model = None
                 self.qwen_tokenizer = None
@@ -211,9 +195,6 @@ class EnhancedWanWorker:
 
     def enhance_prompt(self, original_prompt):
         """Use Qwen 2.5-7B to enhance user prompt"""
-        enhancement_start = time.time()
-        print(f"🤖 Enhancing prompt: {original_prompt[:50]}...")
-        
         self.load_qwen_model()
         
         if self.qwen_model is None:
@@ -266,9 +247,7 @@ class EnhancedWanWorker:
             
             self.unload_qwen_model()
             
-            enhancement_time = time.time() - enhancement_start
-            print(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
-            print(f"📝 Enhanced: {enhanced_prompt[:100]}...")
+            print(f"✅ Prompt enhanced: {original_prompt[:50]}... → {enhanced_prompt[:50]}...")
             return enhanced_prompt.strip()
             
         except Exception as e:
@@ -278,14 +257,10 @@ class EnhancedWanWorker:
 
     def generate_content(self, prompt, job_type):
         """Generate image or video content using WAN 2.1"""
-        if job_type not in self.job_configs:
-            raise Exception(f"Unsupported job type: {job_type}")
-            
-        config = self.job_configs[job_type]
+        config = self.job_configs.get(job_type, self.job_configs['image_fast'])
         
         # Create temporary file for output
-        file_ext = 'png' if config['content_type'] == 'image' else 'mp4'
-        with tempfile.NamedTemporaryFile(suffix=f'.{file_ext}', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_file:
             temp_video_path = Path(temp_file.name)
         
         try:
@@ -311,11 +286,9 @@ class EnhancedWanWorker:
             env = self.setup_environment()
             
             print(f"🎬 Starting WAN generation: {job_type}")
-            print(f"📝 Final prompt: {prompt[:100]}...")
-            print(f"🔧 Frame count: {config['frame_num']} ({'image' if config['frame_num'] == 1 else 'video'})")
+            print(f"📝 Prompt: {prompt[:100]}...")
             
             # Execute WAN generation
-            generation_start = time.time()
             result = subprocess.run(
                 cmd,
                 cwd=self.wan_code_path,
@@ -325,21 +298,17 @@ class EnhancedWanWorker:
                 timeout=600  # 10 minute timeout
             )
             
-            generation_time = time.time() - generation_start
-            
             # Restore original directory
             os.chdir(original_cwd)
             
             if result.returncode == 0:
                 if temp_video_path.exists() and temp_video_path.stat().st_size > 0:
-                    file_size = temp_video_path.stat().st_size / 1024**2  # MB
-                    print(f"✅ WAN generation successful in {generation_time:.1f}s: {file_size:.1f}MB")
+                    print(f"✅ WAN generation successful: {temp_video_path.stat().st_size} bytes")
                     return str(temp_video_path)
                 else:
                     raise Exception("Output file not created or empty")
             else:
-                error_output = result.stderr if result.stderr else result.stdout
-                raise Exception(f"WAN generation failed: {error_output}")
+                raise Exception(f"WAN generation failed: {result.stderr}")
                 
         except Exception as e:
             os.chdir(original_cwd)  # Ensure we restore directory
@@ -389,8 +358,7 @@ class EnhancedWanWorker:
                 headers={
                     'Authorization': f"Bearer {self.supabase_service_key}",
                     'Content-Type': 'application/json'
-                },
-                timeout=30
+                }
             )
             
             if response.status_code == 200:
@@ -402,25 +370,20 @@ class EnhancedWanWorker:
             print(f"❌ Callback error: {e}")
 
     def process_job(self, job_data):
-        """Process a single job with enhanced support"""
+        """Process a single job"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         original_prompt = job_data['prompt']
         video_id = job_data['videoId']
         
         print(f"🔄 Processing job {job_id} ({job_type})")
-        print(f"📝 Original prompt: {original_prompt}")
-        
-        job_start_time = time.time()
         
         try:
             # Validate job type
             if job_type not in self.job_configs:
-                available_types = list(self.job_configs.keys())
-                raise Exception(f"Unknown job type: {job_type}. Available: {available_types}")
+                raise Exception(f"Unknown job type: {job_type}")
             
             config = self.job_configs[job_type]
-            print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
             
             # Step 1: Enhance prompt if required
             if config['enhance_prompt']:
@@ -428,7 +391,6 @@ class EnhancedWanWorker:
                 enhanced_prompt = self.enhance_prompt(original_prompt)
                 actual_prompt = enhanced_prompt
             else:
-                print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
             
             # Step 2: Generate content with WAN 2.1
@@ -439,10 +401,9 @@ class EnhancedWanWorker:
                 raise Exception("Content generation failed")
             
             # Step 3: Upload to Supabase
-            file_extension = 'png' if config['content_type'] == 'image' else 'mp4'
+            file_extension = 'png' if config['frame_num'] == 1 else 'mp4'
             storage_path = f"{job_type}/{video_id}.{file_extension}"
             
-            print(f"📤 Uploading to: {storage_path}")
             relative_path = self.upload_to_supabase(output_file, storage_path)
             
             # Step 4: Cleanup local file
@@ -451,26 +412,21 @@ class EnhancedWanWorker:
             # Step 5: Notify completion
             self.notify_completion(job_id, 'completed', relative_path)
             
-            total_time = time.time() - job_start_time
-            print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
-            print(f"📁 Output: {relative_path}")
+            print(f"🎉 Job {job_id} completed successfully")
             
         except Exception as e:
             error_msg = str(e)
-            total_time = time.time() - job_start_time
-            print(f"❌ Job {job_id} failed after {total_time:.1f}s: {error_msg}")
+            print(f"❌ Job {job_id} failed: {error_msg}")
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
-        """Poll Redis queue for new jobs with proper error handling"""
+        """Poll Redis queue for new jobs"""
         try:
-            # Use blocking pop with 5-second timeout
             response = requests.get(
                 f"{self.redis_url}/brpop/wan_queue/5",
                 headers={
                     'Authorization': f"Bearer {self.redis_token}"
-                },
-                timeout=10
+                }
             )
             
             if response.status_code == 200:
@@ -482,37 +438,23 @@ class EnhancedWanWorker:
             
             return None
             
-        except requests.exceptions.Timeout:
-            # Normal timeout, not an error
-            return None
         except Exception as e:
             print(f"❌ Queue polling error: {e}")
             return None
 
     def run(self):
-        """Main worker loop with enhanced job support"""
+        """Main worker loop - FIXED: Proper 5-second polling"""
         print("🎬 Enhanced OurVidz WAN Worker with Qwen 7B started!")
-        print("📋 Supported job types:")
-        for job_type, config in self.job_configs.items():
-            enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
-            content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
-            print(f"  • {job_type}: {content} ({config['expected_time']}s) {enhancement}")
         print("⏳ Waiting for jobs...")
-        
-        job_count = 0
         
         while True:
             try:
                 job_data = self.poll_queue()
                 
                 if job_data:
-                    job_count += 1
-                    print(f"\n📬 WAN Job #{job_count} received")
                     self.process_job(job_data)
-                    print("=" * 60)
                 else:
-                    # No job available, wait briefly
-                    time.sleep(5)  # ✅ Proper 5-second delay, no log spam
+                    time.sleep(5)  # ✅ FIXED: Proper 5-second delay, no log spam
                     
             except KeyboardInterrupt:
                 print("🛑 Worker stopped by user")
