@@ -331,7 +331,6 @@ class EnhancedWanWorker:
             "python", "generate.py",
             "--task", "t2v-1.3B",
             "--ckpt_dir", str(self.model_path),
-            "--offload_model", "False",
             "--size", config['size'],
             "--sample_steps", str(config['sample_steps']),
             "--sample_guide_scale", str(config['sample_guide_scale']),
