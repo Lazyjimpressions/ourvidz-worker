@@ -166,13 +166,24 @@ class DualWorkerOrchestrator:
         logger.info(f"⚡ Performance: {config['generation_time']}")
         
         try:
-            # Start worker process
+            # Set up environment with persistent Python path
+            env = os.environ.copy()
+            persistent_deps = "/workspace/python_deps/lib/python3.11/site-packages"
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{persistent_deps}:{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = persistent_deps
+            
+            logger.info(f"🔧 Setting PYTHONPATH: {env['PYTHONPATH']}")
+            
+            # Start worker process with proper environment
             process = subprocess.Popen(
                 [sys.executable, config['script']],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
-                bufsize=1
+                bufsize=1,
+                env=env  # ✅ Pass environment with PYTHONPATH
             )
             
             self.processes[worker_id] = {
