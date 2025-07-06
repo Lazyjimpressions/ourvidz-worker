@@ -1,6 +1,7 @@
-# wan_worker.py - CRITICAL FIX for WAN Video Generation
+# wan_worker.py - CRITICAL FIX for WAN Video Generation + Qwen Base Model Integration
 # FIXES: WAN generating text files instead of videos, MIME type errors, command formatting
 # MAJOR FIX: Corrected frame_num for 5-second videos (80 frames at 16fps)
+# NEW FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)
 # Date: July 6, 2025
 
 import os
@@ -27,7 +28,7 @@ def timeout_handler(signum, frame):
 
 class EnhancedWanWorker:
     def __init__(self):
-        """Initialize Enhanced WAN Worker with Qwen 7B integration"""
+        """Initialize Enhanced WAN Worker with Qwen 7B Base integration"""
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
         self.wan_code_path = "/workspace/Wan2.1"
         
@@ -36,9 +37,9 @@ class EnhancedWanWorker:
         os.environ['HF_HOME'] = '/workspace/models/huggingface_cache'
         os.environ['HUGGINGFACE_HUB_CACHE'] = '/workspace/models/huggingface_cache/hub'
         
-        # Updated HuggingFace cache configuration
+        # UPDATED: Qwen 2.5-7B Base model path (no content filtering)
         self.hf_cache_path = "/workspace/models/huggingface_cache"
-        self.qwen_model_path = f"{self.hf_cache_path}/models--Qwen--Qwen2.5-7B"
+        self.qwen_model_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
         
         # Environment configuration
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -100,7 +101,7 @@ class EnhancedWanWorker:
                 'file_extension': 'mp4'
             },
             
-            # Enhanced job types (with Qwen 7B enhancement)
+            # Enhanced job types (with Qwen 7B Base enhancement)
             'image7b_fast_enhanced': {
                 'size': '480*832',
                 'sample_steps': 25,
@@ -147,7 +148,7 @@ class EnhancedWanWorker:
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (80 frames)")
         print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
-        print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
+        print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
         print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
         print("🔧 CRITICAL FIX: Enhanced output file validation")
         print("🚫 NEW: Negative prompts for better quality generation")
@@ -234,6 +235,9 @@ class EnhancedWanWorker:
             except Exception as e:
                 signal.alarm(0)
                 print(f"❌ Failed to load Qwen base model: {e}")
+                print(f"❌ Full error traceback:")
+                import traceback
+                traceback.print_exc()
                 self.qwen_model = None
                 self.qwen_tokenizer = None
 
@@ -975,6 +979,7 @@ Enhanced detailed prompt:"""
         """Main worker loop with startup diagnostics"""
         print("🎬 Enhanced OurVidz WAN Worker with CRITICAL FIXES started!")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (80 frames)")
+        print("🔧 MAJOR FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)")
         print("🔧 OPTIMIZATIONS APPLIED:")
         print("   • Optimized frame counts based on confirmed 16.67fps effective rate")
         print("   • video_fast: 83 frames for 5.0 seconds (45s faster processing)")
@@ -1075,7 +1080,7 @@ if __name__ == "__main__":
     
     # Verify critical paths
     model_path = "/workspace/models/wan2.1-t2v-1.3b"
-    qwen_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
+    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
     wan_code_path = "/workspace/Wan2.1"
     
     if not os.path.exists(model_path):
@@ -1083,7 +1088,7 @@ if __name__ == "__main__":
         exit(1)
         
     if not os.path.exists(qwen_path):
-        print(f"⚠️ Qwen model not found: {qwen_path} (enhancement will be disabled)")
+        print(f"⚠️ Qwen Base model not found: {qwen_path} (enhancement will be disabled)")
         
     if not os.path.exists(wan_code_path):
         print(f"❌ WAN code not found: {wan_code_path}")
@@ -1091,6 +1096,7 @@ if __name__ == "__main__":
     
     print("✅ All paths validated, starting worker with CRITICAL FIXES...")
     print("🔧 MAJOR OPTIMIZATION: 83 frames for 5-second videos (was 100 frames)")
+    print("🔧 MAJOR FIX: Using Qwen 2.5-7B Base model for unrestricted NSFW enhancement")
     print("🔧 TIME SAVINGS: 45 seconds faster processing per video")
     
     try:
