@@ -723,11 +723,12 @@ Enhanced detailed prompt:"""
     def notify_completion(self, job_id, status, output_url=None, error_message=None):
         """Notify Supabase of job completion with FIXED callback format"""
         try:
+            # FIXED: Use correct callback format that matches edge function expectation
             callback_data = {
-                'jobId': job_id,
+                'job_id': job_id,        # ✅ Consistent with database
                 'status': status,
-                'outputUrl': output_url,
-                'errorMessage': error_message
+                'assets': [output_url] if output_url else [],  # ✅ Array format
+                'error_message': error_message
             }
             
             print(f"📞 Sending callback for job {job_id}:")
@@ -848,15 +849,22 @@ Enhanced detailed prompt:"""
         return env
 
     def process_job_with_enhanced_diagnostics(self, job_data):
-        """CRITICAL FIX: Enhanced process_job with better error handling"""
-        job_id = job_data['jobId']
-        job_type = job_data['jobType']
+        """CRITICAL FIX: Enhanced process_job with correct payload structure"""
+        # FIXED: Use correct field names from edge function
+        job_id = job_data['id']           # ✅ Edge function sends 'id'
+        job_type = job_data['type']       # ✅ Edge function sends 'type'
         original_prompt = job_data['prompt']
-        video_id = job_data['videoId']
+        user_id = job_data['user_id']     # ✅ Edge function sends 'user_id'
+        
+        # Optional fields with defaults
+        video_id = job_data.get('video_id', f"video_{int(time.time())}")
+        image_id = job_data.get('image_id', f"image_{int(time.time())}")
+        config = job_data.get('config', {})
         
         print(f"🔄 Processing job {job_id} ({job_type}) with CRITICAL FIXES")
         print(f"📝 Original prompt: {original_prompt}")
         print(f"🎯 Video ID: {video_id}")
+        print(f"👤 User ID: {user_id}")
         print("\n🔍 PRE-JOB DIAGNOSTICS:")
         self.test_wan_dependencies()
         print("\n🧪 WAN EXECUTION TEST:")
@@ -870,17 +878,20 @@ Enhanced detailed prompt:"""
                 available_types = list(self.job_configs.keys())
                 raise Exception(f"Unknown job type: {job_type}. Available: {available_types}")
             
-            config = self.job_configs[job_type]
-            print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
-            print(f"🔧 OPTIMIZED FRAME COUNT: {config['frame_num']} frames")
-            if config['content_type'] == 'video':
+            job_config = self.job_configs[job_type]
+            print(f"✅ Job type validated: {job_type} (enhance: {job_config['enhance_prompt']})")
+            
+            # Use config from edge function if available, otherwise use defaults
+            final_config = {**job_config, **config}
+            print(f"🔧 OPTIMIZED FRAME COUNT: {final_config['frame_num']} frames")
+            if final_config['content_type'] == 'video':
                 # Based on confirmed data: 100 frames = 6 seconds, so 16.67fps effective
                 effective_fps = 16.67  # Confirmed from successful 6-second generation
-                duration = config['frame_num'] / effective_fps
+                duration = final_config['frame_num'] / effective_fps
                 print(f"⏱️ Expected duration: {duration:.1f} seconds (confirmed 16.67fps effective rate)")
             
             # Handle prompt enhancement
-            if config['enhance_prompt']:
+            if final_config['enhance_prompt']:
                 print("🤖 Starting prompt enhancement with timeout protection...")
                 enhanced_prompt = self.enhance_prompt(original_prompt)
                 actual_prompt = enhanced_prompt
@@ -897,10 +908,9 @@ Enhanced detailed prompt:"""
             print(f"🔍 About to call generate_content with:")
             print(f"   Prompt: {actual_prompt[:100]}...")
             print(f"   Job type: {job_type}")
-            print(f"   Config: {config}")
-            print(f"   Expected output: {config['content_type']} (.{config['file_extension']})")
-            print(f"🔧 FIXED FRAME COUNT: {config['frame_num']} frames for 5-second videos")
-            print(f"🚫 Will use negative prompts for better quality")
+            print(f"   Config: {final_config}")
+            print(f"   Expected output: {final_config['content_type']} (.{final_config['file_extension']})")
+            print(f"🔧 FIXED FRAME COUNT: {final_config['frame_num']} frames for 5-second videos")
             
             print("\n🔍 FINAL ENVIRONMENT CHECK BEFORE WAN:")
             test_env = self.enhanced_environment_setup()
@@ -913,15 +923,15 @@ Enhanced detailed prompt:"""
             
             # Final file validation before upload
             print(f"🔍 Final validation before upload:")
-            is_valid, validation_msg = self.validate_output_file(output_file, config['content_type'])
+            is_valid, validation_msg = self.validate_output_file(output_file, final_config['content_type'])
             if not is_valid:
                 raise Exception(f"Generated file failed final validation: {validation_msg}")
             
             # Upload with proper storage path
-            file_extension = config['file_extension']
+            file_extension = final_config['file_extension']
             storage_path = f"{job_type}/{video_id}.{file_extension}"
             
-            print(f"📤 Uploading validated {config['content_type']} file to: {storage_path}")
+            print(f"📤 Uploading validated {final_config['content_type']} file to: {storage_path}")
             relative_path = self.upload_to_supabase(output_file, storage_path)
             
             # Cleanup temp file
@@ -937,11 +947,11 @@ Enhanced detailed prompt:"""
             total_time = time.time() - job_start_time
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
             print(f"📁 Output: {relative_path}")
-            print(f"✅ File type: {config['content_type']} (.{file_extension})")
-            if config['content_type'] == 'video':
+            print(f"✅ File type: {final_config['content_type']} (.{file_extension})")
+            if final_config['content_type'] == 'video':
                 effective_fps = 16.67  # Confirmed from successful generation: 100 frames = 6 seconds
-                duration = config['frame_num'] / effective_fps
-                print(f"⏱️ Video duration: {duration:.1f} seconds ({config['frame_num']} frames at 16.67fps confirmed)")
+                duration = final_config['frame_num'] / effective_fps
+                print(f"⏱️ Video duration: {duration:.1f} seconds ({final_config['frame_num']} frames at 16.67fps confirmed)")
             
         except Exception as e:
             error_msg = str(e)

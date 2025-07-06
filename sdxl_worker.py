@@ -296,19 +296,24 @@ class LustifySDXLWorker:
             return None
 
     def process_job(self, job_data):
-        """Process a single SDXL job with batch generation support"""
-        job_id = job_data['jobId']
-        job_type = job_data['jobType']
+        """Process a single SDXL job with FIXED payload structure"""
+        # FIXED: Use correct field names from edge function
+        job_id = job_data['id']           # ✅ Edge function sends 'id'
+        job_type = job_data['type']       # ✅ Edge function sends 'type'
         prompt = job_data['prompt']
-        user_id = job_data['userId']
-        image_id = job_data.get('imageId')
+        user_id = job_data['user_id']     # ✅ Edge function sends 'user_id'
         
-        # Extract num_images from metadata (default to 6 for new requests)
-        num_images = job_data.get('metadata', {}).get('num_images', 6)
+        # Optional fields with defaults
+        image_id = job_data.get('image_id', f"image_{int(time.time())}")
+        config = job_data.get('config', {})
+        
+        # Extract num_images from config (default to 6 for batch generation)
+        num_images = config.get('num_images', 6)
         
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")
         logger.info(f"🖼️ Generating {num_images} images")
+        logger.info(f"👤 User ID: {user_id}")
         
         # Phase validation
         if job_type not in self.phase_1_jobs:
@@ -326,8 +331,8 @@ class LustifySDXLWorker:
                 raise Exception("Image generation failed")
             
             # Upload all images
-            config = self.job_configs[job_type]
-            upload_urls = self.upload_images_batch(images, job_id, user_id, config)
+            job_config = self.job_configs[job_type]
+            upload_urls = self.upload_images_batch(images, job_id, user_id, job_config)
             
             if not upload_urls:
                 raise Exception("All image uploads failed")
@@ -349,13 +354,14 @@ class LustifySDXLWorker:
             gc.collect()
 
     def notify_completion(self, job_id, status, image_urls=None, error_message=None):
-        """Notify Supabase of job completion with batch support"""
+        """Notify Supabase of job completion with FIXED callback format"""
         try:
+            # FIXED: Use correct callback format that matches job-callback edge function
             callback_data = {
-                'jobId': job_id,
+                'job_id': job_id,        # ✅ Consistent with database
                 'status': status,
-                'imageUrls': image_urls,  # ✅ Array of image URLs for batch
-                'errorMessage': error_message
+                'assets': image_urls if image_urls else [],  # ✅ Array format for assets
+                'error_message': error_message
             }
             
             response = requests.post(
@@ -373,7 +379,7 @@ class LustifySDXLWorker:
                 if image_urls:
                     logger.info(f"📊 Sent {len(image_urls)} image URLs")
             else:
-                logger.warning(f"⚠️ Callback failed: {response.status_code}")
+                logger.warning(f"⚠️ Callback failed: {response.status_code} - {response.text}")
                 
         except Exception as e:
             logger.error(f"❌ Callback error: {e}")
