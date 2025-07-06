@@ -54,8 +54,9 @@ class EnhancedWanWorker:
         self.enhancement_timeout = 60
         self.max_enhancement_attempts = 2
         
-        # CRITICAL FIX: Updated job configurations with CORRECT FRAME COUNTS for 5-second videos
-        # Frame rate calculation: 16fps × 5 seconds = 80 frames for videos
+        # CRITICAL FIX: Updated job configurations for 5-6 SECOND videos
+        # Based on actual output: 80 frames = 4 seconds, so we need more frames
+        # Adjusted calculation: ~20fps effective rate, so 100-120 frames for 5-6 seconds
         self.job_configs = {
             # Standard job types (no enhancement)
             'image_fast': {
@@ -82,9 +83,9 @@ class EnhancedWanWorker:
                 'size': '480*832',           # ✅ VERIFIED working size
                 'sample_steps': 25,          # Fast: 25 steps
                 'sample_guide_scale': 5.0,   # ✅ VERIFIED working guidance
-                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
+                'frame_num': 100,            # 🔧 ADJUSTED: 100 frames for 5+ seconds (80 frames = 4s observed)
                 'enhance_prompt': False,
-                'expected_time': 120,        # 🔧 UPDATED: Longer time for 80 frames
+                'expected_time': 150,        # 🔧 UPDATED: Longer time for 100 frames
                 'content_type': 'video',
                 'file_extension': 'mp4'      # ✅ CRITICAL: Explicit extension
             },
@@ -92,9 +93,9 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,          # High quality: 50 steps
                 'sample_guide_scale': 5.0,
-                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
+                'frame_num': 120,            # 🔧 ADJUSTED: 120 frames for 6+ seconds high quality
                 'enhance_prompt': False,
-                'expected_time': 180,        # 🔧 UPDATED: Longer time for high quality 80 frames
+                'expected_time': 220,        # 🔧 UPDATED: Longer time for high quality 120 frames
                 'content_type': 'video',
                 'file_extension': 'mp4'
             },
@@ -124,9 +125,9 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 25,
                 'sample_guide_scale': 5.0,
-                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
+                'frame_num': 100,            # 🔧 ADJUSTED: 100 frames for 5+ seconds
                 'enhance_prompt': True,
-                'expected_time': 180,        # 🔧 UPDATED: 120s + 60s enhancement
+                'expected_time': 210,        # 🔧 UPDATED: 150s + 60s enhancement
                 'content_type': 'video',
                 'file_extension': 'mp4'
             },
@@ -134,9 +135,9 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,
                 'sample_guide_scale': 5.0,
-                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
+                'frame_num': 120,            # 🔧 ADJUSTED: 120 frames for 6+ seconds
                 'enhance_prompt': True,
-                'expected_time': 240,        # 🔧 UPDATED: 180s + 60s enhancement
+                'expected_time': 280,        # 🔧 UPDATED: 220s + 60s enhancement
                 'content_type': 'video',
                 'file_extension': 'mp4'
             }
@@ -834,10 +835,12 @@ class EnhancedWanWorker:
             
             config = self.job_configs[job_type]
             print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
-            print(f"🔧 FRAME COUNT: {config['frame_num']} frames")
+            print(f"🔧 ADJUSTED FRAME COUNT: {config['frame_num']} frames")
             if config['content_type'] == 'video':
-                duration = config['frame_num'] / 16
-                print(f"⏱️ Expected duration: {duration:.1f} seconds")
+                # Based on observed behavior: 80 frames = 4 seconds, so ~20fps effective
+                effective_fps = 20  # Observed effective frame rate
+                duration = config['frame_num'] / effective_fps
+                print(f"⏱️ Expected duration: {duration:.1f} seconds (observed ~20fps effective rate)")
             
             # Handle prompt enhancement
             if config['enhance_prompt']:
@@ -898,8 +901,9 @@ class EnhancedWanWorker:
             print(f"📁 Output: {relative_path}")
             print(f"✅ File type: {config['content_type']} (.{file_extension})")
             if config['content_type'] == 'video':
-                duration = config['frame_num'] / 16
-                print(f"⏱️ Video duration: {duration:.1f} seconds ({config['frame_num']} frames)")
+                effective_fps = 20  # Based on observed: 80 frames = 4 seconds
+                duration = config['frame_num'] / effective_fps
+                print(f"⏱️ Video duration: {duration:.1f} seconds ({config['frame_num']} frames at ~20fps effective)")
             
         except Exception as e:
             error_msg = str(e)
@@ -935,13 +939,10 @@ class EnhancedWanWorker:
         print("🎬 Enhanced OurVidz WAN Worker with CRITICAL FIXES started!")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (80 frames)")
         print("🔧 CRITICAL FIXES APPLIED:")
-        print("   • Proper file extensions (.mp4/.png)")
-        print("   • Enhanced WAN command formatting")
-        print("   • MIME type validation and error detection")
-        print("   • File header validation to catch text/error output")
-        print("   • Extended timeouts for 80-frame video generation")
-        print("   • Enhanced error categorization and debugging")
-        print("   • FIXED: 80 frames = 5 seconds at 16fps (was 17 frames = 1 second)")
+        print("   • Adjusted frame counts based on observed output (80 frames = 4s)")
+        print("   • video_fast: 100 frames for 5+ seconds")
+        print("   • video_high: 120 frames for 6+ seconds")
+        print("   • Effective frame rate appears to be ~20fps, not 16fps")
         
         print("\n🔍 STARTUP DIAGNOSTICS:")
         print("="*60)
@@ -956,8 +957,9 @@ class EnhancedWanWorker:
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
             content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
             if config['content_type'] == 'video':
-                duration = config['frame_num'] / 16
-                print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement} - {duration:.1f}s duration")
+                effective_fps = 20  # Based on observed behavior
+                duration = config['frame_num'] / effective_fps
+                print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement} - {duration:.1f}s duration ({config['frame_num']} frames)")
             else:
                 print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement}")
         print("⏳ Waiting for jobs...")
