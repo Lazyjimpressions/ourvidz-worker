@@ -1,5 +1,6 @@
-# sdxl_worker.py - BATCH GENERATION VERSION
+# sdxl_worker.py - BATCH GENERATION VERSION - FIXED CALLBACK PARAMETERS
 # NEW: Supports 6-image batch generation for better user experience
+# FIXED: Correct callback parameter names for job-callback compatibility
 # Performance: 3.6s per image, ~22s for 6 images on RTX 6000 ADA
 
 import os
@@ -21,10 +22,11 @@ logger = logging.getLogger(__name__)
 class LustifySDXLWorker:
     def __init__(self):
         """Initialize LUSTIFY SDXL Worker with batch generation support"""
-        print("🎨 LUSTIFY SDXL WORKER - BATCH GENERATION VERSION")
+        print("🎨 LUSTIFY SDXL WORKER - BATCH GENERATION VERSION - FIXED CALLBACKS")
         print("⚡ RTX 6000 ADA: 3-8s per image, supports 6-image batches")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: 6-image batch generation for improved UX")
+        print("🔧 FIXED: Callback parameter consistency with job-callback function")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -341,8 +343,8 @@ class LustifySDXLWorker:
             logger.info(f"✅ SDXL job {job_id} completed in {total_time:.1f}s")
             logger.info(f"📁 Generated {len(upload_urls)} images")
             
-            # Notify completion with image URLs array
-            self.notify_completion(job_id, 'completed', image_urls=upload_urls)
+            # FIXED: Notify completion with correct parameter names
+            self.notify_completion(job_id, 'completed', assets=upload_urls)
             
         except Exception as e:
             error_msg = str(e)
@@ -353,16 +355,22 @@ class LustifySDXLWorker:
             torch.cuda.empty_cache()
             gc.collect()
 
-    def notify_completion(self, job_id, status, image_urls=None, error_message=None):
-        """Notify Supabase of job completion with FIXED callback format"""
+    def notify_completion(self, job_id, status, assets=None, error_message=None):
+        """FIXED: Notify Supabase of job completion with correct callback format"""
         try:
-            # FIXED: Use correct callback format that matches job-callback edge function
+            # FIXED: Use correct callback format that matches job-callback edge function expectations
             callback_data = {
-                'job_id': job_id,        # ✅ Consistent with database
+                'job_id': job_id,        # ✅ Use job_id (snake_case) as expected by callback function
                 'status': status,
-                'assets': image_urls if image_urls else [],  # ✅ Array format for assets
+                'assets': assets if assets else [],  # ✅ Use 'assets' array format
                 'error_message': error_message
             }
+            
+            logger.info(f"📞 Sending FIXED callback for job {job_id}:")
+            logger.info(f"   Status: {status}")
+            logger.info(f"   Assets count: {len(assets) if assets else 0}")
+            logger.info(f"   Error: {error_message}")
+            logger.info(f"   Using job_id parameter: {job_id}")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -375,11 +383,12 @@ class LustifySDXLWorker:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ Callback sent for job {job_id}")
-                if image_urls:
-                    logger.info(f"📊 Sent {len(image_urls)} image URLs")
+                logger.info(f"✅ FIXED Callback sent successfully for job {job_id}")
+                if assets:
+                    logger.info(f"📊 Sent {len(assets)} asset URLs")
             else:
                 logger.warning(f"⚠️ Callback failed: {response.status_code} - {response.text}")
+                logger.error(f"❌ Callback payload was: {callback_data}")
                 
         except Exception as e:
             logger.error(f"❌ Callback error: {e}")
@@ -408,7 +417,7 @@ class LustifySDXLWorker:
         logger.info("⚡ Performance: 3-8s per image, ~22s for 6-image batch")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
         logger.info("🖼️ NEW: 6-image batch generation support")
-        logger.info("🔧 UPLOAD FIX: Proper PNG Content-Type headers")
+        logger.info("🔧 FIXED: Proper callback parameter consistency (job_id + assets)")
         
         job_count = 0
         
@@ -440,7 +449,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - BATCH GENERATION VERSION")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - BATCH GENERATION VERSION - FIXED CALLBACKS")
     
     # Environment validation
     required_vars = [
