@@ -389,52 +389,61 @@ class EnhancedWanWorker:
         return original_prompt
 
     def validate_output_file(self, file_path, expected_content_type):
-        """Validate that output file is correct type before upload"""
+        """Validate that output file is correct type before upload - ENHANCED DEBUG VERSION"""
         try:
-            if not os.path.exists(file_path):
-                print(f"❌ Output file does not exist: {file_path}")
-                return False
+            print(f"🔍 DETAILED FILE VALIDATION STARTING:")
+            print(f"   File path: {file_path}")
+            print(f"   Expected type: {expected_content_type}")
             
+            # Check 1: File exists
+            if not os.path.exists(file_path):
+                print(f"❌ VALIDATION FAILED: Output file does not exist: {file_path}")
+                return False
+            else:
+                print(f"✅ File exists: {file_path}")
+            
+            # Check 2: File size
             file_size = os.path.getsize(file_path)
             if file_size == 0:
-                print(f"❌ Output file is empty: {file_path}")
+                print(f"❌ VALIDATION FAILED: Output file is empty: {file_path}")
                 return False
+            else:
+                print(f"✅ File size: {file_size / 1024**2:.2f}MB ({file_size} bytes)")
             
-            # Check MIME type
+            # Check 3: MIME type detection
             mime_type, _ = mimetypes.guess_type(file_path)
-            print(f"🔍 File validation: {file_path}")
-            print(f"📁 Size: {file_size / 1024**2:.2f}MB")
-            print(f"📄 MIME type: {mime_type}")
+            print(f"🔍 Initial MIME type detection: {mime_type}")
             
-            # CRITICAL FIX: Handle cases where mimetypes can't determine type
+            # Enhanced MIME type detection
             if not mime_type:
-                # Try to determine from file content/extension
                 file_ext = os.path.splitext(file_path)[1].lower()
                 print(f"🔍 File extension: {file_ext}")
                 
                 if file_ext in ['.mp4', '.avi', '.mov', '.webm']:
-                    mime_type = 'video/mp4'  # Default to mp4
+                    mime_type = 'video/mp4'
                     print(f"📄 Corrected MIME type based on extension: {mime_type}")
                 elif file_ext in ['.png', '.jpg', '.jpeg']:
-                    mime_type = 'image/png'  # Default to png
+                    mime_type = 'image/png'
                     print(f"📄 Corrected MIME type based on extension: {mime_type}")
                 else:
                     # Check file content using 'file' command
                     try:
-                        import subprocess
                         result = subprocess.run(['file', '--mime-type', file_path], 
                                               capture_output=True, text=True)
                         if result.returncode == 0:
                             detected_mime = result.stdout.strip().split(':')[-1].strip()
                             print(f"📄 Detected MIME type via file command: {detected_mime}")
                             mime_type = detected_mime
-                    except:
-                        print("⚠️ Could not detect MIME type via file command")
+                    except Exception as e:
+                        print(f"⚠️ Could not detect MIME type via file command: {e}")
             
-            # Additional check: Read file header to verify it's not text
+            # Check 4: File header analysis
             try:
                 with open(file_path, 'rb') as f:
-                    header = f.read(16)
+                    header = f.read(32)  # Read more bytes for better detection
+                    print(f"🔍 File header (hex): {header[:16].hex()}")
+                    print(f"🔍 File header (first 32 bytes): {header}")
+                    
                     # Check for common video/image headers
                     if header.startswith(b'\x00\x00\x00\x20ftypmp4') or header.startswith(b'\x00\x00\x00\x18ftypmp4'):
                         print("✅ File header indicates MP4 video")
@@ -457,49 +466,79 @@ class EnhancedWanWorker:
                         try:
                             header_text = header.decode('utf-8')
                             if any(c in header_text for c in ['\n', '\r', ' ']):
-                                print("❌ File appears to be text based on header content")
+                                print("❌ VALIDATION FAILED: File appears to be text based on header content")
+                                print(f"   Header text preview: {header_text[:50]}...")
                                 return False
-                        except:
+                        except UnicodeDecodeError:
+                            print("✅ Header is binary (not text)")
                             pass  # Not text, continue validation
             except Exception as e:
                 print(f"⚠️ Could not read file header: {e}")
             
-            # Validate based on expected content type
-            if expected_content_type == 'video':
-                if mime_type not in ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime']:
-                    print(f"❌ Invalid video MIME type: {mime_type}")
-                    # But if we detected video headers, allow it anyway
-                    with open(file_path, 'rb') as f:
-                        header = f.read(16)
-                        if not (header.startswith(b'\x00\x00\x00\x20ftypmp4') or 
-                               header.startswith(b'\x00\x00\x00\x18ftypmp4')):
-                            return False
-                        else:
-                            print("✅ Video header detected, overriding MIME type check")
-                            
-                if file_size < 50000:  # Less than 50KB is suspicious for video
-                    print(f"❌ Video file too small: {file_size} bytes")
-                    return False
-            elif expected_content_type == 'image':
-                if mime_type not in ['image/png', 'image/jpeg', 'image/jpg']:
-                    print(f"❌ Invalid image MIME type: {mime_type}")
-                    # Check for image headers
-                    with open(file_path, 'rb') as f:
-                        header = f.read(16)
-                        if not (header.startswith(b'\x89PNG') or header.startswith(b'\xFF\xD8\xFF')):
-                            return False
-                        else:
-                            print("✅ Image header detected, overriding MIME type check")
-                            
-                if file_size < 5000:  # Less than 5KB is suspicious for image
-                    print(f"❌ Image file too small: {file_size} bytes")
-                    return False
+            print(f"🔍 Final MIME type for validation: {mime_type}")
             
-            print(f"✅ File validation passed")
+            # Check 5: Content type validation
+            if expected_content_type == 'video':
+                print(f"🎬 Validating as VIDEO content...")
+                
+                # Check MIME type
+                if mime_type not in ['video/mp4', 'video/webm', 'video/avi', 'video/quicktime']:
+                    print(f"❌ VALIDATION FAILED: Invalid video MIME type: {mime_type}")
+                    
+                    # Try one more header check
+                    try:
+                        with open(file_path, 'rb') as f:
+                            header = f.read(16)
+                            if not (header.startswith(b'\x00\x00\x00\x20ftypmp4') or 
+                                   header.startswith(b'\x00\x00\x00\x18ftypmp4')):
+                                print(f"❌ VALIDATION FAILED: No valid video headers found")
+                                return False
+                            else:
+                                print("✅ Video header detected, overriding MIME type check")
+                    except Exception as e:
+                        print(f"❌ VALIDATION FAILED: Could not re-read headers: {e}")
+                        return False
+                            
+                # Check file size for videos
+                if file_size < 50000:  # Less than 50KB is suspicious for video
+                    print(f"❌ VALIDATION FAILED: Video file too small: {file_size} bytes (minimum: 50KB)")
+                    return False
+                else:
+                    print(f"✅ Video file size acceptable: {file_size / 1024:.1f}KB")
+                    
+            elif expected_content_type == 'image':
+                print(f"🖼️ Validating as IMAGE content...")
+                
+                if mime_type not in ['image/png', 'image/jpeg', 'image/jpg']:
+                    print(f"❌ VALIDATION FAILED: Invalid image MIME type: {mime_type}")
+                    
+                    # Check for image headers
+                    try:
+                        with open(file_path, 'rb') as f:
+                            header = f.read(16)
+                            if not (header.startswith(b'\x89PNG') or header.startswith(b'\xFF\xD8\xFF')):
+                                print(f"❌ VALIDATION FAILED: No valid image headers found")
+                                return False
+                            else:
+                                print("✅ Image header detected, overriding MIME type check")
+                    except Exception as e:
+                        print(f"❌ VALIDATION FAILED: Could not re-read headers: {e}")
+                        return False
+                            
+                # Check file size for images
+                if file_size < 5000:  # Less than 5KB is suspicious for image
+                    print(f"❌ VALIDATION FAILED: Image file too small: {file_size} bytes (minimum: 5KB)")
+                    return False
+                else:
+                    print(f"✅ Image file size acceptable: {file_size / 1024:.1f}KB")
+            
+            print(f"✅ FILE VALIDATION PASSED - All checks successful")
             return True
             
         except Exception as e:
-            print(f"❌ File validation error: {e}")
+            print(f"❌ VALIDATION FAILED: File validation error: {e}")
+            import traceback
+            print(f"📄 Full traceback: {traceback.format_exc()}")
             return False
 
     def generate_content(self, prompt, job_type):
