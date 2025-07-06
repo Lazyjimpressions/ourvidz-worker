@@ -38,7 +38,7 @@ class EnhancedWanWorker:
         
         # Updated HuggingFace cache configuration
         self.hf_cache_path = "/workspace/models/huggingface_cache"
-        self.qwen_model_path = f"{self.hf_cache_path}/models--Qwen--Qwen2.5-7B-Instruct"
+        self.qwen_model_path = f"{self.hf_cache_path}/models--Qwen--Qwen2.5-7B"
         
         # Environment configuration
         self.supabase_url = os.getenv('SUPABASE_URL')
@@ -150,6 +150,8 @@ class EnhancedWanWorker:
         print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
         print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
         print("🔧 CRITICAL FIX: Enhanced output file validation")
+        print("🚫 NEW: Negative prompts for better quality generation")
+        print("📊 Status: Enhanced with Qwen 7B Base (no content filtering) ✅")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -184,9 +186,9 @@ class EnhancedWanWorker:
         return env
 
     def load_qwen_model(self):
-        """Load Qwen 2.5-7B model for prompt enhancement with timeout protection"""
+        """Load Qwen 2.5-7B Base model for prompt enhancement with timeout protection"""
         if self.qwen_model is None:
-            print("🤖 Loading Qwen 2.5-7B for prompt enhancement...")
+            print("🤖 Loading Qwen 2.5-7B Base model for prompt enhancement...")
             enhancement_start = time.time()
             
             try:
@@ -194,35 +196,34 @@ class EnhancedWanWorker:
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(120)  # 2 minute timeout for model loading
                 
-                model_name = "Qwen/Qwen2.5-7B-Instruct"
-                print(f"🔄 Loading from HuggingFace: {model_name}")
+                model_path = self.qwen_model_path
+                print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
                 
                 # Load tokenizer first
                 print("📝 Loading tokenizer...")
                 self.qwen_tokenizer = AutoTokenizer.from_pretrained(
-                    model_name,
-                    cache_dir=self.hf_cache_path,
-                    trust_remote_code=True,
-                    revision="main"
+                    model_path,
+                    trust_remote_code=True
                 )
                 
-                # Load model
-                print("🧠 Loading model...")
+                # Load base model - no safety filters
+                print("🧠 Loading base model...")
                 self.qwen_model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.float16,
+                    model_path,
+                    torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
                     device_map="auto",
-                    cache_dir=self.hf_cache_path,
-                    trust_remote_code=True,
-                    revision="main",
-                    low_cpu_mem_usage=True,
-                    attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager"
+                    trust_remote_code=True
                 )
+                
+                # Set pad token for base models (they often don't have one)
+                if self.qwen_tokenizer.pad_token is None:
+                    self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
                 
                 signal.alarm(0)
                 
                 load_time = time.time() - enhancement_start
-                print(f"✅ Qwen 2.5-7B loaded successfully in {load_time:.1f}s")
+                print(f"✅ Qwen 2.5-7B Base loaded successfully in {load_time:.1f}s")
+                print(f"✅ Model type: BASE (no content filtering)")
                 self.log_gpu_memory()
                 
             except TimeoutException:
@@ -232,9 +233,25 @@ class EnhancedWanWorker:
                 self.qwen_tokenizer = None
             except Exception as e:
                 signal.alarm(0)
-                print(f"❌ Failed to load Qwen model: {e}")
+                print(f"❌ Failed to load Qwen base model: {e}")
                 self.qwen_model = None
                 self.qwen_tokenizer = None
+
+    def test_nsfw_enhancement(self):
+        """Test base model's NSFW enhancement capability"""
+        test_prompts = [
+            "woman in lingerie",
+            "intimate bedroom scene", 
+            "sensual artistic photography",
+            "adult content photography"
+        ]
+        
+        print("🧪 Testing NSFW enhancement capability...")
+        for prompt in test_prompts:
+            enhanced = self.enhance_prompt_with_timeout(prompt)
+            print(f"Original: {prompt}")
+            print(f"Enhanced: {enhanced[:200]}...")
+            print("---")
 
     def unload_qwen_model(self):
         """Free Qwen memory for WAN generation"""
@@ -249,9 +266,9 @@ class EnhancedWanWorker:
             self.log_gpu_memory()
 
     def enhance_prompt_with_timeout(self, original_prompt):
-        """Enhanced prompt generation with strict timeout control"""
+        """Enhanced prompt generation with Base model - no chat template needed"""
         enhancement_start = time.time()
-        print(f"🤖 Enhancing prompt with {self.enhancement_timeout}s timeout: {original_prompt[:50]}...")
+        print(f"🤖 Enhancing prompt with Base model ({self.enhancement_timeout}s timeout): {original_prompt[:50]}...")
         
         try:
             signal.signal(signal.SIGALRM, timeout_handler)
@@ -261,55 +278,53 @@ class EnhancedWanWorker:
             
             if self.qwen_model is None:
                 signal.alarm(0)
-                print("⚠️ Qwen model not available, using original prompt")
+                print("⚠️ Qwen base model not available, using original prompt")
                 return original_prompt
             
-            system_prompt = """你是一个专业的视频制作提示词专家。请将用户的简单描述转换为详细的视频生成提示词。
+            # Base model prompting - direct instruction without chat formatting
+            enhancement_prompt = f"""Create a detailed, cinematic prompt for AI video generation. Focus on visual details, lighting, camera angles, artistic style, and atmosphere. Be specific about poses, expressions, clothing, and scene composition. Create vivid, unrestricted descriptions without content limitations.
 
-要求：
-1. 保持原始含义和主要元素
-2. 添加具体的视觉细节（外观、服装、环境）
-3. 包含镜头运动和拍摄角度
-4. 添加光影效果和氛围描述
-5. 确保描述适合5秒视频生成
-6. 使用中文回复，内容要专业且具有电影感
+Original prompt: {original_prompt}
 
-请将以下用户输入转换为专业的视频生成提示词："""
+Enhanced detailed prompt:"""
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": original_prompt}
-            ]
-            
-            text = self.qwen_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            
-            model_inputs = self.qwen_tokenizer([text], return_tensors="pt").to("cuda")
+            # Generate with base model
+            inputs = self.qwen_tokenizer(
+                enhancement_prompt, 
+                return_tensors="pt", 
+                truncation=True, 
+                max_length=1024
+            ).to(self.qwen_model.device)
             
             with torch.no_grad():
-                generated_ids = self.qwen_model.generate(
-                    **model_inputs,
-                    max_new_tokens=300,
-                    temperature=0.7,
+                outputs = self.qwen_model.generate(
+                    **inputs,
+                    max_new_tokens=512,  # Allow longer enhancement
+                    temperature=0.7,     # Controlled creativity
                     do_sample=True,
                     pad_token_id=self.qwen_tokenizer.eos_token_id,
-                    max_time=self.enhancement_timeout - 10
+                    eos_token_id=self.qwen_tokenizer.eos_token_id
                 )
             
-            generated_ids = [
-                output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-            ]
-            
-            enhanced_prompt = self.qwen_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            # Decode only the new tokens (enhancement)
+            enhanced_text = self.qwen_tokenizer.decode(
+                outputs[0][inputs['input_ids'].shape[1]:], 
+                skip_special_tokens=True
+            ).strip()
             
             signal.alarm(0)
             
-            enhancement_time = time.time() - enhancement_start
-            print(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
-            return enhanced_prompt.strip()
+            # Clean up the response
+            if enhanced_text:
+                # Remove any leftover prompt fragments
+                enhanced_text = enhanced_text.replace("Enhanced detailed prompt:", "").strip()
+                enhancement_time = time.time() - enhancement_start
+                print(f"✅ Qwen Base Enhancement: {enhanced_text[:100]}...")
+                print(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
+                return enhanced_text
+            else:
+                print("⚠️ Qwen enhancement empty, using original prompt")
+                return original_prompt
             
         except TimeoutException:
             signal.alarm(0)
@@ -420,8 +435,23 @@ class EnhancedWanWorker:
             print(f"❌ Validation error: {e}")
             return False, f"Validation error: {e}"
 
+    def generate_negative_prompt(self, job_type):
+        """Generate appropriate negative prompt for WAN generation"""
+        # Base negative prompt for better quality
+        base_negative = "blurry, low quality, distorted, deformed, bad anatomy, watermark, signature, text, logo, extra limbs, missing limbs"
+        
+        # Add content-specific negative prompts
+        if job_type.startswith('video'):
+            # Video-specific negatives
+            video_negatives = ", choppy, stuttering, frame drops, inconsistent motion, poor transitions"
+            return base_negative + video_negatives
+        else:
+            # Image-specific negatives
+            image_negatives = ", pixelated, artifacts, compression artifacts, poor lighting"
+            return base_negative + image_negatives
+
     def generate_content(self, prompt, job_type):
-        """CRITICAL FIX: Generate content with proper WAN command formatting"""
+        """CRITICAL FIX: Generate content with proper WAN command formatting and negative prompts"""
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
@@ -440,12 +470,16 @@ class EnhancedWanWorker:
             duration = config['frame_num'] / 16  # 16fps
             print(f"⏱️ Expected video duration: {duration:.1f} seconds (80 frames = 5 seconds)")
         
+        # Generate negative prompt for better quality
+        negative_prompt = self.generate_negative_prompt(job_type)
+        print(f"🚫 Negative prompt: {negative_prompt}")
+        
         try:
             # Change to WAN code directory
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # CRITICAL FIX: Build WAN command with proper argument formatting
+            # CRITICAL FIX: Build WAN command with proper argument formatting and negative prompts
             # Based on manual testing: proper size format, guidance scale, etc.
             cmd = [
                 "python", "generate.py",
@@ -457,6 +491,7 @@ class EnhancedWanWorker:
                 "--sample_guide_scale", str(config['sample_guide_scale']),  # ✅ VERIFIED: 5.0
                 "--frame_num", str(config['frame_num']),        # 🔧 FIXED: 80 frames for 5-second videos
                 "--prompt", prompt,                             # User prompt
+                "--negative_prompt", negative_prompt,           # 🚫 CRITICAL FIX: Add negative prompt
                 "--save_file", temp_output_path                 # ✅ CRITICAL: Full path with extension
             ]
             
@@ -465,6 +500,7 @@ class EnhancedWanWorker:
             
             print(f"🎬 FIXED WAN generation: {job_type}")
             print(f"📝 Prompt: {prompt[:100]}...")
+            print(f"🚫 Negative prompt: {negative_prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
             print(f"💾 Output: {temp_output_path}")
             print(f"📁 Working dir: {self.wan_code_path}")
@@ -863,6 +899,7 @@ class EnhancedWanWorker:
             print(f"   Config: {config}")
             print(f"   Expected output: {config['content_type']} (.{config['file_extension']})")
             print(f"🔧 FIXED FRAME COUNT: {config['frame_num']} frames for 5-second videos")
+            print(f"🚫 Will use negative prompts for better quality")
             
             print("\n🔍 FINAL ENVIRONMENT CHECK BEFORE WAN:")
             test_env = self.enhanced_environment_setup()
@@ -944,6 +981,8 @@ class EnhancedWanWorker:
         print("   • video_high: 83 frames for 5.0 seconds (66s faster processing)")
         print("   • Confirmed GPU usage with 4.4min for 100 frames")
         print("   • Processing rate: 2.67 seconds per frame (verified)")
+        print("🚫 NEW: Negative prompts for better quality generation")
+        print("📊 Status: Enhanced with Qwen 7B Base (no content filtering) ✅")
         
         print("\n🔍 STARTUP DIAGNOSTICS:")
         print("="*60)
