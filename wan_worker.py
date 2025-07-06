@@ -631,10 +631,24 @@ class EnhancedWanWorker:
                 if header.startswith(b'Traceback') or header.startswith(b'usage:') or header.startswith(b'Error'):
                     raise Exception(f"File appears to be error text, not binary content")
             
+            # Determine MIME type based on file extension
+            file_extension = os.path.splitext(file_path)[1].lower()
+            if file_extension == '.mp4':
+                mime_type = 'video/mp4'
+            elif file_extension == '.png':
+                mime_type = 'image/png'
+            else:
+                # Fallback to detected MIME type
+                mime_type, _ = mimetypes.guess_type(file_path)
+                if not mime_type:
+                    mime_type = 'application/octet-stream'
+            
+            print(f"📤 Uploading with explicit MIME type: {mime_type}")
+            
             with open(file_path, 'rb') as file:
                 response = requests.post(
                     f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                    files={'file': file},
+                    files={'file': (os.path.basename(file_path), file, mime_type)},
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
                     },
