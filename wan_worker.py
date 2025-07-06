@@ -1,5 +1,6 @@
 # wan_worker.py - CRITICAL FIX for WAN Video Generation
 # FIXES: WAN generating text files instead of videos, MIME type errors, command formatting
+# MAJOR FIX: Corrected frame_num for 5-second videos (80 frames at 16fps)
 # Date: July 6, 2025
 
 import os
@@ -53,8 +54,8 @@ class EnhancedWanWorker:
         self.enhancement_timeout = 60
         self.max_enhancement_attempts = 2
         
-        # CRITICAL FIX: Updated job configurations based on manual testing results
-        # Manual test showed: 480*832 size, proper file extensions (.mp4/.png), guidance 5.0
+        # CRITICAL FIX: Updated job configurations with CORRECT FRAME COUNTS for 5-second videos
+        # Frame rate calculation: 16fps × 5 seconds = 80 frames for videos
         self.job_configs = {
             # Standard job types (no enhancement)
             'image_fast': {
@@ -81,9 +82,9 @@ class EnhancedWanWorker:
                 'size': '480*832',           # ✅ VERIFIED working size
                 'sample_steps': 25,          # Fast: 25 steps
                 'sample_guide_scale': 5.0,   # ✅ VERIFIED working guidance
-                'frame_num': 17,             # ✅ VERIFIED: 17 frames for videos
+                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
                 'enhance_prompt': False,
-                'expected_time': 35,
+                'expected_time': 120,        # 🔧 UPDATED: Longer time for 80 frames
                 'content_type': 'video',
                 'file_extension': 'mp4'      # ✅ CRITICAL: Explicit extension
             },
@@ -91,9 +92,9 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,          # High quality: 50 steps
                 'sample_guide_scale': 5.0,
-                'frame_num': 17,
+                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
                 'enhance_prompt': False,
-                'expected_time': 55,
+                'expected_time': 180,        # 🔧 UPDATED: Longer time for high quality 80 frames
                 'content_type': 'video',
                 'file_extension': 'mp4'
             },
@@ -123,9 +124,9 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 25,
                 'sample_guide_scale': 5.0,
-                'frame_num': 17,
+                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
                 'enhance_prompt': True,
-                'expected_time': 95,         # 35s + 60s enhancement
+                'expected_time': 180,        # 🔧 UPDATED: 120s + 60s enhancement
                 'content_type': 'video',
                 'file_extension': 'mp4'
             },
@@ -133,15 +134,16 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,
                 'sample_guide_scale': 5.0,
-                'frame_num': 17,
+                'frame_num': 80,             # 🔧 FIXED: 80 frames = 5 seconds at 16fps
                 'enhance_prompt': True,
-                'expected_time': 115,        # 55s + 60s enhancement
+                'expected_time': 240,        # 🔧 UPDATED: 180s + 60s enhancement
                 'content_type': 'video',
                 'file_extension': 'mp4'
             }
         }
         
         print("🎬 Enhanced OurVidz WAN Worker initialized")
+        print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (80 frames)")
         print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
@@ -394,11 +396,15 @@ class EnhancedWanWorker:
             except Exception as e:
                 print(f"⚠️ Could not read file header: {e}")
             
-            # Check 5: Minimum size requirements
-            min_size = 50000 if expected_content_type == 'video' else 5000  # 50KB for video, 5KB for image
+            # Check 5: Minimum size requirements for 5-second videos
+            if expected_content_type == 'video':
+                min_size = 500000  # 🔧 UPDATED: 500KB minimum for 5-second video (was 50KB)
+            else:
+                min_size = 5000   # 5KB for image
+                
             if file_size < min_size:
                 print(f"❌ File too small for {expected_content_type}: {file_size} bytes < {min_size} bytes")
-                return False, f"File too small for {expected_content_type}"
+                return False, f"File too small for {expected_content_type} (expected at least {min_size} bytes for 5-second video)"
             
             # Check 6: MIME type validation
             expected_mime = 'video/mp4' if expected_content_type == 'video' else 'image/png'
@@ -428,6 +434,10 @@ class EnhancedWanWorker:
         
         print(f"🎯 FIXED: Output path with proper extension: {temp_output_path}")
         print(f"📄 Expected file type: {config['content_type']} (.{file_extension})")
+        print(f"🔧 FRAME COUNT FIX: {config['frame_num']} frames for {config['content_type']}")
+        if config['content_type'] == 'video':
+            duration = config['frame_num'] / 16  # 16fps
+            print(f"⏱️ Expected video duration: {duration:.1f} seconds (80 frames = 5 seconds)")
         
         try:
             # Change to WAN code directory
@@ -444,7 +454,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],                       # ✅ VERIFIED: 480*832
                 "--sample_steps", str(config['sample_steps']),  # ✅ Steps: 25 or 50
                 "--sample_guide_scale", str(config['sample_guide_scale']),  # ✅ VERIFIED: 5.0
-                "--frame_num", str(config['frame_num']),        # ✅ VERIFIED: 1 or 17
+                "--frame_num", str(config['frame_num']),        # 🔧 FIXED: 80 frames for 5-second videos
                 "--prompt", prompt,                             # User prompt
                 "--save_file", temp_output_path                 # ✅ CRITICAL: Full path with extension
             ]
@@ -467,7 +477,8 @@ class EnhancedWanWorker:
             
             # Execute WAN generation with enhanced monitoring
             generation_start = time.time()
-            timeout_seconds = 400  # Extended timeout for video generation
+            # 🔧 UPDATED: Extended timeout for 80-frame videos
+            timeout_seconds = 600 if config['content_type'] == 'video' else 180  # 10 minutes for videos, 3 for images
             
             print(f"⏰ Starting WAN subprocess with {timeout_seconds}s timeout")
             print(f"🚀 Generation started at {time.strftime('%H:%M:%S')}")
@@ -823,6 +834,10 @@ class EnhancedWanWorker:
             
             config = self.job_configs[job_type]
             print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
+            print(f"🔧 FRAME COUNT: {config['frame_num']} frames")
+            if config['content_type'] == 'video':
+                duration = config['frame_num'] / 16
+                print(f"⏱️ Expected duration: {duration:.1f} seconds")
             
             # Handle prompt enhancement
             if config['enhance_prompt']:
@@ -844,6 +859,7 @@ class EnhancedWanWorker:
             print(f"   Job type: {job_type}")
             print(f"   Config: {config}")
             print(f"   Expected output: {config['content_type']} (.{config['file_extension']})")
+            print(f"🔧 FIXED FRAME COUNT: {config['frame_num']} frames for 5-second videos")
             
             print("\n🔍 FINAL ENVIRONMENT CHECK BEFORE WAN:")
             test_env = self.enhanced_environment_setup()
@@ -881,6 +897,9 @@ class EnhancedWanWorker:
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
             print(f"📁 Output: {relative_path}")
             print(f"✅ File type: {config['content_type']} (.{file_extension})")
+            if config['content_type'] == 'video':
+                duration = config['frame_num'] / 16
+                print(f"⏱️ Video duration: {duration:.1f} seconds ({config['frame_num']} frames)")
             
         except Exception as e:
             error_msg = str(e)
@@ -914,13 +933,15 @@ class EnhancedWanWorker:
     def run_with_enhanced_diagnostics(self):
         """Main worker loop with startup diagnostics"""
         print("🎬 Enhanced OurVidz WAN Worker with CRITICAL FIXES started!")
+        print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (80 frames)")
         print("🔧 CRITICAL FIXES APPLIED:")
         print("   • Proper file extensions (.mp4/.png)")
         print("   • Enhanced WAN command formatting")
         print("   • MIME type validation and error detection")
         print("   • File header validation to catch text/error output")
-        print("   • Extended timeouts for video generation")
+        print("   • Extended timeouts for 80-frame video generation")
         print("   • Enhanced error categorization and debugging")
+        print("   • FIXED: 80 frames = 5 seconds at 16fps (was 17 frames = 1 second)")
         
         print("\n🔍 STARTUP DIAGNOSTICS:")
         print("="*60)
@@ -934,7 +955,11 @@ class EnhancedWanWorker:
         for job_type, config in self.job_configs.items():
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
             content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
-            print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement}")
+            if config['content_type'] == 'video':
+                duration = config['frame_num'] / 16
+                print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement} - {duration:.1f}s duration")
+            else:
+                print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement}")
         print("⏳ Waiting for jobs...")
         
         job_count = 0
@@ -1023,6 +1048,7 @@ if __name__ == "__main__":
         exit(1)
     
     print("✅ All paths validated, starting worker with CRITICAL FIXES...")
+    print("🔧 MAJOR FIX: 80 frames for 5-second videos (was 17 frames)")
     
     try:
         worker = EnhancedWanWorker()
