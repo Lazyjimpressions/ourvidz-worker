@@ -151,7 +151,7 @@ class EnhancedWanWorker:
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
         print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
         print("🔧 CRITICAL FIX: Enhanced output file validation")
-        print("🚫 NEW: Negative prompts for better quality generation")
+        print("🔧 CRITICAL FIX: Removed --negative_prompt (not supported by WAN 2.1)")
         print("📊 Status: Enhanced with Qwen 7B Base (no content filtering) ✅")
         self.log_gpu_memory()
 
@@ -474,16 +474,15 @@ Enhanced detailed prompt:"""
             duration = config['frame_num'] / 16  # 16fps
             print(f"⏱️ Expected video duration: {duration:.1f} seconds (80 frames = 5 seconds)")
         
-        # Generate negative prompt for better quality
-        negative_prompt = self.generate_negative_prompt(job_type)
-        print(f"🚫 Negative prompt: {negative_prompt}")
+        # CRITICAL FIX: Removed negative prompt (not supported by WAN 2.1)
+        print(f"🔧 FIXED: No negative prompt (WAN 2.1 doesn't support --negative_prompt)")
         
         try:
             # Change to WAN code directory
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # CRITICAL FIX: Build WAN command with proper argument formatting and negative prompts
+            # CRITICAL FIX: Build WAN command with proper argument formatting (NO NEGATIVE PROMPT)
             # Based on manual testing: proper size format, guidance scale, etc.
             cmd = [
                 "python", "generate.py",
@@ -495,7 +494,6 @@ Enhanced detailed prompt:"""
                 "--sample_guide_scale", str(config['sample_guide_scale']),  # ✅ VERIFIED: 5.0
                 "--frame_num", str(config['frame_num']),        # 🔧 FIXED: 80 frames for 5-second videos
                 "--prompt", prompt,                             # User prompt
-                "--negative_prompt", negative_prompt,           # 🚫 CRITICAL FIX: Add negative prompt
                 "--save_file", temp_output_path                 # ✅ CRITICAL: Full path with extension
             ]
             
@@ -504,7 +502,6 @@ Enhanced detailed prompt:"""
             
             print(f"🎬 FIXED WAN generation: {job_type}")
             print(f"📝 Prompt: {prompt[:100]}...")
-            print(f"🚫 Negative prompt: {negative_prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
             print(f"💾 Output: {temp_output_path}")
             print(f"📁 Working dir: {self.wan_code_path}")
