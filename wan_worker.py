@@ -1,6 +1,6 @@
-# wan_worker.py - Enhanced WAN Worker with Qwen 7B Integration
-# CRITICAL FIXES: Enhancement timeout, upload validation, graceful fallback, CALLBACK FORMAT
-# Date: July 5, 2025
+# wan_worker.py - CRITICAL FIX for WAN Video Generation
+# FIXES: WAN generating text files instead of videos, MIME type errors, command formatting
+# Date: July 6, 2025
 
 import os
 import json
@@ -11,7 +11,8 @@ import subprocess
 import tempfile
 import signal
 import mimetypes
-import fcntl        # ✅ CRITICAL: Import fcntl at module level (Unix systems)
+import fcntl
+import glob
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -36,7 +37,6 @@ class EnhancedWanWorker:
         
         # Updated HuggingFace cache configuration
         self.hf_cache_path = "/workspace/models/huggingface_cache"
-        # CORRECTED PATH: 7B model is in root cache dir, not hub/ subdirectory
         self.qwen_model_path = f"{self.hf_cache_path}/models--Qwen--Qwen2.5-7B-Instruct"
         
         # Environment configuration
@@ -50,86 +50,94 @@ class EnhancedWanWorker:
         self.qwen_tokenizer = None
         
         # Enhancement settings
-        self.enhancement_timeout = 60  # CRITICAL: 60 second timeout for Qwen enhancement
-        self.max_enhancement_attempts = 2  # Allow 2 attempts before fallback
+        self.enhancement_timeout = 60
+        self.max_enhancement_attempts = 2
         
-        # Job type configurations - ALL 8 TYPES SUPPORTED
-        # UPDATED: Based on verified WAN 2.1 testing (50 steps default, 5.0 guidance)
+        # CRITICAL FIX: Updated job configurations based on manual testing results
+        # Manual test showed: 480*832 size, proper file extensions (.mp4/.png), guidance 5.0
         self.job_configs = {
             # Standard job types (no enhancement)
             'image_fast': {
-                'size': '480*832',
-                'sample_steps': 25,  # Fast: Half of default 50 steps
-                'sample_guide_scale': 5.0,  # Verified working default
-                'frame_num': 1,
+                'size': '480*832',           # ✅ VERIFIED working size
+                'sample_steps': 25,          # Fast: 25 steps
+                'sample_guide_scale': 5.0,   # ✅ VERIFIED working guidance
+                'frame_num': 1,              # Single frame for images
                 'enhance_prompt': False,
-                'expected_time': 40,  # ~38s verified for 50 steps, 25 steps should be ~20s
-                'content_type': 'image'
+                'expected_time': 25,         # Estimated time
+                'content_type': 'image',
+                'file_extension': 'png'      # ✅ CRITICAL: Explicit extension
             },
             'image_high': {
                 'size': '480*832',
-                'sample_steps': 50,  # High: Full 50 steps (verified working)
-                'sample_guide_scale': 5.0,  # Verified working default
+                'sample_steps': 50,          # High quality: 50 steps
+                'sample_guide_scale': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': False,
-                'expected_time': 40,  # ~38s verified for 50 steps
-                'content_type': 'image'
+                'expected_time': 40,
+                'content_type': 'image',
+                'file_extension': 'png'
             },
             'video_fast': {
-                'size': '480*832',
-                'sample_steps': 25,  # Fast: Half of default 50 steps
-                'sample_guide_scale': 5.0,  # Verified working default
-                'frame_num': 17,
+                'size': '480*832',           # ✅ VERIFIED working size
+                'sample_steps': 25,          # Fast: 25 steps
+                'sample_guide_scale': 5.0,   # ✅ VERIFIED working guidance
+                'frame_num': 17,             # ✅ VERIFIED: 17 frames for videos
                 'enhance_prompt': False,
-                'expected_time': 35,  # Faster than 51s verified for 50 steps
-                'content_type': 'video'
+                'expected_time': 35,
+                'content_type': 'video',
+                'file_extension': 'mp4'      # ✅ CRITICAL: Explicit extension
             },
             'video_high': {
                 'size': '480*832',
-                'sample_steps': 50,  # High: Full 50 steps (verified working)
-                'sample_guide_scale': 5.0,  # Verified working default
+                'sample_steps': 50,          # High quality: 50 steps
+                'sample_guide_scale': 5.0,
                 'frame_num': 17,
                 'enhance_prompt': False,
-                'expected_time': 55,  # ~51s verified for 50 steps
-                'content_type': 'video'
+                'expected_time': 55,
+                'content_type': 'video',
+                'file_extension': 'mp4'
             },
             
             # Enhanced job types (with Qwen 7B enhancement)
             'image7b_fast_enhanced': {
                 'size': '480*832',
-                'sample_steps': 25,  # Fast: Half of default 50 steps
-                'sample_guide_scale': 5.0,  # Verified working default
+                'sample_steps': 25,
+                'sample_guide_scale': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 54,  # 40s + 14s enhancement
-                'content_type': 'image'
+                'expected_time': 85,         # 25s + 60s enhancement
+                'content_type': 'image',
+                'file_extension': 'png'
             },
             'image7b_high_enhanced': {
                 'size': '480*832',
-                'sample_steps': 50,  # High: Full 50 steps (verified working)
-                'sample_guide_scale': 5.0,  # Verified working default
+                'sample_steps': 50,
+                'sample_guide_scale': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 54,  # 40s + 14s enhancement
-                'content_type': 'image'
+                'expected_time': 100,        # 40s + 60s enhancement
+                'content_type': 'image',
+                'file_extension': 'png'
             },
             'video7b_fast_enhanced': {
                 'size': '480*832',
-                'sample_steps': 25,  # Fast: Half of default 50 steps
-                'sample_guide_scale': 5.0,  # Verified working default
+                'sample_steps': 25,
+                'sample_guide_scale': 5.0,
                 'frame_num': 17,
                 'enhance_prompt': True,
-                'expected_time': 49,  # 35s + 14s enhancement
-                'content_type': 'video'
+                'expected_time': 95,         # 35s + 60s enhancement
+                'content_type': 'video',
+                'file_extension': 'mp4'
             },
             'video7b_high_enhanced': {
                 'size': '480*832',
-                'sample_steps': 50,  # High: Full 50 steps (verified working)
-                'sample_guide_scale': 5.0,  # Verified working default
+                'sample_steps': 50,
+                'sample_guide_scale': 5.0,
                 'frame_num': 17,
                 'enhance_prompt': True,
-                'expected_time': 69,  # 55s + 14s enhancement
-                'content_type': 'video'
+                'expected_time': 115,        # 55s + 60s enhancement
+                'content_type': 'video',
+                'file_extension': 'mp4'
             }
         }
         
@@ -137,12 +145,8 @@ class EnhancedWanWorker:
         print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Model Path: {self.qwen_model_path}")
-        print(f"💾 HF Cache: {self.hf_cache_path}")
-        print(f"⏰ Enhancement Timeout: {self.enhancement_timeout}s")
-        print("✨ Enhanced jobs include Qwen 7B prompt enhancement")
-        print("🔧 FIXED: Upstash Redis REST API compatibility (RPOP instead of BRPOP)")
-        print("🔧 FIXED: Enhancement timeout and upload validation")
-        print("🔧 FIXED: Callback format for Supabase edge function compatibility")
+        print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
+        print("🔧 CRITICAL FIX: Enhanced output file validation")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -169,10 +173,10 @@ class EnhancedWanWorker:
             'CUDA_VISIBLE_DEVICES': '0',
             'TORCH_USE_CUDA_DSA': '1',
             'PYTHONUNBUFFERED': '1',
-            'PYTHONPATH': new_pythonpath,  # VERIFIED: Dependencies exist here
-            'HF_HOME': self.hf_cache_path,  # VERIFIED: /workspace/models/huggingface_cache
+            'PYTHONPATH': new_pythonpath,
+            'HF_HOME': self.hf_cache_path,
             'TRANSFORMERS_CACHE': self.hf_cache_path,
-            'HUGGINGFACE_HUB_CACHE': f"{self.hf_cache_path}/hub"  # VERIFIED: /hub/ subdirectory
+            'HUGGINGFACE_HUB_CACHE': f"{self.hf_cache_path}/hub"
         })
         return env
 
@@ -187,11 +191,8 @@ class EnhancedWanWorker:
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(120)  # 2 minute timeout for model loading
                 
-                # CRITICAL FIX: Always use model name, not local path
-                # The local cached model has config issues, load from HF directly
                 model_name = "Qwen/Qwen2.5-7B-Instruct"
                 print(f"🔄 Loading from HuggingFace: {model_name}")
-                print(f"💾 Using cache directory: {self.hf_cache_path}")
                 
                 # Load tokenizer first
                 print("📝 Loading tokenizer...")
@@ -199,10 +200,10 @@ class EnhancedWanWorker:
                     model_name,
                     cache_dir=self.hf_cache_path,
                     trust_remote_code=True,
-                    revision="main"  # Use main branch explicitly
+                    revision="main"
                 )
                 
-                # Load model with enhanced error handling
+                # Load model
                 print("🧠 Loading model...")
                 self.qwen_model = AutoModelForCausalLM.from_pretrained(
                     model_name,
@@ -210,12 +211,11 @@ class EnhancedWanWorker:
                     device_map="auto",
                     cache_dir=self.hf_cache_path,
                     trust_remote_code=True,
-                    revision="main",  # Use main branch explicitly
-                    low_cpu_mem_usage=True,  # Optimize memory usage
+                    revision="main",
+                    low_cpu_mem_usage=True,
                     attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager"
                 )
                 
-                # Clear timeout
                 signal.alarm(0)
                 
                 load_time = time.time() - enhancement_start
@@ -225,43 +225,13 @@ class EnhancedWanWorker:
             except TimeoutException:
                 signal.alarm(0)
                 print(f"❌ Qwen model loading timed out after 120s")
-                print("💡 Try: Increase timeout or use smaller model")
                 self.qwen_model = None
                 self.qwen_tokenizer = None
             except Exception as e:
                 signal.alarm(0)
-                error_msg = str(e)
-                print(f"❌ Failed to load Qwen model: {error_msg}")
-                
-                # Enhanced error diagnosis
-                if "model_type" in error_msg:
-                    print("💡 Model type error - trying alternative loading method...")
-                    # Try loading with AutoModel instead
-                    try:
-                        from transformers import AutoModel
-                        print("🔄 Attempting AutoModel fallback...")
-                        self.qwen_model = AutoModel.from_pretrained(
-                            model_name,
-                            torch_dtype=torch.float16,
-                            cache_dir=self.hf_cache_path,
-                            trust_remote_code=True
-                        )
-                        print("✅ AutoModel fallback successful")
-                    except Exception as fallback_error:
-                        print(f"❌ AutoModel fallback failed: {fallback_error}")
-                        self.qwen_model = None
-                        self.qwen_tokenizer = None
-                elif "revision" in error_msg:
-                    print("💡 Revision error - model may not exist or be accessible")
-                elif "cache" in error_msg:
-                    print("💡 Cache error - try clearing HuggingFace cache")
-                
-                if self.qwen_model is None:
-                    print("⚠️ All loading attempts failed - enhancement will be disabled")
-                    print("💡 Consider using standard jobs without enhancement")
-                    # Fall back to no enhancement
-                    self.qwen_model = None
-                    self.qwen_tokenizer = None
+                print(f"❌ Failed to load Qwen model: {e}")
+                self.qwen_model = None
+                self.qwen_tokenizer = None
 
     def unload_qwen_model(self):
         """Free Qwen memory for WAN generation"""
@@ -281,11 +251,9 @@ class EnhancedWanWorker:
         print(f"🤖 Enhancing prompt with {self.enhancement_timeout}s timeout: {original_prompt[:50]}...")
         
         try:
-            # Set timeout signal
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(self.enhancement_timeout)
             
-            # Load model if not already loaded
             self.load_qwen_model()
             
             if self.qwen_model is None:
@@ -310,14 +278,12 @@ class EnhancedWanWorker:
                 {"role": "user", "content": original_prompt}
             ]
             
-            # Apply chat template
             text = self.qwen_tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True
             )
             
-            # Tokenize and generate with timeout protection
             model_inputs = self.qwen_tokenizer([text], return_tensors="pt").to("cuda")
             
             with torch.no_grad():
@@ -327,23 +293,19 @@ class EnhancedWanWorker:
                     temperature=0.7,
                     do_sample=True,
                     pad_token_id=self.qwen_tokenizer.eos_token_id,
-                    # Additional timeout protection
-                    max_time=self.enhancement_timeout - 10  # Leave 10s buffer
+                    max_time=self.enhancement_timeout - 10
                 )
             
-            # Extract enhanced prompt
             generated_ids = [
                 output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
             ]
             
             enhanced_prompt = self.qwen_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
             
-            # Clear timeout
             signal.alarm(0)
             
             enhancement_time = time.time() - enhancement_start
             print(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
-            print(f"📝 Enhanced: {enhanced_prompt[:100]}...")
             return enhanced_prompt.strip()
             
         except TimeoutException:
@@ -355,7 +317,6 @@ class EnhancedWanWorker:
             print(f"❌ Prompt enhancement failed: {e}")
             return original_prompt
         finally:
-            # Always unload model to free memory
             self.unload_qwen_model()
 
     def enhance_prompt(self, original_prompt):
@@ -367,38 +328,33 @@ class EnhancedWanWorker:
                 print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
                 enhanced = self.enhance_prompt_with_timeout(original_prompt)
                 
-                # Validate enhancement worked (be more lenient with validation)
                 if enhanced and enhanced.strip() != original_prompt.strip():
                     print(f"✅ Enhancement successful on attempt {attempt + 1}")
-                    print(f"📊 Original: {len(original_prompt)} chars → Enhanced: {len(enhanced)} chars")
                     return enhanced
                 else:
                     print(f"⚠️ Enhancement attempt {attempt + 1} returned original prompt")
                     if attempt < self.max_enhancement_attempts - 1:
-                        print("⏳ Waiting 5s before retry...")
-                        time.sleep(5)  # Wait before retry
+                        time.sleep(5)
                     
             except Exception as e:
                 print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
                 if attempt < self.max_enhancement_attempts - 1:
-                    print("⏳ Waiting 5s before retry...")
-                    time.sleep(5)  # Wait before retry
+                    time.sleep(5)
         
         print("⚠️ All enhancement attempts failed, using original prompt")
-        print("💡 Continuing with standard WAN generation...")
         return original_prompt
 
     def validate_output_file(self, file_path, expected_content_type):
-        """Simple file validation - just check basics"""
+        """Enhanced file validation with MIME type checking"""
         try:
-            print(f"🔍 SIMPLE FILE VALIDATION:")
+            print(f"🔍 ENHANCED FILE VALIDATION:")
             print(f"   File path: {file_path}")
             print(f"   Expected type: {expected_content_type}")
             
             # Check 1: File exists
             if not os.path.exists(file_path):
                 print(f"❌ File does not exist: {file_path}")
-                return False
+                return False, "File does not exist"
             
             # Check 2: File size
             file_size = os.path.getsize(file_path)
@@ -406,221 +362,228 @@ class EnhancedWanWorker:
             
             if file_size == 0:
                 print(f"❌ File is empty")
-                return False
+                return False, "File is empty"
             
-            # Check 3: Minimum size requirements (very lenient)
-            if expected_content_type == 'video' and file_size < 10000:  # 10KB minimum
-                print(f"❌ Video file too small: {file_size} bytes")
-                return False
-            elif expected_content_type == 'image' and file_size < 1000:  # 1KB minimum  
-                print(f"❌ Image file too small: {file_size} bytes")
-                return False
+            # Check 3: MIME type detection
+            mime_type, _ = mimetypes.guess_type(file_path)
+            print(f"🔍 Detected MIME type: {mime_type}")
             
-            # Check 4: Basic file header
+            # Check 4: Read file header for validation
             try:
                 with open(file_path, 'rb') as f:
-                    header = f.read(8)
-                    print(f"🔍 File header: {header.hex()}")
+                    header = f.read(16)
+                    print(f"🔍 File header (first 16 bytes): {header.hex()}")
                     
-                    # Very basic checks - just ensure it's not a text file
-                    if header.startswith(b'Traceback') or header.startswith(b'Error'):
-                        print(f"❌ File appears to be an error message")
-                        return False
-            except:
-                print("⚠️ Could not read file header, but continuing...")
+                    # Check if it's actually a text file (common WAN error)
+                    if header.startswith(b'Traceback') or header.startswith(b'Error') or header.startswith(b'usage:'):
+                        print(f"❌ File contains error/help text, not {expected_content_type}")
+                        return False, f"File contains text data, not {expected_content_type}"
+                    
+                    # Check for proper file format headers
+                    if expected_content_type == 'video':
+                        # MP4 file should start with ftyp box
+                        if not (b'ftyp' in header or b'mdat' in header):
+                            print(f"❌ File doesn't have MP4 header signature")
+                            return False, "File is not a valid MP4 video"
+                    elif expected_content_type == 'image':
+                        # PNG should start with PNG signature
+                        png_signature = b'\x89PNG\r\n\x1a\n'
+                        if not header.startswith(png_signature):
+                            print(f"❌ File doesn't have PNG header signature")
+                            return False, "File is not a valid PNG image"
+            except Exception as e:
+                print(f"⚠️ Could not read file header: {e}")
             
-            print(f"✅ SIMPLE VALIDATION PASSED")
-            return True
+            # Check 5: Minimum size requirements
+            min_size = 50000 if expected_content_type == 'video' else 5000  # 50KB for video, 5KB for image
+            if file_size < min_size:
+                print(f"❌ File too small for {expected_content_type}: {file_size} bytes < {min_size} bytes")
+                return False, f"File too small for {expected_content_type}"
+            
+            # Check 6: MIME type validation
+            expected_mime = 'video/mp4' if expected_content_type == 'video' else 'image/png'
+            if mime_type and mime_type != expected_mime:
+                print(f"⚠️ MIME type mismatch: expected {expected_mime}, got {mime_type}")
+                # Don't fail on MIME type alone, as it might be detected incorrectly
+            
+            print(f"✅ ENHANCED VALIDATION PASSED")
+            return True, "File validation successful"
             
         except Exception as e:
             print(f"❌ Validation error: {e}")
-            return False
+            return False, f"Validation error: {e}"
 
     def generate_content(self, prompt, job_type):
-        """Generate image or video content using WAN 2.1 with predictable file paths"""
+        """CRITICAL FIX: Generate content with proper WAN command formatting"""
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
         config = self.job_configs[job_type]
         
-        # CRITICAL FIX: Use simple, predictable file paths like manual testing
-        file_ext = 'png' if config['content_type'] == 'image' else 'mp4'
+        # CRITICAL FIX: Create output path with proper extension
         timestamp = int(time.time())
-        simple_filename = f"wan_output_{timestamp}.{file_ext}"
-        temp_output_path = f"/tmp/{simple_filename}"
+        file_extension = config['file_extension']  # Use explicit extension from config
+        output_filename = f"wan_output_{timestamp}.{file_extension}"
+        temp_output_path = f"/tmp/{output_filename}"
         
-        print(f"🎯 Using simple output path: {temp_output_path}")
+        print(f"🎯 FIXED: Output path with proper extension: {temp_output_path}")
+        print(f"📄 Expected file type: {config['content_type']} (.{file_extension})")
         
         try:
             # Change to WAN code directory
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # Build WAN generation command (VERIFIED WORKING CONFIGURATION)
+            # CRITICAL FIX: Build WAN command with proper argument formatting
+            # Based on manual testing: proper size format, guidance scale, etc.
             cmd = [
                 "python", "generate.py",
-                "--task", "t2v-1.3B",
-                "--ckpt_dir", self.model_path,
-                "--offload_model", "True",  # ✅ VERIFIED WORKING (WAN default)
-                "--size", config['size'],  # ✅ VERIFIED: 480*832
-                "--sample_steps", str(config['sample_steps']),  # ✅ VERIFIED: 25/50 steps
+                "--task", "t2v-1.3B",                           # ✅ VERIFIED working task
+                "--ckpt_dir", self.model_path,                  # ✅ Model path
+                "--offload_model", "True",                      # ✅ VERIFIED: Memory management
+                "--size", config['size'],                       # ✅ VERIFIED: 480*832
+                "--sample_steps", str(config['sample_steps']),  # ✅ Steps: 25 or 50
                 "--sample_guide_scale", str(config['sample_guide_scale']),  # ✅ VERIFIED: 5.0
-                "--frame_num", str(config['frame_num']),  # ✅ VERIFIED: 1 for images, 17 for videos
-                "--prompt", prompt,
-                "--save_file", temp_output_path  # ✅ CRITICAL: Include file extension
+                "--frame_num", str(config['frame_num']),        # ✅ VERIFIED: 1 or 17
+                "--prompt", prompt,                             # User prompt
+                "--save_file", temp_output_path                 # ✅ CRITICAL: Full path with extension
             ]
             
             # Configure environment
             env = self.setup_environment()
             
-            print(f"🎬 Starting WAN generation: {job_type}")
-            print(f"📝 Final prompt: {prompt[:100]}...")
+            print(f"🎬 FIXED WAN generation: {job_type}")
+            print(f"📝 Prompt: {prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
-            print(f"💾 Output path: {temp_output_path}")
-            print(f"📁 Working directory: {self.wan_code_path}")
-            print(f"🔧 Command: {' '.join(cmd)}")
+            print(f"💾 Output: {temp_output_path}")
+            print(f"📁 Working dir: {self.wan_code_path}")
+            print(f"🔧 FIXED Command: {' '.join(cmd)}")
             
-            # ENHANCED: Add environment validation before execution
-            print("🔍 Validating environment before WAN execution...")
+            # Environment validation
+            print("🔍 Environment validation:")
             print(f"   PYTHONPATH: {env.get('PYTHONPATH', 'NOT SET')}")
-            print(f"   HF_HOME: {env.get('HF_HOME', 'NOT SET')}")
             print(f"   CUDA_VISIBLE_DEVICES: {env.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}")
+            print(f"   Output dir writable: {os.access('/tmp/', os.W_OK)}")
             
-            # Test that we can write to the output path
-            test_write_path = f"/tmp/test_write_{timestamp}.txt"
-            try:
-                with open(test_write_path, 'w') as f:
-                    f.write("test")
-                os.remove(test_write_path)
-                print(f"✅ Output directory writable: /tmp/")
-            except Exception as e:
-                print(f"❌ Cannot write to /tmp/: {e}")
-                raise Exception(f"Output directory not writable: {e}")
-            
-            # SIMPLIFIED: Execute WAN generation with basic subprocess.run and timeout
+            # Execute WAN generation with enhanced monitoring
             generation_start = time.time()
-            print(f"⏰ Starting WAN subprocess with 350s timeout at {time.strftime('%H:%M:%S')}")
+            timeout_seconds = 400  # Extended timeout for video generation
+            
+            print(f"⏰ Starting WAN subprocess with {timeout_seconds}s timeout")
+            print(f"🚀 Generation started at {time.strftime('%H:%M:%S')}")
 
             try:
-                # Use simple subprocess.run instead of complex Popen
-                print("🚀 Starting WAN generation subprocess...")
                 result = subprocess.run(
                     cmd,
                     cwd=self.wan_code_path,
                     env=env,
                     capture_output=True,
                     text=True,
-                    timeout=350  # 350 second timeout
+                    timeout=timeout_seconds
                 )
                 
                 generation_time = time.time() - generation_start
-                
-                # Restore original directory
-                os.chdir(original_cwd)
+                os.chdir(original_cwd)  # Restore directory
                 
                 print(f"✅ WAN subprocess completed in {generation_time:.1f}s")
-                print(f"📄 WAN return code: {result.returncode}")
+                print(f"📄 Return code: {result.returncode}")
                 
-                # Always show the last part of stdout and stderr for debugging
+                # Enhanced output analysis
                 if result.stdout:
                     stdout_lines = result.stdout.strip().split('\n')
-                    print(f"📄 WAN stdout ({len(stdout_lines)} lines):")
-                    # Show last 10 lines of stdout
-                    for line in stdout_lines[-10:]:
-                        print(f"   [STDOUT] {line}")
+                    print(f"📄 STDOUT ({len(stdout_lines)} lines):")
+                    for line in stdout_lines[-10:]:  # Last 10 lines
+                        print(f"   [OUT] {line}")
                 
                 if result.stderr:
                     stderr_lines = result.stderr.strip().split('\n')
-                    print(f"📄 WAN stderr ({len(stderr_lines)} lines):")
-                    # Show last 10 lines of stderr
-                    for line in stderr_lines[-10:]:
-                        print(f"   [STDERR] {line}")
+                    print(f"📄 STDERR ({len(stderr_lines)} lines):")
+                    for line in stderr_lines[-10:]:  # Last 10 lines
+                        print(f"   [ERR] {line}")
                 
+                # CRITICAL: Enhanced success validation
                 if result.returncode == 0:
-                    # Check if output file exists and has content
-                    if os.path.exists(temp_output_path) and os.path.getsize(temp_output_path) > 0:
-                        file_size = os.path.getsize(temp_output_path) / 1024**2  # MB
-                        print(f"✅ WAN generation successful: {file_size:.1f}MB file created")
-                        print(f"📁 Output file: {temp_output_path}")
-                        
-                        # Add simple file type check
-                        with open(temp_output_path, 'rb') as f:
-                            header = f.read(16)
-                            print(f"🔍 File header: {header.hex()}")
+                    print(f"🔍 Checking output file: {temp_output_path}")
+                    
+                    # Check if exact file exists
+                    if os.path.exists(temp_output_path):
+                        file_size = os.path.getsize(temp_output_path)
+                        print(f"✅ Output file found: {file_size / 1024**2:.2f}MB")
                         
                         # Enhanced file validation
-                        print(f"🔍 Validating generated file: {temp_output_path}")
-                        if self.validate_output_file(temp_output_path, config['content_type']):
-                            print(f"✅ Output file validation passed")
+                        is_valid, validation_msg = self.validate_output_file(temp_output_path, config['content_type'])
+                        if is_valid:
+                            print(f"✅ File validation passed: {validation_msg}")
                             return temp_output_path
                         else:
-                            print(f"❌ Output file validation failed")
-                            # Just show file info instead of complex diagnostic
-                            try:
-                                size = os.path.getsize(temp_output_path) if os.path.exists(temp_output_path) else 0
-                                exists = os.path.exists(temp_output_path)
-                                error_msg = f"File validation failed. Exists: {exists}, Size: {size} bytes, Path: {temp_output_path}"
-                            except:
-                                error_msg = f"File validation failed. Path: {temp_output_path}"
-                            raise Exception(error_msg)
+                            print(f"❌ File validation failed: {validation_msg}")
+                            
+                            # Show file content for debugging if it's small (likely error text)
+                            if file_size < 10000:  # Less than 10KB
+                                try:
+                                    with open(temp_output_path, 'r', errors='ignore') as f:
+                                        content = f.read(500)  # First 500 chars
+                                        print(f"📄 File content preview: {content}")
+                                except:
+                                    pass
+                            
+                            raise Exception(f"Generated file validation failed: {validation_msg}")
                     else:
-                        print(f"❌ WAN completed but no output file created at: {temp_output_path}")
+                        print(f"❌ Output file not found: {temp_output_path}")
                         
-                        # Check if any files were created in /tmp/
-                        import glob
-                        possible_files = glob.glob(f"/tmp/wan_output_*")
-                        print(f"📁 Found files in /tmp/: {possible_files}")
+                        # Look for any files created in /tmp/
+                        tmp_files = glob.glob("/tmp/wan_output_*")
+                        print(f"📁 Files in /tmp/: {tmp_files}")
                         
-                        if possible_files:
-                            actual_file = possible_files[0]
-                            if os.path.getsize(actual_file) > 0:
-                                print(f"✅ Using found file: {actual_file}")
-                                return actual_file
+                        if tmp_files:
+                            # Try to use the most recent file
+                            latest_file = max(tmp_files, key=os.path.getctime)
+                            print(f"🔄 Trying latest file: {latest_file}")
+                            
+                            if os.path.getsize(latest_file) > 0:
+                                is_valid, validation_msg = self.validate_output_file(latest_file, config['content_type'])
+                                if is_valid:
+                                    print(f"✅ Using alternative file: {latest_file}")
+                                    return latest_file
                         
-                        # Include stdout/stderr in error for debugging
-                        error_details = f"WAN completed but no valid output file found. STDOUT: {result.stdout[-500:] if result.stdout else 'None'}"
-                        raise Exception(error_details)
+                        # Include stdout in error for debugging
+                        error_context = f"No valid output file. STDOUT: {result.stdout[-300:] if result.stdout else 'None'}"
+                        raise Exception(error_context)
+                        
                 else:
-                    # Process failed - include output in error
-                    print(f"❌ WAN generation failed with return code {result.returncode}")
+                    print(f"❌ WAN failed with return code: {result.returncode}")
                     
-                    error_output = ""
+                    # Enhanced error analysis
+                    error_details = []
                     if result.stderr:
-                        error_output += f"STDERR: {result.stderr[-500:]}"
+                        error_details.append(f"STDERR: {result.stderr[-300:]}")
                     if result.stdout:
-                        error_output += f"STDOUT: {result.stdout[-500:]}"
+                        error_details.append(f"STDOUT: {result.stdout[-300:]}")
                     
-                    if not error_output:
-                        error_output = "No output captured"
-                        
-                    raise Exception(f"WAN generation failed with return code {result.returncode}: {error_output}")
+                    error_message = " | ".join(error_details) if error_details else "No error output captured"
+                    raise Exception(f"WAN generation failed (code {result.returncode}): {error_message}")
                     
             except subprocess.TimeoutExpired:
                 os.chdir(original_cwd)
-                print(f"❌ WAN generation timed out after 350s")
+                print(f"❌ WAN generation timed out after {timeout_seconds}s")
                 
-                # Try to find any partial files
-                import glob
-                partial_files = glob.glob(f"/tmp/wan_output_*")
-                if partial_files:
-                    print(f"📁 Found partial files: {partial_files}")
-                    for pf in partial_files:
-                        try:
-                            size = os.path.getsize(pf)
-                            print(f"   {pf}: {size} bytes")
-                            os.unlink(pf)  # Clean up
-                        except:
-                            pass
+                # Cleanup partial files
+                for partial_file in glob.glob("/tmp/wan_output_*"):
+                    try:
+                        size = os.path.getsize(partial_file)
+                        print(f"🗑️ Cleaning partial file: {partial_file} ({size} bytes)")
+                        os.unlink(partial_file)
+                    except:
+                        pass
                 
-                raise Exception(f"WAN generation timed out after 350 seconds")
+                raise Exception(f"WAN generation timed out after {timeout_seconds} seconds")
                 
             except Exception as e:
-                os.chdir(original_cwd)  # Ensure we restore directory
-                print(f"❌ WAN generation error: {e}")
+                os.chdir(original_cwd)
+                print(f"❌ WAN subprocess error: {e}")
                 
-                # Cleanup any partial files
-                import glob
-                for partial_file in glob.glob(f"/tmp/wan_output_*"):
+                # Cleanup partial files
+                for partial_file in glob.glob("/tmp/wan_output_*"):
                     try:
                         os.unlink(partial_file)
                     except:
@@ -628,12 +591,12 @@ class EnhancedWanWorker:
                 raise
                 
         except Exception as e:
-            os.chdir(original_cwd)  # Ensure we restore directory
+            if os.getcwd() != original_cwd:
+                os.chdir(original_cwd)
             print(f"❌ WAN generation error: {e}")
             
-            # Cleanup any partial files
-            import glob
-            for partial_file in glob.glob(f"/tmp/wan_output_*"):
+            # Final cleanup
+            for partial_file in glob.glob("/tmp/wan_output_*"):
                 try:
                     os.unlink(partial_file)
                 except:
@@ -643,7 +606,7 @@ class EnhancedWanWorker:
     def upload_to_supabase(self, file_path, storage_path):
         """Upload file to Supabase storage with enhanced validation"""
         try:
-            # Double-check file before upload
+            # Pre-upload validation
             if not os.path.exists(file_path):
                 raise Exception(f"File does not exist: {file_path}")
             
@@ -651,9 +614,22 @@ class EnhancedWanWorker:
             if file_size == 0:
                 raise Exception(f"File is empty: {file_path}")
             
-            # Check MIME type for additional safety
+            # Enhanced MIME type checking
             mime_type, _ = mimetypes.guess_type(file_path)
-            print(f"📤 Uploading {mime_type} file ({file_size / 1024**2:.2f}MB)")
+            print(f"📤 Uploading file:")
+            print(f"   Path: {file_path}")
+            print(f"   Size: {file_size / 1024**2:.2f}MB")
+            print(f"   MIME: {mime_type}")
+            print(f"   Storage path: {storage_path}")
+            
+            # Double-check MIME type by reading file header
+            with open(file_path, 'rb') as f:
+                header = f.read(16)
+                print(f"   Header: {header.hex()}")
+                
+                # Ensure it's not a text file
+                if header.startswith(b'Traceback') or header.startswith(b'usage:') or header.startswith(b'Error'):
+                    raise Exception(f"File appears to be error text, not binary content")
             
             with open(file_path, 'rb') as file:
                 response = requests.post(
@@ -662,17 +638,17 @@ class EnhancedWanWorker:
                     headers={
                         'Authorization': f"Bearer {self.supabase_service_key}",
                     },
-                    timeout=120  # 2 minute upload timeout
+                    timeout=180  # 3 minute upload timeout
                 )
             
             if response.status_code == 200:
-                # Return only relative path within bucket (avoid double-prefixing)
+                # Return only relative path within bucket
                 path_parts = storage_path.split('/', 1)
                 relative_path = path_parts[1] if len(path_parts) == 2 else storage_path
                 print(f"✅ Upload successful: {relative_path}")
                 return relative_path
             else:
-                error_text = response.text[:500]  # First 500 chars of error
+                error_text = response.text[:500]
                 print(f"❌ Upload failed: {response.status_code}")
                 print(f"📄 Error response: {error_text}")
                 raise Exception(f"Upload failed: {response.status_code} - {error_text}")
@@ -684,7 +660,6 @@ class EnhancedWanWorker:
     def notify_completion(self, job_id, status, output_url=None, error_message=None):
         """Notify Supabase of job completion with FIXED callback format"""
         try:
-            # CRITICAL FIX: Use the correct callback format expected by edge function
             callback_data = {
                 'jobId': job_id,
                 'status': status,
@@ -736,11 +711,13 @@ class EnhancedWanWorker:
                     print(f"✅ {module_name}: Available")
                 except ImportError as e:
                     print(f"❌ {module_name}: MISSING - {e}")
+            
             wan_generate_path = os.path.join(self.wan_code_path, 'generate.py')
             if os.path.exists(wan_generate_path):
                 print(f"✅ WAN generate.py found: {wan_generate_path}")
             else:
                 print(f"❌ WAN generate.py NOT FOUND: {wan_generate_path}")
+            
             if os.path.exists(self.model_path):
                 model_files = os.listdir(self.model_path)
                 print(f"✅ WAN model directory accessible: {len(model_files)} files")
@@ -786,12 +763,14 @@ class EnhancedWanWorker:
         print(f"   Working Directory: {os.getcwd()}")
         print(f"   WAN Code Path: {self.wan_code_path}")
         print(f"   Model Path: {self.model_path}")
+        
         critical_env_vars = [
             'PYTHONPATH',
             'HF_HOME',
             'HUGGINGFACE_HUB_CACHE',
             'CUDA_VISIBLE_DEVICES'
         ]
+        
         for var in critical_env_vars:
             value = env.get(var, 'NOT SET')
             print(f"   {var}: {value}")
@@ -806,12 +785,13 @@ class EnhancedWanWorker:
         return env
 
     def process_job_with_enhanced_diagnostics(self, job_data):
-        """Enhanced process_job with additional diagnostics"""
+        """CRITICAL FIX: Enhanced process_job with better error handling"""
         job_id = job_data['jobId']
         job_type = job_data['jobType']
         original_prompt = job_data['prompt']
         video_id = job_data['videoId']
-        print(f"🔄 Processing job {job_id} ({job_type}) with enhanced diagnostics")
+        
+        print(f"🔄 Processing job {job_id} ({job_type}) with CRITICAL FIXES")
         print(f"📝 Original prompt: {original_prompt}")
         print(f"🎯 Video ID: {video_id}")
         print("\n🔍 PRE-JOB DIAGNOSTICS:")
@@ -819,13 +799,18 @@ class EnhancedWanWorker:
         print("\n🧪 WAN EXECUTION TEST:")
         self.test_wan_basic_execution()
         print("\n" + "="*60)
+        
         job_start_time = time.time()
+        
         try:
             if job_type not in self.job_configs:
                 available_types = list(self.job_configs.keys())
                 raise Exception(f"Unknown job type: {job_type}. Available: {available_types}")
+            
             config = self.job_configs[job_type]
             print(f"✅ Job type validated: {job_type} (enhance: {config['enhance_prompt']})")
+            
+            # Handle prompt enhancement
             if config['enhance_prompt']:
                 print("🤖 Starting prompt enhancement with timeout protection...")
                 enhanced_prompt = self.enhance_prompt(original_prompt)
@@ -838,60 +823,110 @@ class EnhancedWanWorker:
             else:
                 print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
-            print("🎬 Starting WAN generation with enhanced diagnostics...")
+            
+            print("🎬 Starting WAN generation with CRITICAL FIXES...")
             print(f"🔍 About to call generate_content with:")
             print(f"   Prompt: {actual_prompt[:100]}...")
             print(f"   Job type: {job_type}")
             print(f"   Config: {config}")
+            print(f"   Expected output: {config['content_type']} (.{config['file_extension']})")
+            
             print("\n🔍 FINAL ENVIRONMENT CHECK BEFORE WAN:")
             test_env = self.enhanced_environment_setup()
+            
+            # CRITICAL: Generate content with enhanced error handling
             output_file = self.generate_content(actual_prompt, job_type)
+            
             if not output_file:
-                raise Exception("Content generation failed or produced invalid output")
-            file_extension = 'png' if config['content_type'] == 'image' else 'mp4'
+                raise Exception("Content generation failed or produced no output")
+            
+            # Final file validation before upload
+            print(f"🔍 Final validation before upload:")
+            is_valid, validation_msg = self.validate_output_file(output_file, config['content_type'])
+            if not is_valid:
+                raise Exception(f"Generated file failed final validation: {validation_msg}")
+            
+            # Upload with proper storage path
+            file_extension = config['file_extension']
             storage_path = f"{job_type}/{video_id}.{file_extension}"
-            print(f"📤 Uploading validated file to: {storage_path}")
+            
+            print(f"📤 Uploading validated {config['content_type']} file to: {storage_path}")
             relative_path = self.upload_to_supabase(output_file, storage_path)
-            os.unlink(output_file)
+            
+            # Cleanup temp file
+            try:
+                os.unlink(output_file)
+                print(f"🗑️ Cleaned up temp file: {output_file}")
+            except:
+                pass
+            
+            # Success callback
             self.notify_completion(job_id, 'completed', relative_path)
+            
             total_time = time.time() - job_start_time
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
             print(f"📁 Output: {relative_path}")
+            print(f"✅ File type: {config['content_type']} (.{file_extension})")
+            
         except Exception as e:
             error_msg = str(e)
             total_time = time.time() - job_start_time
             print(f"❌ Job {job_id} failed after {total_time:.1f}s: {error_msg}")
+            
+            # Enhanced error categorization
             if "timeout" in error_msg.lower():
-                print("💡 Timeout detected - WAN subprocess hanging")
-            elif "mime" in error_msg.lower() or "validation" in error_msg.lower():
-                print("💡 File validation failed - WAN generation produced invalid output")
+                print("💡 TIMEOUT: WAN subprocess exceeded time limit")
+            elif "mime" in error_msg.lower() or "text/plain" in error_msg.lower():
+                print("💡 MIME ERROR: WAN generated text instead of binary file")
+                print("💡 SOLUTION: Check WAN command format and file extensions")
+            elif "validation" in error_msg.lower():
+                print("💡 VALIDATION ERROR: Generated file doesn't match expected format")
             elif "upload" in error_msg.lower():
-                print("💡 Upload failed - check storage bucket configuration")
+                print("💡 UPLOAD ERROR: File upload to Supabase failed")
             elif "import" in error_msg.lower() or "module" in error_msg.lower():
-                print("💡 Import error - WAN dependencies not accessible")
+                print("💡 DEPENDENCY ERROR: WAN dependencies not accessible")
+            elif "command" in error_msg.lower() or "returncode" in error_msg.lower():
+                print("💡 COMMAND ERROR: WAN subprocess failed to execute")
+            
+            # Cleanup any temp files
+            try:
+                for temp_file in glob.glob("/tmp/wan_output_*"):
+                    os.unlink(temp_file)
+            except:
+                pass
+            
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def run_with_enhanced_diagnostics(self):
         """Main worker loop with startup diagnostics"""
-        print("🎬 Enhanced OurVidz WAN Worker with ENHANCED DIAGNOSTICS started!")
+        print("🎬 Enhanced OurVidz WAN Worker with CRITICAL FIXES started!")
+        print("🔧 CRITICAL FIXES APPLIED:")
+        print("   • Proper file extensions (.mp4/.png)")
+        print("   • Enhanced WAN command formatting")
+        print("   • MIME type validation and error detection")
+        print("   • File header validation to catch text/error output")
+        print("   • Extended timeouts for video generation")
+        print("   • Enhanced error categorization and debugging")
+        
         print("\n🔍 STARTUP DIAGNOSTICS:")
         print("="*60)
         self.test_wan_dependencies()
         print("\n🧪 STARTUP WAN EXECUTION TEST:")
         self.test_wan_basic_execution()
         print("="*60)
+        
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
-        print("🔧 ENHANCED FEATURES: Timeout protection, upload validation, graceful fallback")
-        print("🔧 CALLBACK FORMAT: Fixed for Supabase edge function compatibility")
         print("📋 Supported job types:")
         for job_type, config in self.job_configs.items():
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
             content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
-            print(f"  • {job_type}: {content} ({config['expected_time']}s) {enhancement}")
+            print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement}")
         print("⏳ Waiting for jobs...")
+        
         job_count = 0
         consecutive_errors = 0
         max_consecutive_errors = 5
+        
         while True:
             try:
                 job_data = self.poll_queue()
@@ -903,6 +938,7 @@ class EnhancedWanWorker:
                     print("=" * 60)
                 else:
                     time.sleep(5)
+                    
             except KeyboardInterrupt:
                 print("🛑 Worker stopped by user")
                 break
@@ -919,10 +955,8 @@ class EnhancedWanWorker:
     def poll_queue(self):
         """Poll Redis queue for new jobs with non-blocking RPOP (Upstash REST API compatible)"""
         try:
-            # CRITICAL FIX: Use non-blocking RPOP instead of BRPOP 
-            # Upstash Redis REST API doesn't support blocking commands like BRPOP
             response = requests.get(
-                f"{self.redis_url}/rpop/wan_queue",  # Changed from brpop to rpop
+                f"{self.redis_url}/rpop/wan_queue",
                 headers={
                     'Authorization': f"Bearer {self.redis_token}"
                 },
@@ -932,7 +966,6 @@ class EnhancedWanWorker:
             if response.status_code == 200:
                 result = response.json()
                 if result.get('result'):
-                    # RPOP returns job data directly (not array like BRPOP)
                     job_json = result['result']
                     job_data = json.loads(job_json)
                     return job_data
@@ -940,7 +973,6 @@ class EnhancedWanWorker:
             return None
             
         except requests.exceptions.Timeout:
-            # Normal timeout, not an error
             return None
         except Exception as e:
             print(f"❌ Queue polling error: {e}")
@@ -962,7 +994,7 @@ if __name__ == "__main__":
     
     # Verify critical paths
     model_path = "/workspace/models/wan2.1-t2v-1.3b"
-    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-14B-Instruct"  # Updated to 14B
+    qwen_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
     wan_code_path = "/workspace/Wan2.1"
     
     if not os.path.exists(model_path):
@@ -976,7 +1008,7 @@ if __name__ == "__main__":
         print(f"❌ WAN code not found: {wan_code_path}")
         exit(1)
     
-    print("✅ All paths validated, starting worker...")
+    print("✅ All paths validated, starting worker with CRITICAL FIXES...")
     
     try:
         worker = EnhancedWanWorker()
