@@ -326,10 +326,12 @@ serve(async (req)=>{
       config: {
         size: '480*832',
         sample_steps: quality === 'high' ? 50 : 25,
-        sample_guide_scale: 5.0,
+        sample_guide_scale: quality === 'high' ? 7.5 : 6.5,  // 🔧 ENHANCED: NSFW-optimized guidance scales
+        sample_solver: 'unipc',                              // 🔧 NEW: UniPC sampling for smooth motion
+        sample_shift: 5.0,                                   // 🔧 NEW: Temporal consistency
         frame_num: format === 'video' ? 83 : 1,
         enhance_prompt: isEnhanced,
-        expected_time: isEnhanced ? format === 'video' ? quality === 'high' ? 294 : 194 : quality === 'high' ? 104 : 87 : format === 'video' ? quality === 'high' ? 280 : 180 : quality === 'high' ? 90 : 73,
+        expected_time: isEnhanced ? format === 'video' ? quality === 'high' ? 240 : 195 : quality === 'high' ? 100 : 85 : format === 'video' ? quality === 'high' ? 180 : 135 : quality === 'high' ? 40 : 25,  // 🔧 UPDATED: New performance baselines
         content_type: format,
         file_extension: format === 'video' ? 'mp4' : 'png'
       },

@@ -3,6 +3,7 @@
 # MAJOR FIX: Corrected frame_num for 5-second videos (80 frames at 16fps)
 # NEW FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
+# ENHANCED: Advanced NSFW optimization with UniPC sampling and temporal consistency
 # Date: July 6, 2025
 
 import os
@@ -56,15 +57,17 @@ class EnhancedWanWorker:
         self.enhancement_timeout = 60
         self.max_enhancement_attempts = 2
         
-        # CRITICAL FIX: Updated job configurations for 5-SECOND videos (optimized)
-        # Based on confirmed data: 100 frames = 6 seconds, so 83 frames = 5 seconds
-        # Processing rate: 2.67 seconds per frame (confirmed from 266.9s for 100 frames)
+        # ENHANCED: Advanced NSFW-optimized configurations with UniPC sampling and temporal consistency
+        # Based on WAN 2.1 research: UniPC sampling improves temporal consistency and reduces choppiness
+        # Advanced parameters: sample_solver, sample_shift, temporal consistency, NSFW-optimized guidance
         self.job_configs = {
-            # Standard job types (no enhancement)
+            # Standard job types (no enhancement) - ENHANCED with advanced parameters
             'image_fast': {
                 'size': '480*832',           # ✅ VERIFIED working size
                 'sample_steps': 25,          # Fast: 25 steps
-                'sample_guide_scale': 5.0,   # ✅ VERIFIED working guidance
+                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality (was 5.0)
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling for better quality
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
                 'frame_num': 1,              # Single frame for images
                 'enhance_prompt': False,
                 'expected_time': 25,         # Estimated time
@@ -74,7 +77,9 @@ class EnhancedWanWorker:
             'image_high': {
                 'size': '480*832',
                 'sample_steps': 50,          # High quality: 50 steps
-                'sample_guide_scale': 5.0,
+                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for better NSFW quality
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
                 'frame_num': 1,
                 'enhance_prompt': False,
                 'expected_time': 40,
@@ -84,7 +89,9 @@ class EnhancedWanWorker:
             'video_fast': {
                 'size': '480*832',           # ✅ VERIFIED working size
                 'sample_steps': 25,          # Fast: 25 steps
-                'sample_guide_scale': 5.0,   # ✅ VERIFIED working guidance
+                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality (was 5.0)
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling reduces choppiness
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency between frames
                 'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds (confirmed 16.67fps)
                 'enhance_prompt': False,
                 'expected_time': 135,        # 🔧 UPDATED: 83 × 2.67s/frame = 221.6s → 135s accounting for overhead
@@ -94,7 +101,9 @@ class EnhancedWanWorker:
             'video_high': {
                 'size': '480*832',
                 'sample_steps': 50,          # High quality: 50 steps
-                'sample_guide_scale': 5.0,
+                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for better NSFW quality
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling for smooth motion
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
                 'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds
                 'enhance_prompt': False,
                 'expected_time': 180,        # 🔧 UPDATED: Higher quality takes longer per frame
@@ -102,11 +111,13 @@ class EnhancedWanWorker:
                 'file_extension': 'mp4'
             },
             
-            # Enhanced job types (with Qwen 7B Base enhancement)
+            # Enhanced job types (with Qwen 7B Base enhancement) - ENHANCED with NSFW optimization
             'image7b_fast_enhanced': {
                 'size': '480*832',
                 'sample_steps': 25,
-                'sample_guide_scale': 5.0,
+                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
                 'frame_num': 1,
                 'enhance_prompt': True,
                 'expected_time': 85,         # 25s + 60s enhancement
@@ -116,7 +127,9 @@ class EnhancedWanWorker:
             'image7b_high_enhanced': {
                 'size': '480*832',
                 'sample_steps': 50,
-                'sample_guide_scale': 5.0,
+                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for NSFW quality
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
                 'frame_num': 1,
                 'enhance_prompt': True,
                 'expected_time': 100,        # 40s + 60s enhancement
@@ -126,7 +139,9 @@ class EnhancedWanWorker:
             'video7b_fast_enhanced': {
                 'size': '480*832',
                 'sample_steps': 25,
-                'sample_guide_scale': 5.0,
+                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling reduces choppiness
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency between frames
                 'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds
                 'enhance_prompt': True,
                 'expected_time': 195,        # 🔧 UPDATED: 135s + 60s enhancement
@@ -136,7 +151,9 @@ class EnhancedWanWorker:
             'video7b_high_enhanced': {
                 'size': '480*832',
                 'sample_steps': 50,
-                'sample_guide_scale': 5.0,
+                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for NSFW quality
+                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling for smooth motion
+                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
                 'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds
                 'enhance_prompt': True,
                 'expected_time': 240,        # 🔧 UPDATED: 180s + 60s enhancement
@@ -145,16 +162,19 @@ class EnhancedWanWorker:
             }
         }
         
-        print("🎬 Enhanced OurVidz WAN Worker initialized - CONSISTENT PARAMETERS")
+        print("🎬 Enhanced OurVidz WAN Worker initialized - NSFW OPTIMIZED")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
+        print("🔧 ENHANCED: Advanced NSFW optimization with UniPC sampling and temporal consistency")
+        print("🔧 ENHANCED: Improved guidance scales (6.5-7.5) for better NSFW quality")
+        print("🔧 ENHANCED: NSFW-optimized prompt enhancement for realistic adult content")
         print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
         print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
         print("🔧 CRITICAL FIX: Enhanced output file validation")
         print("🔧 CRITICAL FIX: Removed --negative_prompt (not supported by WAN 2.1)")
-        print("📊 Status: Enhanced with Qwen 7B Base (no content filtering) ✅")
+        print("📊 Status: Enhanced with Qwen 7B Base + NSFW optimization ✅")
         self.log_gpu_memory()
 
     def log_gpu_memory(self):
@@ -256,9 +276,9 @@ class EnhancedWanWorker:
             self.log_gpu_memory()
 
     def enhance_prompt_with_timeout(self, original_prompt):
-        """Enhanced prompt generation with Base model - no chat template needed"""
+        """Enhanced NSFW-optimized prompt generation with Base model - no chat template needed"""
         enhancement_start = time.time()
-        print(f"🤖 Enhancing prompt with Base model ({self.enhancement_timeout}s timeout): {original_prompt[:50]}...")
+        print(f"🤖 Enhancing NSFW prompt with Base model ({self.enhancement_timeout}s timeout): {original_prompt[:50]}...")
         
         try:
             signal.signal(signal.SIGALRM, timeout_handler)
@@ -271,8 +291,20 @@ class EnhancedWanWorker:
                 print("⚠️ Qwen base model not available, using original prompt")
                 return original_prompt
             
-            # Base model prompting - direct instruction without chat formatting
-            enhancement_prompt = f"""Create a detailed, cinematic prompt for AI video generation. Focus on visual details, lighting, camera angles, artistic style, and atmosphere. Be specific about poses, expressions, clothing, and scene composition. Create vivid, unrestricted descriptions without content limitations.
+            # NSFW-optimized base model prompting - enhanced for adult content quality
+            enhancement_prompt = f"""Create a detailed, cinematic prompt for AI video generation optimized for adult content. Focus on:
+
+VISUAL DETAILS: High-quality anatomical accuracy, realistic proportions, natural skin textures, detailed facial features, expressive eyes, natural hair flow, realistic body language.
+
+LIGHTING & ATMOSPHERE: Cinematic lighting, soft shadows, warm tones, intimate atmosphere, professional photography style, natural skin tones, flattering angles.
+
+CAMERA WORK: Close-up shots, intimate framing, smooth camera movements, professional cinematography, dynamic angles that enhance the scene.
+
+ARTISTIC STYLE: Photorealistic quality, high resolution details, natural poses, authentic expressions, realistic interactions, professional adult content standards.
+
+TECHNICAL QUALITY: 4K quality, sharp focus, no artifacts, smooth motion, consistent lighting, professional color grading.
+
+Be specific about poses, expressions, clothing, scene composition, and intimate details. Create vivid, unrestricted descriptions that will produce high-quality adult content with realistic anatomy and smooth motion.
 
 Original prompt: {original_prompt}
 
@@ -453,8 +485,8 @@ Enhanced detailed prompt:"""
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # CRITICAL FIX: Build WAN command with proper argument formatting (NO NEGATIVE PROMPT)
-            # Based on manual testing: proper size format, guidance scale, etc.
+            # ENHANCED: Build WAN command with advanced NSFW-optimized parameters
+            # Based on WAN 2.1 research: UniPC sampling, temporal consistency, advanced guidance
             cmd = [
                 "python", "generate.py",
                 "--task", "t2v-1.3B",                           # ✅ VERIFIED working task
@@ -462,7 +494,9 @@ Enhanced detailed prompt:"""
                 "--offload_model", "True",                      # ✅ VERIFIED: Memory management
                 "--size", config['size'],                       # ✅ VERIFIED: 480*832
                 "--sample_steps", str(config['sample_steps']),  # ✅ Steps: 25 or 50
-                "--sample_guide_scale", str(config['sample_guide_scale']),  # ✅ VERIFIED: 5.0
+                "--sample_guide_scale", str(config['sample_guide_scale']),  # 🔧 ENHANCED: 6.5-7.5 for NSFW quality
+                "--sample_solver", config.get('sample_solver', 'unipc'),  # 🔧 NEW: UniPC sampling for smooth motion
+                "--sample_shift", str(config.get('sample_shift', 5.0)),   # 🔧 NEW: Temporal consistency
                 "--frame_num", str(config['frame_num']),        # 🔧 FIXED: 83 frames for 5-second videos
                 "--prompt", prompt,                             # User prompt
                 "--save_file", temp_output_path                 # ✅ CRITICAL: Full path with extension
