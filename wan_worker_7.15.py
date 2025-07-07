@@ -400,9 +400,10 @@ class EnhancedWanWorker:
             if not output_file:
                 raise Exception("Content generation failed")
             
-            # Step 3: Upload to Supabase
+            # Step 3: Upload to Supabase (user-scoped)
             file_extension = 'png' if config['frame_num'] == 1 else 'mp4'
-            storage_path = f"{job_type}/{video_id}.{file_extension}"
+            user_id = job_data.get('user_id', job_data.get('userId', 'unknown'))
+            storage_path = f"{job_type}/{user_id}/{video_id}.{file_extension}"
             
             relative_path = self.upload_to_supabase(output_file, storage_path)
             

@@ -350,8 +350,9 @@ class EnhancedVideoWorker:
             bucket = bucket_mapping.get(media_type, "videos-final")
             file_ext = "png" if media_type == "image" else "mp4"
             filename = f"{job_data['videoId']}_{media_type}_{quality}.{file_ext}"
+            user_id = job_data.get('user_id', job_data.get('userId', 'unknown'))
             
-            upload_url = self.upload_to_supabase(output_path, f"{bucket}/{filename}")
+            upload_url = self.upload_to_supabase(output_path, f"{bucket}/{user_id}/{filename}")
             
             print(f"✅ Job {job_id} completed successfully")
             print(f"📤 Uploaded: {media_type}_{quality} -> {upload_url}")

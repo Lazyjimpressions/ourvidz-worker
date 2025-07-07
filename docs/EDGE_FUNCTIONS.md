@@ -507,7 +507,7 @@ serve(async (req)=>{
 
 **Purpose**: Central callback handler for OurVidz AI content generation workers  
 **Authentication**: JWT verification disabled (called by workers)  
-**Status**: ✅ Production Ready
+**Status**: ✅ Production Ready - Path Consistency Fixed
 
 ```typescript
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -779,24 +779,8 @@ serve(async (req)=>{
   }
 });
 
-// Helper function to normalize asset paths to be user-scoped
-function normalizeAssetPath(filePath, userId) {
-  if (!filePath || !userId) return filePath;
-  
-  // Check if path already contains user ID prefix
-  if (filePath.startsWith(`${userId}/`)) {
-    return filePath; // Already user-scoped
-  }
-  
-  // Add user ID prefix for consistency
-  const normalizedPath = `${userId}/${filePath}`;
-  console.log('🔧 Path normalization:', {
-    originalPath: filePath,
-    userId: userId,
-    normalizedPath: normalizedPath
-  });
-  return normalizedPath;
-}
+// REMOVED: Path normalization - workers now upload with correct paths
+// No longer needed as all workers upload to standardized paths
 
 async function handleImageJobCallback(supabase, job, status, assets, error_message, quality, isSDXL, isEnhanced) {
   console.log('🖼️ STANDARDIZED IMAGE CALLBACK PROCESSING:', {
@@ -814,14 +798,13 @@ async function handleImageJobCallback(supabase, job, status, assets, error_messa
   if (status === 'completed' && assets && assets.length > 0) {
     console.log('✅ Processing completed image job with standardized assets');
     
-    // Normalize paths to ensure user-scoped consistency
-    let primaryImageUrl = normalizeAssetPath(assets[0], job.user_id);
+    // Store paths exactly as returned by workers - no normalization needed
+    let primaryImageUrl = assets[0];
     let imageUrlsArray = null;
     
     if (assets.length > 1) {
       console.log('🖼️ Multiple images received:', assets.length);
-      // Normalize all image URLs in the array
-      imageUrlsArray = assets.map((url)=>normalizeAssetPath(url, job.user_id));
+      imageUrlsArray = assets; // Store as-is from worker
       primaryImageUrl = imageUrlsArray[0]; // Use first image as primary
     } else {
       console.log('🖼️ Single image received:', assets[0]);
@@ -841,17 +824,24 @@ async function handleImageJobCallback(supabase, job, status, assets, error_messa
     
     console.log('🔍 File path validation:', filePathValidation);
     
+    // Extract title from job metadata or prompt
+    const jobMetadata = job.metadata || {};
+    const prompt = jobMetadata.prompt || jobMetadata.original_prompt || 'Untitled Image';
+    const title = prompt.length <= 60 ? prompt : prompt.substring(0, 60) + '...';
+    
     // Update image record with model type information and enhanced debugging
     const updateData = {
       status: 'completed',
+      title: title,
       image_url: primaryImageUrl,
       image_urls: imageUrlsArray,
       thumbnail_url: primaryImageUrl,
       quality: quality,
       metadata: {
-        ...job.metadata || {},
-        model_type: isSDXL ? 'sdxl' : 'wan',
+        ...jobMetadata,
+        model_type: isSDXL ? 'sdxl' : isEnhanced ? 'enhanced-7b' : 'wan',
         is_sdxl: isSDXL,
+        is_enhanced: isEnhanced,
         bucket: isSDXL ? `sdxl_image_${quality}` : isEnhanced ? `image7b_${quality}_enhanced` : `image_${quality}`,
         callback_processed_at: new Date().toISOString(),
         file_path_validation: filePathValidation,
@@ -945,28 +935,48 @@ async function handleVideoJobCallback(supabase, job, status, assets, error_messa
   });
   
   if (status === 'completed' && job.video_id && assets && assets.length > 0) {
-    // Normalize ALL video paths to be user-scoped for consistency
-    const normalizedVideoPath = normalizeAssetPath(assets[0], job.user_id);
+    // Store video path exactly as returned by WAN worker - no normalization
+    const videoPath = assets[0];
     
-    console.log('📹 Video path handling:', {
-      originalPath: assets[0],
-      normalizedPath: normalizedVideoPath,
+    console.log('📹 Video path handling (FIXED):', {
+      receivedPath: assets[0],
+      storedPath: videoPath,
       userId: job.user_id,
-      jobType: job.job_type
+      jobType: job.job_type,
+      pathConsistencyFixed: true
     });
     
-    // Store in both video_url and signed_url fields for consistency
+    // Extract title from job metadata or prompt
+    const jobMetadata = job.metadata || {};
+    const prompt = jobMetadata.prompt || jobMetadata.original_prompt || 'Untitled Video';
+    const title = prompt.length <= 60 ? prompt : prompt.substring(0, 60) + '...';
+    
+    // Generate placeholder thumbnail URL for videos
+    const placeholderThumbnailUrl = `system_assets/video-placeholder-thumbnail.png`;
+    
+    console.log('📹 Setting video thumbnail:', {
+      videoId: job.video_id,
+      placeholderThumbnailUrl,
+      hasVideoUrl: !!videoPath
+    });
+    
+    // Store exact path from worker - this matches actual storage structure  
     const updateData = {
       status: 'completed',
-      video_url: normalizedVideoPath,
-      signed_url: normalizedVideoPath,
+      title: title,
+      video_url: videoPath,
+      thumbnail_url: placeholderThumbnailUrl,
+      signed_url: videoPath,
       signed_url_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       completed_at: new Date().toISOString(),
       metadata: {
-        ...job.metadata || {},
+        ...jobMetadata,
+        prompt: prompt,
         callback_processed_at: new Date().toISOString(),
-        normalized_path: normalizedVideoPath,
-        bucket: isEnhanced ? `video7b_${quality}_enhanced` : `video_${quality}`
+        stored_path: videoPath,
+        thumbnail_placeholder: true,
+        bucket: isEnhanced ? `video7b_${quality}_enhanced` : `video_${quality}`,
+        path_consistency_fixed: true
       }
     };
     
@@ -979,10 +989,11 @@ async function handleVideoJobCallback(supabase, job, status, assets, error_messa
         updateData
       });
     } else {
-      console.log('✅ Video job updated successfully:', {
+      console.log('✅ Video job updated successfully with path consistency fix:', {
         videoId: job.video_id,
-        path: normalizedVideoPath,
-        bucket: updateData.metadata.bucket
+        storedPath: videoPath,
+        bucket: updateData.metadata.bucket,
+        pathConsistencyFixed: true
       });
     }
   }
@@ -1034,11 +1045,14 @@ All components now use **identical parameter conventions**:
 2. **Parameter Standardization**: All field names use consistent snake_case format
 3. **Queue Routing**: Proper routing based on job type (SDXL → sdxl_queue, WAN → wan_queue)
 4. **Enhanced Job Support**: All 10 job types properly parsed and configured
-5. **File Path Normalization**: Consistent user-scoped path handling
-6. **Error Handling**: Comprehensive validation and error reporting
+5. **Path Consistency Fixed**: Removed path normalization - workers now upload with correct user-scoped paths
+6. **Title Extraction**: Automatic title extraction from job metadata/prompt
+7. **Enhanced Metadata**: Better model type tracking (`sdxl`, `enhanced-7b`, `wan`)
+8. **Video Thumbnails**: Added placeholder thumbnails for videos
+9. **Error Handling**: Comprehensive validation and error reporting
 
 ### **Production Ready**
 
 Both edge functions are **production-ready** and perfectly aligned with the worker conventions. The system should operate seamlessly with standardized parameter handling across all components.
 
-**Status: ✅ All Edge Functions Aligned and Production Ready** 
+**Status: ✅ All Edge Functions Aligned and Production Ready - Path Consistency Fixed** 

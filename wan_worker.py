@@ -827,9 +827,9 @@ Enhanced detailed prompt:"""
             if not is_valid:
                 raise Exception(f"Generated file failed final validation: {validation_msg}")
             
-            # Upload with proper storage path
+            # Upload with proper storage path (user-scoped)
             file_extension = final_config['file_extension']
-            storage_path = f"{job_type}/{video_id}.{file_extension}"
+            storage_path = f"{job_type}/{user_id}/{video_id}.{file_extension}"
             
             print(f"📤 Uploading validated {final_config['content_type']} file to: {storage_path}")
             relative_path = self.upload_to_supabase(output_file, storage_path)
