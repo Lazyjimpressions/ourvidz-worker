@@ -1,6 +1,6 @@
-# sdxl_worker.py - BATCH GENERATION VERSION - FIXED CALLBACK PARAMETERS
+# sdxl_worker.py - BATCH GENERATION VERSION - CONSISTENT PARAMETER NAMING
 # NEW: Supports 6-image batch generation for better user experience
-# FIXED: Correct callback parameter names for job-callback compatibility
+# FIXED: Consistent callback parameter names (job_id, assets) for edge function compatibility
 # Performance: 3.6s per image, ~22s for 6 images on RTX 6000 ADA
 
 import os
@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 class LustifySDXLWorker:
     def __init__(self):
         """Initialize LUSTIFY SDXL Worker with batch generation support"""
-        print("🎨 LUSTIFY SDXL WORKER - BATCH GENERATION VERSION - FIXED CALLBACKS")
+        print("🎨 LUSTIFY SDXL WORKER - BATCH GENERATION VERSION - CONSISTENT PARAMETERS")
         print("⚡ RTX 6000 ADA: 3-8s per image, supports 6-image batches")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: 6-image batch generation for improved UX")
-        print("🔧 FIXED: Callback parameter consistency with job-callback function")
+        print("🔧 FIXED: Consistent parameter naming (job_id, assets) across all callbacks")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -73,7 +73,7 @@ class LustifySDXLWorker:
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
         self.validate_environment()
-        logger.info("🎨 LUSTIFY SDXL Worker with batch generation initialized")
+        logger.info("🎨 LUSTIFY SDXL Worker with consistent parameter naming initialized")
 
     def validate_environment(self):
         """Comprehensive environment validation"""
@@ -298,12 +298,12 @@ class LustifySDXLWorker:
             return None
 
     def process_job(self, job_data):
-        """Process a single SDXL job with FIXED payload structure"""
-        # FIXED: Use correct field names from edge function
-        job_id = job_data['id']           # ✅ Edge function sends 'id'
-        job_type = job_data['type']       # ✅ Edge function sends 'type'
-        prompt = job_data['prompt']
-        user_id = job_data['user_id']     # ✅ Edge function sends 'user_id'
+        """Process a single SDXL job with CONSISTENT payload structure"""
+        # CONSISTENT: Use standardized field names across all workers
+        job_id = job_data['id']           # ✅ Standard: 'id' field
+        job_type = job_data['type']       # ✅ Standard: 'type' field
+        prompt = job_data['prompt']       # ✅ Standard: 'prompt' field
+        user_id = job_data['user_id']     # ✅ Standard: 'user_id' field
         
         # Optional fields with defaults
         image_id = job_data.get('image_id', f"image_{int(time.time())}")
@@ -343,7 +343,7 @@ class LustifySDXLWorker:
             logger.info(f"✅ SDXL job {job_id} completed in {total_time:.1f}s")
             logger.info(f"📁 Generated {len(upload_urls)} images")
             
-            # FIXED: Notify completion with correct parameter names
+            # CONSISTENT: Notify completion with standardized parameter names
             self.notify_completion(job_id, 'completed', assets=upload_urls)
             
         except Exception as e:
@@ -356,21 +356,21 @@ class LustifySDXLWorker:
             gc.collect()
 
     def notify_completion(self, job_id, status, assets=None, error_message=None):
-        """FIXED: Notify Supabase of job completion with correct callback format"""
+        """CONSISTENT: Notify Supabase with standardized callback parameter names"""
         try:
-            # FIXED: Use correct callback format that matches job-callback edge function expectations
+            # CONSISTENT: Use standardized callback format across all workers
             callback_data = {
-                'job_id': job_id,        # ✅ Use job_id (snake_case) as expected by callback function
-                'status': status,
-                'assets': assets if assets else [],  # ✅ Use 'assets' array format
-                'error_message': error_message
+                'job_id': job_id,        # ✅ Standard: job_id (snake_case)
+                'status': status,        # ✅ Standard: status field
+                'assets': assets if assets else [],  # ✅ Standard: assets array
+                'error_message': error_message      # ✅ Standard: error_message field
             }
             
-            logger.info(f"📞 Sending FIXED callback for job {job_id}:")
+            logger.info(f"📞 Sending CONSISTENT callback for job {job_id}:")
             logger.info(f"   Status: {status}")
             logger.info(f"   Assets count: {len(assets) if assets else 0}")
             logger.info(f"   Error: {error_message}")
-            logger.info(f"   Using job_id parameter: {job_id}")
+            logger.info(f"   Parameters: job_id, status, assets, error_message (CONSISTENT)")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -383,7 +383,7 @@ class LustifySDXLWorker:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ FIXED Callback sent successfully for job {job_id}")
+                logger.info(f"✅ CONSISTENT Callback sent successfully for job {job_id}")
                 if assets:
                     logger.info(f"📊 Sent {len(assets)} asset URLs")
             else:
@@ -417,7 +417,7 @@ class LustifySDXLWorker:
         logger.info("⚡ Performance: 3-8s per image, ~22s for 6-image batch")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
         logger.info("🖼️ NEW: 6-image batch generation support")
-        logger.info("🔧 FIXED: Proper callback parameter consistency (job_id + assets)")
+        logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message)")
         
         job_count = 0
         
@@ -449,7 +449,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - BATCH GENERATION VERSION - FIXED CALLBACKS")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - CONSISTENT PARAMETER NAMING VERSION")
     
     # Environment validation
     required_vars = [

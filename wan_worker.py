@@ -1,8 +1,8 @@
-# wan_worker.py - CRITICAL FIX for WAN Video Generation + Qwen Base Model Integration
+# wan_worker.py - CRITICAL FIX for WAN Video Generation + CONSISTENT PARAMETER NAMING
 # FIXES: WAN generating text files instead of videos, MIME type errors, command formatting
 # MAJOR FIX: Corrected frame_num for 5-second videos (80 frames at 16fps)
 # NEW FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)
-# CALLBACK FIX: Consistent parameter names with job-callback function
+# PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
 # Date: July 6, 2025
 
 import os
@@ -145,9 +145,9 @@ class EnhancedWanWorker:
             }
         }
         
-        print("🎬 Enhanced OurVidz WAN Worker initialized - FIXED CALLBACKS")
+        print("🎬 Enhanced OurVidz WAN Worker initialized - CONSISTENT PARAMETERS")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
-        print("🔧 CALLBACK FIX: Consistent parameter names with job-callback function")
+        print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
@@ -692,21 +692,21 @@ Enhanced detailed prompt:"""
             raise
 
     def notify_completion(self, job_id, status, output_url=None, error_message=None):
-        """FIXED: Notify Supabase of job completion with correct callback format"""
+        """CONSISTENT: Notify Supabase with standardized callback parameter names"""
         try:
-            # FIXED: Use correct callback format that matches job-callback edge function expectations
+            # CONSISTENT: Use standardized callback format across all workers
             callback_data = {
-                'job_id': job_id,        # ✅ Use job_id (snake_case) as expected by callback function
-                'status': status,
-                'assets': [output_url] if output_url else [],  # ✅ Use 'assets' array format
-                'error_message': error_message
+                'job_id': job_id,        # ✅ Standard: job_id (snake_case)
+                'status': status,        # ✅ Standard: status field
+                'assets': [output_url] if output_url else [],  # ✅ Standard: assets array
+                'error_message': error_message      # ✅ Standard: error_message field
             }
             
-            print(f"📞 Sending FIXED callback for job {job_id}:")
+            print(f"📞 Sending CONSISTENT callback for job {job_id}:")
             print(f"   Status: {status}")
             print(f"   Output URL: {output_url}")
             print(f"   Error: {error_message}")
-            print(f"   Using job_id parameter: {job_id}")
+            print(f"   Parameters: job_id, status, assets, error_message (CONSISTENT)")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -719,7 +719,7 @@ Enhanced detailed prompt:"""
             )
             
             if response.status_code == 200:
-                print(f"✅ FIXED Callback sent successfully for job {job_id}")
+                print(f"✅ CONSISTENT Callback sent successfully for job {job_id}")
             else:
                 print(f"❌ Callback failed: {response.status_code} - {response.text}")
                 print(f"❌ Callback payload was: {callback_data}")
@@ -728,19 +728,19 @@ Enhanced detailed prompt:"""
             print(f"❌ Callback error: {e}")
 
     def process_job_with_enhanced_diagnostics(self, job_data):
-        """CRITICAL FIX: Enhanced process_job with correct payload structure and FIXED callbacks"""
-        # FIXED: Use correct field names from edge function
-        job_id = job_data['id']           # ✅ Edge function sends 'id'
-        job_type = job_data['type']       # ✅ Edge function sends 'type'
-        original_prompt = job_data['prompt']
-        user_id = job_data['user_id']     # ✅ Edge function sends 'user_id'
+        """CONSISTENT: Enhanced process_job with standardized payload structure"""
+        # CONSISTENT: Use standardized field names across all workers
+        job_id = job_data['id']           # ✅ Standard: 'id' field
+        job_type = job_data['type']       # ✅ Standard: 'type' field
+        original_prompt = job_data['prompt']  # ✅ Standard: 'prompt' field
+        user_id = job_data['user_id']     # ✅ Standard: 'user_id' field
         
         # Optional fields with defaults
         video_id = job_data.get('video_id', f"video_{int(time.time())}")
         image_id = job_data.get('image_id', f"image_{int(time.time())}")
         config = job_data.get('config', {})
         
-        print(f"🔄 Processing job {job_id} ({job_type}) with CRITICAL FIXES + FIXED CALLBACKS")
+        print(f"🔄 Processing job {job_id} ({job_type}) with CONSISTENT PARAMETERS")
         print(f"📝 Original prompt: {original_prompt}")
         print(f"🎯 Video ID: {video_id}")
         print(f"👤 User ID: {user_id}")
@@ -807,7 +807,7 @@ Enhanced detailed prompt:"""
             except:
                 pass
             
-            # FIXED: Success callback with correct parameters
+            # CONSISTENT: Success callback with standardized parameters
             self.notify_completion(job_id, 'completed', relative_path)
             
             total_time = time.time() - job_start_time
@@ -831,7 +831,7 @@ Enhanced detailed prompt:"""
             except:
                 pass
             
-            # FIXED: Failure callback with correct parameters
+            # CONSISTENT: Failure callback with standardized parameters
             self.notify_completion(job_id, 'failed', error_message=error_msg)
 
     def poll_queue(self):
@@ -861,16 +861,16 @@ Enhanced detailed prompt:"""
             return None
 
     def run_with_enhanced_diagnostics(self):
-        """Main worker loop with startup diagnostics and FIXED callbacks"""
-        print("🎬 Enhanced OurVidz WAN Worker with CRITICAL FIXES + FIXED CALLBACKS started!")
+        """Main worker loop with startup diagnostics and CONSISTENT PARAMETERS"""
+        print("🎬 Enhanced OurVidz WAN Worker with CONSISTENT PARAMETERS started!")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
-        print("🔧 CALLBACK FIX: Consistent parameter names with job-callback function")
+        print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print("🔧 MAJOR FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)")
         print("🔧 OPTIMIZATIONS APPLIED:")
         print("   • Optimized frame counts based on confirmed 16.67fps effective rate")
         print("   • video_fast: 83 frames for 5.0 seconds (45s faster processing)")
         print("   • video_high: 83 frames for 5.0 seconds (66s faster processing)")
-        print("   • Fixed callback parameters (job_id + assets)")
+        print("   • Consistent callback parameters (job_id, status, assets, error_message)")
         print("📊 Status: Enhanced with Qwen 7B Base (no content filtering) ✅")
         
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
@@ -945,10 +945,10 @@ if __name__ == "__main__":
         print(f"❌ WAN code not found: {wan_code_path}")
         exit(1)
     
-    print("✅ All paths validated, starting worker with CRITICAL FIXES + FIXED CALLBACKS...")
+    print("✅ All paths validated, starting worker with CONSISTENT PARAMETERS...")
     print("🔧 MAJOR OPTIMIZATION: 83 frames for 5-second videos (was 100 frames)")
     print("🔧 MAJOR FIX: Using Qwen 2.5-7B Base model for unrestricted NSFW enhancement")
-    print("🔧 CALLBACK FIX: Using job_id + assets parameters for compatibility")
+    print("🔧 PARAMETER FIX: Using job_id, status, assets, error_message for compatibility")
     print("🔧 TIME SAVINGS: 45 seconds faster processing per video")
     
     try:

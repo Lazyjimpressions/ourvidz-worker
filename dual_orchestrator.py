@@ -1,6 +1,6 @@
-# dual_orchestrator.py - UPDATED FOR GRACEFUL VALIDATION
+# dual_orchestrator.py - UPDATED FOR GRACEFUL VALIDATION + CONSISTENT PARAMETERS
 # Manages both LUSTIFY SDXL and WAN 2.1 workers concurrently
-# Critical Fix: Graceful SDXL validation + Enhanced WAN worker support
+# Critical Fix: Graceful SDXL validation + Enhanced WAN worker support + Consistent parameter naming
 # Optimized for RTX 6000 ADA 48GB VRAM capacity
 
 import os
@@ -51,7 +51,7 @@ class DualWorkerOrchestrator:
         logger.info("🎭 Dual Worker Orchestrator initialized")
         logger.info("🎨 SDXL: Fast image generation (3-8s)")
         logger.info("🎬 Enhanced WAN: Video + AI enhancement (67-294s)")
-        logger.info("🔧 FIXED: Graceful validation for production stability")
+        logger.info("🔧 FIXED: Graceful validation + consistent parameter naming")
 
     def validate_environment(self):
         """Validate environment for dual worker operation"""
@@ -140,19 +140,36 @@ class DualWorkerOrchestrator:
         else:
             logger.info("✅ All environment variables configured")
             
-        # Validate parameter fix implementation
-        logger.info("🔧 Validating parameter fix implementation...")
+        # Validate parameter consistency in worker files
+        logger.info("🔧 Validating parameter consistency across workers...")
         wan_script_path = Path('wan_worker.py')
+        sdxl_script_path = Path('sdxl_worker.py')
+        
+        consistency_issues = []
+        
         if wan_script_path.exists():
             with open(wan_script_path, 'r') as f:
-                content = f.read()
-                if "'filePath': file_path" in content:
-                    logger.info("✅ WAN worker parameter fix confirmed")
-                elif "'outputUrl': file_path" in content:
-                    logger.error("❌ WAN worker still uses old parameter name")
-                    return False
+                wan_content = f.read()
+                # Check for consistent parameter naming
+                if "'job_id':" in wan_content and "'assets':" in wan_content:
+                    logger.info("✅ WAN worker uses consistent parameter naming (job_id, assets)")
                 else:
-                    logger.warning("⚠️ Could not verify WAN worker parameter fix")
+                    consistency_issues.append("WAN worker parameter naming inconsistent")
+        
+        if sdxl_script_path.exists():
+            with open(sdxl_script_path, 'r') as f:
+                sdxl_content = f.read()
+                # Check for consistent parameter naming
+                if "'job_id':" in sdxl_content and "'assets':" in sdxl_content:
+                    logger.info("✅ SDXL worker uses consistent parameter naming (job_id, assets)")
+                else:
+                    consistency_issues.append("SDXL worker parameter naming inconsistent")
+        
+        if consistency_issues:
+            logger.error(f"❌ Parameter consistency issues: {consistency_issues}")
+            return False
+        else:
+            logger.info("✅ Parameter naming consistency validated")
             
         logger.info("✅ Environment validation passed")
         return True
@@ -223,9 +240,9 @@ class DualWorkerOrchestrator:
                 # Log worker output with prefix
                 logger.info(f"[{worker_id.upper()}] {line.strip()}")
                 
-                # Look for parameter fix confirmations
-                if "filePath =" in line and worker_id == 'wan':
-                    logger.info(f"✅ WAN parameter fix confirmed in operation")
+                # Look for parameter consistency confirmations
+                if "job_id" in line and "assets" in line and worker_id in ['wan', 'sdxl']:
+                    logger.info(f"✅ {worker_id.upper()} parameter consistency confirmed in operation")
                 
             # Process ended
             process.wait()
@@ -366,7 +383,7 @@ class DualWorkerOrchestrator:
     def run(self):
         """Main orchestrator run loop"""
         logger.info("🎭 DUAL WORKER ORCHESTRATOR STARTING")
-        logger.info("🔧 GRACEFUL VALIDATION VERSION - Production Ready")
+        logger.info("🔧 GRACEFUL VALIDATION + CONSISTENT PARAMETERS VERSION - Production Ready")
         logger.info("=" * 70)
         
         # Validate environment
@@ -396,14 +413,16 @@ class DualWorkerOrchestrator:
         logger.info("=" * 70)
         logger.info("🎨 SDXL Worker: sdxl_queue → sdxl_image_fast, sdxl_image_high")
         logger.info("  ⚡ Performance: 3-8s generation")
+        logger.info("  📋 Parameters: job_id, assets (consistent)")
         logger.info("")
         logger.info("🎬 Enhanced WAN Worker: wan_queue → 8 job types")
         logger.info("  📝 Standard: image_fast, image_high, video_fast, video_high")
         logger.info("  ✨ Enhanced: image7b_fast_enhanced, image7b_high_enhanced, video7b_fast_enhanced, video7b_high_enhanced")
         logger.info("  ⚡ Performance: 67-294s generation (includes Qwen 7B enhancement)")
+        logger.info("  📋 Parameters: job_id, assets (consistent)")
         logger.info("")
         logger.info("💡 Both workers monitoring their respective queues")
-        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B")
+        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B, Consistent parameter naming")
         logger.info("=" * 70)
         
         # Main loop - keep orchestrator alive
@@ -429,7 +448,7 @@ class DualWorkerOrchestrator:
         return True
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting OurVidz Dual Worker System - GRACEFUL VALIDATION VERSION")
+    logger.info("🚀 Starting OurVidz Dual Worker System - CONSISTENT PARAMETERS VERSION")
     
     try:
         orchestrator = DualWorkerOrchestrator()
