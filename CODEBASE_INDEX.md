@@ -48,30 +48,6 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - Enhanced: `image7b_fast_enhanced`, `image7b_high_enhanced`, `video7b_fast_enhanced`, `video7b_high_enhanced`
 - **Status**: ✅ **ACTIVE - Production System**
 
-## 📁 **LEGACY/BACKUP WORKERS** (Not Active)
-
-### 🚀 Optimized Worker (`worker.py`) - **LEGACY**
-**Purpose**: Previous GPU-optimized production version with 2.6x performance improvement
-- **Status**: ❌ **LEGACY - Replaced by enhanced WAN worker**
-
-### 🎯 Enhanced Multi-Model Worker (`ourvidz_enhanced_worker.py`) - **LEGACY**
-**Purpose**: Previous multi-model integration with functional quality tiers
-- **Status**: ❌ **LEGACY - Replaced by dual orchestrator architecture**
-
-### 🔧 14B Worker (`worker-14b.py`) - **LEGACY**
-**Purpose**: Previous high-quality generation using 14B parameter models
-- **Status**: ❌ **LEGACY - Functionality integrated into enhanced WAN worker**
-
-## 📁 **LEGACY/BACKUP WORKERS** (Not Active)
-
-### 📁 Legacy Workers
-- `worker_Old_Wan_only.py`: Original WAN-only implementation
-- `sdxl_worker_old.py`: Previous SDXL implementation  
-- `dual_orchestrator_old.py`: Previous orchestrator version
-- `worker.py`: Previous optimized worker (replaced by enhanced WAN worker)
-- `ourvidz_enhanced_worker.py`: Previous multi-model worker (replaced by dual orchestrator)
-- `worker-14b.py`: Previous 14B worker (functionality integrated into enhanced WAN worker)
-
 ## Setup and Configuration
 
 ### 🔧 Setup Script (`setup.sh`)
@@ -91,10 +67,6 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - Diffusers 0.31.0, Transformers 4.45.2
   - xformers 0.0.28.post2 for memory optimization
   - WAN 2.1 specific: easydict, av, decord, omegaconf, hydra-core
-
-### 📥 Model Download Scripts
-- `download_models.py`: Downloads WAN and Mistral models
-- `download_all_models.py`: Comprehensive model download utility
 
 ## Environment Configuration
 
@@ -126,20 +98,20 @@ HF_TOKEN=                  # Optional HuggingFace token
 #### SDXL Jobs
 | Job Type | Quality | Steps | Time | Resolution | Use Case |
 |----------|---------|-------|------|------------|----------|
-| `sdxl_image_fast` | Fast | 15 | 3-8s | 1024x1024 | Quick preview |
-| `sdxl_image_high` | High | 25 | 3-8s | 1024x1024 | Final quality |
+| `sdxl_image_fast` | Fast | 15 | 29.9s | 1024x1024 | Quick preview (6 images) |
+| `sdxl_image_high` | High | 25 | 42.4s | 1024x1024 | Final quality (6 images) |
 
 #### WAN Jobs
 | Job Type | Quality | Steps | Frames | Time | Resolution | Enhancement |
 |----------|---------|-------|--------|------|------------|-------------|
 | `image_fast` | Fast | 4 | 1 | 73s | 480x832 | No |
 | `image_high` | High | 6 | 1 | 90s | 480x832 | No |
-| `video_fast` | Fast | 4 | 17 | 180s | 480x832 | No |
-| `video_high` | High | 6 | 17 | 280s | 480x832 | No |
-| `image7b_fast_enhanced` | Fast | 4 | 1 | 87s | 480x832 | Yes |
+| `video_fast` | Fast | 4 | 17 | 241.4s | 480x832 | No |
+| `video_high` | High | 6 | 17 | 360s | 480x832 | No |
+| `image7b_fast_enhanced` | Fast | 4 | 1 | 233.5s | 480x832 | Yes |
 | `image7b_high_enhanced` | High | 6 | 1 | 104s | 480x832 | Yes |
-| `video7b_fast_enhanced` | Fast | 4 | 17 | 194s | 480x832 | Yes |
-| `video7b_high_enhanced` | High | 6 | 17 | 294s | 480x832 | Yes |
+| `video7b_fast_enhanced` | Fast | 4 | 17 | 266.1s | 480x832 | Yes |
+| `video7b_high_enhanced` | High | 6 | 17 | 361s | 480x832 | Yes |
 
 ### 🔄 Processing Pipeline
 1. **Job Polling**: Workers poll Redis queue for new jobs
@@ -151,9 +123,9 @@ HF_TOKEN=                  # Optional HuggingFace token
 ## Performance Characteristics
 
 ### ⚡ Speed Optimizations
-- **SDXL**: 3.6s per image, batch processing for 6 images
-- **WAN Fast**: 67s for images, 180s for videos
-- **WAN High**: 90s for images, 280s for videos
+- **SDXL**: 29.9-42.4s total (3.1-5.0s per image), batch processing for 6 images
+- **WAN Fast**: 73-241s for images/videos
+- **WAN High**: 90-360s for images/videos
 - **GPU Memory**: Optimized for RTX 6000 ADA 48GB
 
 ### 🔧 Memory Management
@@ -181,7 +153,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 
 ### 🔄 Version History
 - Multiple iterations of workers with performance improvements
-- Legacy versions preserved for reference
+- Legacy versions removed for cleaner codebase
 - Continuous optimization for production stability
 
 ### 🎯 Key Improvements
@@ -191,9 +163,9 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Dual worker orchestration for concurrent processing
 
 ### 🔧 Technical Debt
-- Multiple worker versions (consolidation opportunity)
-- Legacy files present but not actively used
+- Legacy files removed for cleaner maintenance
 - Environment setup complexity (addressed in setup.sh)
+- Performance optimization opportunities identified
 
 ## Usage Instructions
 
@@ -221,8 +193,15 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **SDXL Worker**: Fast image generation with batch support
 - **Enhanced WAN Worker**: Video generation with AI enhancement
 
-### ❌ **Legacy Components** (Not Used)
-- All other worker files are legacy/backup versions
-- Functionality has been consolidated into the active trio
+### 📊 **Testing Status**
+- **SDXL Jobs**: ✅ Both job types tested and working
+- **WAN Jobs**: ✅ 5/8 job types tested and working
+- **Enhanced Jobs**: ✅ Working but quality optimization needed
+- **Performance Baselines**: ✅ Real data established for tested jobs
+
+### 🚧 **Pending Testing**
+- **WAN Standard**: `image_high`, `video_high`
+- **WAN Enhanced**: `image7b_high_enhanced`
+- **Performance Optimization**: Model pre-loading implementation
 
 This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling and monitoring capabilities. The current architecture uses a **dual-worker orchestration pattern** for optimal resource utilization and reliability. 
