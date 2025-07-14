@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 class LustifySDXLWorker:
     def __init__(self):
-        """Initialize LUSTIFY SDXL Worker with batch generation support"""
-        print("🎨 LUSTIFY SDXL WORKER - BATCH GENERATION VERSION - CONSISTENT PARAMETERS")
-        print("⚡ RTX 6000 ADA: 3-8s per image, supports 6-image batches")
+        """Initialize LUSTIFY SDXL Worker with flexible quantity generation support"""
+        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY VERSION - CONSISTENT PARAMETERS")
+        print("⚡ RTX 6000 ADA: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
-        print("🚀 NEW: 6-image batch generation for improved UX")
+        print("🚀 NEW: User-selected quantities (1, 3, or 6 images) for flexible UX")
         print("🔧 FIXED: Consistent parameter naming (job_id, assets) across all callbacks")
         
         # Model configuration
@@ -46,7 +46,7 @@ class LustifySDXLWorker:
                 'expected_time_per_image': 4,
                 'quality_tier': 'fast',
                 'phase': 1,
-                'supports_batch': True
+                'supports_flexible_quantities': True
             },
             'sdxl_image_high': {
                 'content_type': 'image', 
@@ -59,7 +59,7 @@ class LustifySDXLWorker:
                 'expected_time_per_image': 8,
                 'quality_tier': 'high',
                 'phase': 1,
-                'supports_batch': True
+                'supports_flexible_quantities': True
             }
         }
         
@@ -158,8 +158,8 @@ class LustifySDXLWorker:
             logger.error(f"❌ Model loading failed: {e}")
             raise
 
-    def generate_images_batch(self, prompt, job_type, num_images=6):
-        """Generate multiple images in a single batch for efficiency"""
+    def generate_images_batch(self, prompt, job_type, num_images=1):
+        """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images)"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
             
@@ -168,7 +168,9 @@ class LustifySDXLWorker:
         # Ensure model is loaded
         self.load_model()
         
-        logger.info(f"🎨 Generating {num_images} images for {job_type}: {prompt[:50]}...")
+        logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
+        if num_images > 1:
+            logger.info(f"📊 Expected performance: {num_images * config['expected_time_per_image']:.0f}s total")
         start_time = time.time()
         
         try:
@@ -309,12 +311,17 @@ class LustifySDXLWorker:
         image_id = job_data.get('image_id', f"image_{int(time.time())}")
         config = job_data.get('config', {})
         
-        # Extract num_images from config (default to 6 for batch generation)
-        num_images = config.get('num_images', 6)
+        # Extract num_images from config (default to 1 for backward compatibility)
+        num_images = config.get('num_images', 1)
+        
+        # Validate num_images (only allow 1, 3, or 6 for performance optimization)
+        if num_images not in [1, 3, 6]:
+            logger.warning(f"⚠️ Invalid num_images: {num_images}, defaulting to 1")
+            num_images = 1
         
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")
-        logger.info(f"🖼️ Generating {num_images} images")
+        logger.info(f"🖼️ Generating {num_images} image(s) for user")
         logger.info(f"👤 User ID: {user_id}")
         
         # Phase validation
@@ -414,9 +421,9 @@ class LustifySDXLWorker:
     def run(self):
         """Main SDXL worker loop"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
-        logger.info("⚡ Performance: 3-8s per image, ~22s for 6-image batch")
+        logger.info("⚡ Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
-        logger.info("🖼️ NEW: 6-image batch generation support")
+        logger.info("🖼️ FLEXIBLE: User-selected quantities (1, 3, or 6 images)")
         logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message)")
         
         job_count = 0
@@ -449,7 +456,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - CONSISTENT PARAMETER NAMING VERSION")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY VERSION")
     
     # Environment validation
     required_vars = [
