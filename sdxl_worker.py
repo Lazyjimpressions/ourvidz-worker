@@ -1,7 +1,7 @@
-# sdxl_worker.py - BATCH GENERATION VERSION - CONSISTENT PARAMETER NAMING
-# NEW: Supports 6-image batch generation for better user experience
+# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION - CONSISTENT PARAMETER NAMING
+# NEW: Supports user-selected quantities (1, 3, or 6 images) and image-to-image generation
 # FIXED: Consistent callback parameter names (job_id, assets) for edge function compatibility
-# Performance: 3.6s per image, ~22s for 6 images on RTX 6000 ADA
+# Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s on RTX 6000 ADA
 
 import os
 import json
@@ -10,6 +10,7 @@ import requests
 import uuid
 import torch
 import gc
+import io
 from pathlib import Path
 from PIL import Image
 from diffusers import StableDiffusionXLPipeline
@@ -21,11 +22,12 @@ logger = logging.getLogger(__name__)
 
 class LustifySDXLWorker:
     def __init__(self):
-        """Initialize LUSTIFY SDXL Worker with flexible quantity generation support"""
-        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY VERSION - CONSISTENT PARAMETERS")
+        """Initialize LUSTIFY SDXL Worker with flexible quantity and image-to-image generation support"""
+        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION - CONSISTENT PARAMETERS")
         print("⚡ RTX 6000 ADA: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: User-selected quantities (1, 3, or 6 images) for flexible UX")
+        print("🖼️ NEW: Image-to-image generation with style, composition, and character reference modes")
         print("🔧 FIXED: Consistent parameter naming (job_id, assets) across all callbacks")
         
         # Model configuration
@@ -73,7 +75,161 @@ class LustifySDXLWorker:
         self.redis_token = os.getenv('UPSTASH_REDIS_REST_TOKEN')
         
         self.validate_environment()
-        logger.info("🎨 LUSTIFY SDXL Worker with consistent parameter naming initialized")
+        logger.info("🎨 LUSTIFY SDXL Worker with flexible quantities and image-to-image support initialized")
+
+    def download_image_from_url(self, image_url):
+        """Download image from URL and return PIL Image object"""
+        try:
+            logger.info(f"📥 Downloading reference image from: {image_url}")
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            
+            # Convert to PIL Image
+            image = Image.open(io.BytesIO(response.content))
+            
+            # Convert to RGB if necessary
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            logger.info(f"✅ Reference image downloaded: {image.size}")
+            return image
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to download reference image: {e}")
+            raise
+
+    def preprocess_reference_image(self, image, target_size=(1024, 1024)):
+        """Preprocess reference image for SDXL generation"""
+        try:
+            # Resize image to target size while maintaining aspect ratio
+            image.thumbnail(target_size, Image.Resampling.LANCZOS)
+            
+            # Create new image with target size and paste resized image
+            new_image = Image.new('RGB', target_size, (0, 0, 0))
+            
+            # Center the image
+            x = (target_size[0] - image.width) // 2
+            y = (target_size[1] - image.height) // 2
+            new_image.paste(image, (x, y))
+            
+            logger.info(f"✅ Reference image preprocessed to {target_size}")
+            return new_image
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to preprocess reference image: {e}")
+            raise
+
+    def generate_with_style_reference(self, prompt, reference_image, strength, config, num_images=1):
+        """Generate images using reference image for style transfer"""
+        logger.info(f"🎨 Style transfer generation with strength: {strength}")
+        
+        # Preprocess reference image
+        processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use image-to-image pipeline with style strength
+        generation_kwargs = {
+            'prompt': [prompt] * num_images,
+            'image': processed_image,
+            'strength': strength,  # Controls how much of the original image to preserve
+            'num_inference_steps': config['num_inference_steps'],
+            'guidance_scale': config['guidance_scale'],
+            'num_images_per_prompt': 1,
+            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+        }
+        
+        # Add negative prompt
+        generation_kwargs['negative_prompt'] = [
+            "blurry, low quality, distorted, deformed, bad anatomy, "
+            "watermark, signature, text, logo, extra limbs, missing limbs"
+        ] * num_images
+        
+        with torch.inference_mode():
+            result = self.pipeline(**generation_kwargs)
+            return result.images
+
+    def generate_with_composition_reference(self, prompt, reference_image, strength, config, num_images=1):
+        """Generate images using reference image for composition guidance"""
+        logger.info(f"🎨 Composition guidance generation with strength: {strength}")
+        
+        # Preprocess reference image
+        processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use image-to-image with higher strength for composition preservation
+        generation_kwargs = {
+            'prompt': [prompt] * num_images,
+            'image': processed_image,
+            'strength': min(strength + 0.2, 0.9),  # Higher strength for composition
+            'num_inference_steps': config['num_inference_steps'],
+            'guidance_scale': config['guidance_scale'],
+            'num_images_per_prompt': 1,
+            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+        }
+        
+        # Add negative prompt
+        generation_kwargs['negative_prompt'] = [
+            "blurry, low quality, distorted, deformed, bad anatomy, "
+            "watermark, signature, text, logo, extra limbs, missing limbs"
+        ] * num_images
+        
+        with torch.inference_mode():
+            result = self.pipeline(**generation_kwargs)
+            return result.images
+
+    def generate_with_character_reference(self, prompt, reference_image, strength, config, num_images=1):
+        """Generate images using reference image for character consistency"""
+        logger.info(f"🎨 Character consistency generation with strength: {strength}")
+        
+        # Preprocess reference image
+        processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use image-to-image with moderate strength for character preservation
+        generation_kwargs = {
+            'prompt': [prompt] * num_images,
+            'image': processed_image,
+            'strength': strength,
+            'num_inference_steps': config['num_inference_steps'],
+            'guidance_scale': config['guidance_scale'],
+            'num_images_per_prompt': 1,
+            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+        }
+        
+        # Add negative prompt
+        generation_kwargs['negative_prompt'] = [
+            "blurry, low quality, distorted, deformed, bad anatomy, "
+            "watermark, signature, text, logo, extra limbs, missing limbs"
+        ] * num_images
+        
+        with torch.inference_mode():
+            result = self.pipeline(**generation_kwargs)
+            return result.images
+
+    def generate_image_to_image(self, prompt, reference_image, strength, config, num_images=1):
+        """Standard image-to-image generation"""
+        logger.info(f"🎨 Standard image-to-image generation with strength: {strength}")
+        
+        # Preprocess reference image
+        processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use image-to-image pipeline
+        generation_kwargs = {
+            'prompt': [prompt] * num_images,
+            'image': processed_image,
+            'strength': strength,
+            'num_inference_steps': config['num_inference_steps'],
+            'guidance_scale': config['guidance_scale'],
+            'num_images_per_prompt': 1,
+            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+        }
+        
+        # Add negative prompt
+        generation_kwargs['negative_prompt'] = [
+            "blurry, low quality, distorted, deformed, bad anatomy, "
+            "watermark, signature, text, logo, extra limbs, missing limbs"
+        ] * num_images
+        
+        with torch.inference_mode():
+            result = self.pipeline(**generation_kwargs)
+            return result.images
 
     def validate_environment(self):
         """Comprehensive environment validation"""
@@ -158,8 +314,8 @@ class LustifySDXLWorker:
             logger.error(f"❌ Model loading failed: {e}")
             raise
 
-    def generate_images_batch(self, prompt, job_type, num_images=1):
-        """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images)"""
+    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style'):
+        """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
             
@@ -168,7 +324,11 @@ class LustifySDXLWorker:
         # Ensure model is loaded
         self.load_model()
         
-        logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
+        if reference_image:
+            logger.info(f"🎨 Generating {num_images} image(s) with {reference_type} reference (strength: {reference_strength})")
+        else:
+            logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
+            
         if num_images > 1:
             logger.info(f"📊 Expected performance: {num_images * config['expected_time_per_image']:.0f}s total")
         start_time = time.time()
@@ -177,26 +337,39 @@ class LustifySDXLWorker:
             # Clear GPU cache before generation
             torch.cuda.empty_cache()
             
-            generation_kwargs = {
-                'prompt': [prompt] * num_images,  # Replicate prompt for batch
-                'height': config['height'],
-                'width': config['width'],
-                'num_inference_steps': config['num_inference_steps'],
-                'guidance_scale': config['guidance_scale'],
-                'num_images_per_prompt': 1,  # Generate 1 image per prompt in batch
-                'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]  # Different seeds for variety
-            }
-            
-            # Add negative prompt for better quality
-            generation_kwargs['negative_prompt'] = [
-                "blurry, low quality, distorted, deformed, bad anatomy, "
-                "watermark, signature, text, logo, extra limbs, missing limbs"
-            ] * num_images
-            
-            # Generate batch of images
-            with torch.inference_mode():
-                result = self.pipeline(**generation_kwargs)
-                images = result.images  # List of PIL Images
+            # Handle image-to-image generation
+            if reference_image:
+                if reference_type == 'style':
+                    images = self.generate_with_style_reference(prompt, reference_image, reference_strength, config, num_images)
+                elif reference_type == 'composition':
+                    images = self.generate_with_composition_reference(prompt, reference_image, reference_strength, config, num_images)
+                elif reference_type == 'character':
+                    images = self.generate_with_character_reference(prompt, reference_image, reference_strength, config, num_images)
+                else:
+                    # Default image-to-image
+                    images = self.generate_image_to_image(prompt, reference_image, reference_strength, config, num_images)
+            else:
+                # Standard text-to-image generation
+                generation_kwargs = {
+                    'prompt': [prompt] * num_images,  # Replicate prompt for batch
+                    'height': config['height'],
+                    'width': config['width'],
+                    'num_inference_steps': config['num_inference_steps'],
+                    'guidance_scale': config['guidance_scale'],
+                    'num_images_per_prompt': 1,  # Generate 1 image per prompt in batch
+                    'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]  # Different seeds for variety
+                }
+                
+                # Add negative prompt for better quality
+                generation_kwargs['negative_prompt'] = [
+                    "blurry, low quality, distorted, deformed, bad anatomy, "
+                    "watermark, signature, text, logo, extra limbs, missing limbs"
+                ] * num_images
+                
+                # Generate batch of images
+                with torch.inference_mode():
+                    result = self.pipeline(**generation_kwargs)
+                    images = result.images  # List of PIL Images
             
             generation_time = time.time() - start_time
             peak_vram = torch.cuda.max_memory_allocated() / (1024**3)
@@ -319,10 +492,21 @@ class LustifySDXLWorker:
             logger.warning(f"⚠️ Invalid num_images: {num_images}, defaulting to 1")
             num_images = 1
         
+        # Extract image-to-image parameters from metadata
+        metadata = job_data.get('metadata', {})
+        reference_image_url = metadata.get('reference_image_url')
+        reference_strength = metadata.get('reference_strength', 0.5)
+        reference_type = metadata.get('reference_type', 'style')
+        
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")
         logger.info(f"🖼️ Generating {num_images} image(s) for user")
         logger.info(f"👤 User ID: {user_id}")
+        
+        # Log image-to-image parameters if present
+        if reference_image_url:
+            logger.info(f"🖼️ Image-to-image mode: {reference_type} (strength: {reference_strength})")
+            logger.info(f"📥 Reference image URL: {reference_image_url}")
         
         # Phase validation
         if job_type not in self.phase_1_jobs:
@@ -332,9 +516,27 @@ class LustifySDXLWorker:
             return
         
         try:
+            # Handle image-to-image generation
+            reference_image = None
+            if reference_image_url:
+                try:
+                    reference_image = self.download_image_from_url(reference_image_url)
+                    logger.info(f"✅ Reference image loaded successfully")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load reference image: {e}")
+                    # Continue with text-to-image generation
+                    reference_image = None
+            
             # Generate batch of images
             start_time = time.time()
-            images = self.generate_images_batch(prompt, job_type, num_images)
+            images = self.generate_images_batch(
+                prompt, 
+                job_type, 
+                num_images, 
+                reference_image=reference_image,
+                reference_strength=reference_strength,
+                reference_type=reference_type
+            )
             
             if not images:
                 raise Exception("Image generation failed")
@@ -424,6 +626,7 @@ class LustifySDXLWorker:
         logger.info("⚡ Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
         logger.info("🖼️ FLEXIBLE: User-selected quantities (1, 3, or 6 images)")
+        logger.info("🖼️ IMAGE-TO-IMAGE: Style, composition, and character reference modes")
         logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message)")
         
         job_count = 0
@@ -456,7 +659,7 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY VERSION")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION")
     
     # Environment validation
     required_vars = [

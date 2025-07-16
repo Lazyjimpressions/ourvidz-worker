@@ -1,9 +1,10 @@
-# wan_worker.py - CRITICAL FIX for WAN Video Generation + CONSISTENT PARAMETER NAMING
+# wan_worker.py - CRITICAL FIX for WAN Video Generation + REFERENCE FRAMES + CONSISTENT PARAMETER NAMING
 # FIXES: WAN generating text files instead of videos, MIME type errors, command formatting
-# MAJOR FIX: Corrected frame_num for 5-second videos (80 frames at 16fps)
+# MAJOR FIX: Corrected frame_num for 5-second videos (83 frames at 16.67fps)
 # NEW FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
 # ENHANCED: Advanced NSFW optimization with UniPC sampling and temporal consistency
+# NEW: Reference frame support for video generation with start/end frame guidance
 # Date: July 6, 2025
 
 import os
@@ -17,7 +18,9 @@ import signal
 import mimetypes
 import fcntl
 import glob
+import io
 from pathlib import Path
+from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 class TimeoutException(Exception):
@@ -162,20 +165,308 @@ class EnhancedWanWorker:
             }
         }
         
-        print("🎬 Enhanced OurVidz WAN Worker initialized - NSFW OPTIMIZED")
+        print("🎬 Enhanced OurVidz WAN Worker initialized - NSFW OPTIMIZED + REFERENCE FRAMES")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print("🔧 ENHANCED: Advanced NSFW optimization with UniPC sampling and temporal consistency")
         print("🔧 ENHANCED: Improved guidance scales (6.5-7.5) for better NSFW quality")
         print("🔧 ENHANCED: NSFW-optimized prompt enhancement for realistic adult content")
+        print("🖼️ NEW: Reference frame support for video generation with start/end frame guidance")
         print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
         print(f"📁 WAN Model Path: {self.model_path}")
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
         print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
         print("🔧 CRITICAL FIX: Enhanced output file validation")
         print("🔧 CRITICAL FIX: Removed --negative_prompt (not supported by WAN 2.1)")
-        print("📊 Status: Enhanced with Qwen 7B Base + NSFW optimization ✅")
+        print("📊 Status: Enhanced with Qwen 7B Base + NSFW optimization + Reference Frames ✅")
         self.log_gpu_memory()
+
+    def download_image_from_url(self, image_url):
+        """Download image from URL and return PIL Image object"""
+        try:
+            print(f"📥 Downloading reference image from: {image_url}")
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            
+            # Convert to PIL Image
+            image = Image.open(io.BytesIO(response.content))
+            
+            # Convert to RGB if necessary
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            print(f"✅ Reference image downloaded: {image.size}")
+            return image
+            
+        except Exception as e:
+            print(f"❌ Failed to download reference image: {e}")
+            raise
+
+    def preprocess_reference_image(self, image, target_size=(480, 832)):
+        """Preprocess reference image for WAN video generation"""
+        try:
+            # Resize image to target size while maintaining aspect ratio
+            image.thumbnail(target_size, Image.Resampling.LANCZOS)
+            
+            # Create new image with target size and paste resized image
+            new_image = Image.new('RGB', target_size, (0, 0, 0))
+            
+            # Center the image
+            x = (target_size[0] - image.width) // 2
+            y = (target_size[1] - image.height) // 2
+            new_image.paste(image, (x, y))
+            
+            print(f"✅ Reference image preprocessed to {target_size}")
+            return new_image
+            
+        except Exception as e:
+            print(f"❌ Failed to preprocess reference image: {e}")
+            raise
+
+    def save_reference_image(self, image, filename):
+        """Save reference image to temporary file for WAN processing"""
+        try:
+            temp_path = f"/tmp/{filename}"
+            image.save(temp_path, "PNG", quality=95, optimize=True)
+            print(f"💾 Reference image saved: {temp_path}")
+            return temp_path
+        except Exception as e:
+            print(f"❌ Failed to save reference image: {e}")
+            raise
+
+    def generate_video_with_references(self, prompt, start_reference, end_reference, strength, job_type):
+        """Generate video with start and/or end reference frames"""
+        print(f"🎬 Generating video with reference frames (strength: {strength})")
+        
+        if start_reference and end_reference:
+            print("🖼️ Using both start and end reference frames")
+            return self.generate_video_with_start_end_references(prompt, start_reference, end_reference, strength, job_type)
+        elif start_reference:
+            print("🖼️ Using start reference frame only")
+            return self.generate_video_with_start_reference(prompt, start_reference, strength, job_type)
+        elif end_reference:
+            print("🖼️ Using end reference frame only")
+            return self.generate_video_with_end_reference(prompt, end_reference, strength, job_type)
+        else:
+            print("⚠️ No reference frames provided, falling back to standard generation")
+            return self.generate_standard_video(prompt, job_type)
+
+    def generate_video_with_start_end_references(self, prompt, start_ref, end_ref, strength, job_type):
+        """Generate video with both start and end reference frames"""
+        print("🎬 Generating video with start and end reference frames")
+        
+        # Preprocess reference images
+        start_processed = self.preprocess_reference_image(start_ref)
+        end_processed = self.preprocess_reference_image(end_ref)
+        
+        # Save reference images to temp files
+        timestamp = int(time.time())
+        start_ref_path = self.save_reference_image(start_processed, f"wan_start_ref_{timestamp}.png")
+        end_ref_path = self.save_reference_image(end_processed, f"wan_end_ref_{timestamp}.png")
+        
+        try:
+            # Generate video with reference frames using WAN
+            output_file = self.generate_content_with_references(prompt, job_type, start_ref_path, end_ref_path, strength)
+            return output_file
+        finally:
+            # Cleanup reference files
+            try:
+                os.unlink(start_ref_path)
+                os.unlink(end_ref_path)
+            except:
+                pass
+
+    def generate_video_with_start_reference(self, prompt, start_ref, strength, job_type):
+        """Generate video with start reference frame only"""
+        print("🎬 Generating video with start reference frame")
+        
+        # Preprocess reference image
+        start_processed = self.preprocess_reference_image(start_ref)
+        
+        # Save reference image to temp file
+        timestamp = int(time.time())
+        start_ref_path = self.save_reference_image(start_processed, f"wan_start_ref_{timestamp}.png")
+        
+        try:
+            # Generate video with start reference frame
+            output_file = self.generate_content_with_references(prompt, job_type, start_ref_path, None, strength)
+            return output_file
+        finally:
+            # Cleanup reference file
+            try:
+                os.unlink(start_ref_path)
+            except:
+                pass
+
+    def generate_video_with_end_reference(self, prompt, end_ref, strength, job_type):
+        """Generate video with end reference frame only"""
+        print("🎬 Generating video with end reference frame")
+        
+        # Preprocess reference image
+        end_processed = self.preprocess_reference_image(end_ref)
+        
+        # Save reference image to temp file
+        timestamp = int(time.time())
+        end_ref_path = self.save_reference_image(end_processed, f"wan_end_ref_{timestamp}.png")
+        
+        try:
+            # Generate video with end reference frame
+            output_file = self.generate_content_with_references(prompt, job_type, None, end_ref_path, strength)
+            return output_file
+        finally:
+            # Cleanup reference file
+            try:
+                os.unlink(end_ref_path)
+            except:
+                pass
+
+    def generate_standard_video(self, prompt, job_type):
+        """Generate standard video without reference frames"""
+        print("🎬 Generating standard video without reference frames")
+        return self.generate_content(prompt, job_type)
+
+    def generate_content_with_references(self, prompt, job_type, start_ref_path=None, end_ref_path=None, strength=0.5):
+        """Generate content with reference frames using WAN command line"""
+        if job_type not in self.job_configs:
+            raise Exception(f"Unsupported job type: {job_type}")
+            
+        config = self.job_configs[job_type]
+        
+        # Create output path with proper extension
+        timestamp = int(time.time())
+        file_extension = config['file_extension']
+        output_filename = f"wan_output_{timestamp}.{file_extension}"
+        temp_output_path = f"/tmp/{output_filename}"
+        
+        print(f"🎯 Output path: {temp_output_path}")
+        print(f"📄 Expected file type: {config['content_type']} (.{file_extension})")
+        print(f"🔧 FRAME COUNT: {config['frame_num']} frames for {config['content_type']}")
+        
+        try:
+            # Change to WAN code directory
+            original_cwd = os.getcwd()
+            os.chdir(self.wan_code_path)
+            
+            # Build WAN command with reference frame support
+            cmd = [
+                "python", "generate.py",
+                "--task", "t2v-1.3B",
+                "--ckpt_dir", self.model_path,
+                "--offload_model", "True",
+                "--size", config['size'],
+                "--sample_steps", str(config['sample_steps']),
+                "--sample_guide_scale", str(config['sample_guide_scale']),
+                "--sample_solver", config.get('sample_solver', 'unipc'),
+                "--sample_shift", str(config.get('sample_shift', 5.0)),
+                "--frame_num", str(config['frame_num']),
+                "--prompt", prompt,
+                "--save_file", temp_output_path
+            ]
+            
+            # Add reference frame parameters if provided
+            if start_ref_path:
+                cmd.extend(["--start_frame", start_ref_path])
+                print(f"🖼️ Start reference frame: {start_ref_path}")
+            
+            if end_ref_path:
+                cmd.extend(["--end_frame", end_ref_path])
+                print(f"🖼️ End reference frame: {end_ref_path}")
+            
+            if start_ref_path or end_ref_path:
+                cmd.extend(["--reference_strength", str(strength)])
+                print(f"🔧 Reference strength: {strength}")
+            
+            # Configure environment
+            env = self.setup_environment()
+            
+            print(f"🎬 WAN generation with references: {job_type}")
+            print(f"📝 Prompt: {prompt[:100]}...")
+            print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
+            print(f"💾 Output: {temp_output_path}")
+            print(f"📁 Working dir: {self.wan_code_path}")
+            print(f"🔧 Command: {' '.join(cmd)}")
+            
+            # Execute WAN generation
+            generation_start = time.time()
+            timeout_seconds = 500 if config['content_type'] == 'video' else 180
+            
+            print(f"⏰ Starting WAN subprocess with {timeout_seconds}s timeout")
+            print(f"🚀 Generation started at {time.strftime('%H:%M:%S')}")
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.wan_code_path,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds
+                )
+                
+                generation_time = time.time() - generation_start
+                os.chdir(original_cwd)
+                
+                print(f"✅ WAN subprocess completed in {generation_time:.1f}s")
+                print(f"📄 Return code: {result.returncode}")
+                
+                # Enhanced output analysis
+                if result.stdout:
+                    stdout_lines = result.stdout.strip().split('\n')
+                    print(f"📄 STDOUT ({len(stdout_lines)} lines):")
+                    for line in stdout_lines[-10:]:
+                        print(f"   [OUT] {line}")
+                
+                if result.stderr:
+                    stderr_lines = result.stderr.strip().split('\n')
+                    print(f"📄 STDERR ({len(stderr_lines)} lines):")
+                    for line in stderr_lines[-10:]:
+                        print(f"   [ERR] {line}")
+                
+                # Validate output
+                if result.returncode == 0:
+                    print(f"🔍 Checking output file: {temp_output_path}")
+                    
+                    if os.path.exists(temp_output_path):
+                        file_size = os.path.getsize(temp_output_path)
+                        print(f"✅ Output file found: {file_size / 1024**2:.2f}MB")
+                        
+                        is_valid, validation_msg = self.validate_output_file(temp_output_path, config['content_type'])
+                        if is_valid:
+                            print(f"✅ File validation passed: {validation_msg}")
+                            return temp_output_path
+                        else:
+                            print(f"❌ File validation failed: {validation_msg}")
+                            raise Exception(f"Generated file validation failed: {validation_msg}")
+                    else:
+                        print(f"❌ Output file not found: {temp_output_path}")
+                        raise Exception("No valid output file generated")
+                        
+                else:
+                    print(f"❌ WAN failed with return code: {result.returncode}")
+                    error_details = []
+                    if result.stderr:
+                        error_details.append(f"STDERR: {result.stderr[-300:]}")
+                    if result.stdout:
+                        error_details.append(f"STDOUT: {result.stdout[-300:]}")
+                    
+                    error_message = " | ".join(error_details) if error_details else "No error output captured"
+                    raise Exception(f"WAN generation failed (code {result.returncode}): {error_message}")
+                    
+            except subprocess.TimeoutExpired:
+                os.chdir(original_cwd)
+                print(f"❌ WAN generation timed out after {timeout_seconds}s")
+                raise Exception(f"WAN generation timed out after {timeout_seconds} seconds")
+                
+            except Exception as e:
+                os.chdir(original_cwd)
+                print(f"❌ WAN subprocess error: {e}")
+                raise
+                
+        except Exception as e:
+            if os.getcwd() != original_cwd:
+                os.chdir(original_cwd)
+            print(f"❌ WAN generation error: {e}")
+            raise
 
     def log_gpu_memory(self):
         """Monitor RTX 6000 ADA 48GB VRAM usage"""
@@ -774,10 +1065,24 @@ Enhanced detailed prompt:"""
         image_id = job_data.get('image_id', f"image_{int(time.time())}")
         config = job_data.get('config', {})
         
+        # Extract reference frame parameters from metadata
+        metadata = job_data.get('metadata', {})
+        start_reference_url = metadata.get('start_reference_image_url')
+        end_reference_url = metadata.get('end_reference_image_url')
+        reference_strength = metadata.get('reference_strength', 0.5)
+        
         print(f"🔄 Processing job {job_id} ({job_type}) with CONSISTENT PARAMETERS")
         print(f"📝 Original prompt: {original_prompt}")
         print(f"🎯 Video ID: {video_id}")
         print(f"👤 User ID: {user_id}")
+        
+        # Log reference frame parameters if present
+        if start_reference_url or end_reference_url:
+            print(f"🖼️ Reference frame mode: strength {reference_strength}")
+            if start_reference_url:
+                print(f"📥 Start reference image URL: {start_reference_url}")
+            if end_reference_url:
+                print(f"📥 End reference image URL: {end_reference_url}")
         
         job_start_time = time.time()
         
@@ -812,11 +1117,45 @@ Enhanced detailed prompt:"""
                 print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
             
-            print("🎬 Starting WAN generation with CRITICAL FIXES...")
-            print(f"🔧 FIXED FRAME COUNT: {final_config['frame_num']} frames for 5-second videos")
-            
-            # CRITICAL: Generate content with enhanced error handling
-            output_file = self.generate_content(actual_prompt, job_type)
+            # Handle reference frame generation for video jobs
+            if final_config['content_type'] == 'video' and (start_reference_url or end_reference_url):
+                print("🎬 Starting WAN video generation with reference frames...")
+                print(f"🔧 REFERENCE FRAME MODE: {final_config['frame_num']} frames for 5-second videos")
+                
+                # Download reference images
+                start_reference = None
+                end_reference = None
+                
+                if start_reference_url:
+                    try:
+                        start_reference = self.download_image_from_url(start_reference_url)
+                        print(f"✅ Start reference image loaded successfully")
+                    except Exception as e:
+                        print(f"❌ Failed to load start reference image: {e}")
+                        # Continue without start reference
+                
+                if end_reference_url:
+                    try:
+                        end_reference = self.download_image_from_url(end_reference_url)
+                        print(f"✅ End reference image loaded successfully")
+                    except Exception as e:
+                        print(f"❌ Failed to load end reference image: {e}")
+                        # Continue without end reference
+                
+                # Generate video with reference frames
+                output_file = self.generate_video_with_references(
+                    actual_prompt, 
+                    start_reference, 
+                    end_reference, 
+                    reference_strength,
+                    job_type
+                )
+            else:
+                print("🎬 Starting WAN generation with CRITICAL FIXES...")
+                print(f"🔧 FIXED FRAME COUNT: {final_config['frame_num']} frames for 5-second videos")
+                
+                # CRITICAL: Generate content with enhanced error handling
+                output_file = self.generate_content(actual_prompt, job_type)
             
             if not output_file:
                 raise Exception("Content generation failed or produced no output")
@@ -896,16 +1235,18 @@ Enhanced detailed prompt:"""
 
     def run_with_enhanced_diagnostics(self):
         """Main worker loop with startup diagnostics and CONSISTENT PARAMETERS"""
-        print("🎬 Enhanced OurVidz WAN Worker with CONSISTENT PARAMETERS started!")
+        print("🎬 Enhanced OurVidz WAN Worker with CONSISTENT PARAMETERS + REFERENCE FRAMES started!")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print("🔧 MAJOR FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)")
+        print("🖼️ NEW: Reference frame support for video generation with start/end frame guidance")
         print("🔧 OPTIMIZATIONS APPLIED:")
         print("   • Optimized frame counts based on confirmed 16.67fps effective rate")
         print("   • video_fast: 83 frames for 5.0 seconds (45s faster processing)")
         print("   • video_high: 83 frames for 5.0 seconds (66s faster processing)")
+        print("   • Reference frame support for enhanced video generation")
         print("   • Consistent callback parameters (job_id, status, assets, error_message)")
-        print("📊 Status: Enhanced with Qwen 7B Base (no content filtering) ✅")
+        print("📊 Status: Enhanced with Qwen 7B Base + Reference Frames ✅")
         
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
         print("📋 Supported job types:")
