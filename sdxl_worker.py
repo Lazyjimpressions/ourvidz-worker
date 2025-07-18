@@ -28,7 +28,8 @@ class LustifySDXLWorker:
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: User-selected quantities (1, 3, or 6 images) for flexible UX")
         print("🖼️ NEW: Image-to-image generation with style, composition, and character reference modes")
-        print("🔧 FIXED: Consistent parameter naming (job_id, assets) across all callbacks")
+        print("🌱 NEW: Seed control for reproducible generation and character consistency")
+        print("🔧 FIXED: Consistent parameter naming (job_id, assets, metadata) across all callbacks")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -119,12 +120,16 @@ class LustifySDXLWorker:
             logger.error(f"❌ Failed to preprocess reference image: {e}")
             raise
 
-    def generate_with_style_reference(self, prompt, reference_image, strength, config, num_images=1):
+    def generate_with_style_reference(self, prompt, reference_image, strength, config, num_images=1, generators=None):
         """Generate images using reference image for style transfer"""
         logger.info(f"🎨 Style transfer generation with strength: {strength}")
         
         # Preprocess reference image
         processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use provided generators or create new ones
+        if generators is None:
+            generators = [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
         
         # Use image-to-image pipeline with style strength
         generation_kwargs = {
@@ -134,7 +139,7 @@ class LustifySDXLWorker:
             'num_inference_steps': config['num_inference_steps'],
             'guidance_scale': config['guidance_scale'],
             'num_images_per_prompt': 1,
-            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+            'generator': generators
         }
         
         # Add negative prompt
@@ -147,12 +152,16 @@ class LustifySDXLWorker:
             result = self.pipeline(**generation_kwargs)
             return result.images
 
-    def generate_with_composition_reference(self, prompt, reference_image, strength, config, num_images=1):
+    def generate_with_composition_reference(self, prompt, reference_image, strength, config, num_images=1, generators=None):
         """Generate images using reference image for composition guidance"""
         logger.info(f"🎨 Composition guidance generation with strength: {strength}")
         
         # Preprocess reference image
         processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use provided generators or create new ones
+        if generators is None:
+            generators = [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
         
         # Use image-to-image with higher strength for composition preservation
         generation_kwargs = {
@@ -162,7 +171,7 @@ class LustifySDXLWorker:
             'num_inference_steps': config['num_inference_steps'],
             'guidance_scale': config['guidance_scale'],
             'num_images_per_prompt': 1,
-            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+            'generator': generators
         }
         
         # Add negative prompt
@@ -175,12 +184,16 @@ class LustifySDXLWorker:
             result = self.pipeline(**generation_kwargs)
             return result.images
 
-    def generate_with_character_reference(self, prompt, reference_image, strength, config, num_images=1):
+    def generate_with_character_reference(self, prompt, reference_image, strength, config, num_images=1, generators=None):
         """Generate images using reference image for character consistency"""
         logger.info(f"🎨 Character consistency generation with strength: {strength}")
         
         # Preprocess reference image
         processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use provided generators or create new ones
+        if generators is None:
+            generators = [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
         
         # Use image-to-image with moderate strength for character preservation
         generation_kwargs = {
@@ -190,7 +203,7 @@ class LustifySDXLWorker:
             'num_inference_steps': config['num_inference_steps'],
             'guidance_scale': config['guidance_scale'],
             'num_images_per_prompt': 1,
-            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+            'generator': generators
         }
         
         # Add negative prompt
@@ -203,12 +216,16 @@ class LustifySDXLWorker:
             result = self.pipeline(**generation_kwargs)
             return result.images
 
-    def generate_image_to_image(self, prompt, reference_image, strength, config, num_images=1):
+    def generate_image_to_image(self, prompt, reference_image, strength, config, num_images=1, generators=None):
         """Standard image-to-image generation"""
         logger.info(f"🎨 Standard image-to-image generation with strength: {strength}")
         
         # Preprocess reference image
         processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use provided generators or create new ones
+        if generators is None:
+            generators = [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
         
         # Use image-to-image pipeline
         generation_kwargs = {
@@ -218,7 +235,7 @@ class LustifySDXLWorker:
             'num_inference_steps': config['num_inference_steps'],
             'guidance_scale': config['guidance_scale'],
             'num_images_per_prompt': 1,
-            'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+            'generator': generators
         }
         
         # Add negative prompt
@@ -314,8 +331,8 @@ class LustifySDXLWorker:
             logger.error(f"❌ Model loading failed: {e}")
             raise
 
-    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style'):
-        """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image"""
+    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style', seed=None):
+        """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image and seed control"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
             
@@ -323,6 +340,18 @@ class LustifySDXLWorker:
         
         # Ensure model is loaded
         self.load_model()
+        
+        # Handle seed configuration
+        if seed:
+            logger.info(f"🌱 Using provided seed: {seed}")
+            # Use provided seed for reproducible results
+            generators = [torch.Generator(device="cuda").manual_seed(int(seed) + i) for i in range(num_images)]
+        else:
+            # Generate random seeds for variety
+            random_seed = int(time.time())
+            generators = [torch.Generator(device="cuda").manual_seed(random_seed + i) for i in range(num_images)]
+            seed = random_seed  # Capture the base seed for callback
+            logger.info(f"🎲 Using random seed: {seed}")
         
         if reference_image:
             logger.info(f"🎨 Generating {num_images} image(s) with {reference_type} reference (strength: {reference_strength})")
@@ -340,14 +369,14 @@ class LustifySDXLWorker:
             # Handle image-to-image generation
             if reference_image:
                 if reference_type == 'style':
-                    images = self.generate_with_style_reference(prompt, reference_image, reference_strength, config, num_images)
+                    images = self.generate_with_style_reference(prompt, reference_image, reference_strength, config, num_images, generators)
                 elif reference_type == 'composition':
-                    images = self.generate_with_composition_reference(prompt, reference_image, reference_strength, config, num_images)
+                    images = self.generate_with_composition_reference(prompt, reference_image, reference_strength, config, num_images, generators)
                 elif reference_type == 'character':
-                    images = self.generate_with_character_reference(prompt, reference_image, reference_strength, config, num_images)
+                    images = self.generate_with_character_reference(prompt, reference_image, reference_strength, config, num_images, generators)
                 else:
                     # Default image-to-image
-                    images = self.generate_image_to_image(prompt, reference_image, reference_strength, config, num_images)
+                    images = self.generate_image_to_image(prompt, reference_image, reference_strength, config, num_images, generators)
             else:
                 # Standard text-to-image generation
                 generation_kwargs = {
@@ -357,7 +386,7 @@ class LustifySDXLWorker:
                     'num_inference_steps': config['num_inference_steps'],
                     'guidance_scale': config['guidance_scale'],
                     'num_images_per_prompt': 1,  # Generate 1 image per prompt in batch
-                    'generator': [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]  # Different seeds for variety
+                    'generator': generators  # Use configured generators with seeds
                 }
                 
                 # Add negative prompt for better quality
@@ -381,7 +410,7 @@ class LustifySDXLWorker:
             torch.cuda.empty_cache()
             gc.collect()
             
-            return images
+            return images, seed
             
         except Exception as e:
             logger.error(f"❌ Batch generation failed: {e}")
@@ -492,6 +521,13 @@ class LustifySDXLWorker:
             logger.warning(f"⚠️ Invalid num_images: {num_images}, defaulting to 1")
             num_images = 1
         
+        # Extract seed from config for reproducible generation
+        seed = config.get('seed')
+        if seed:
+            logger.info(f"🌱 Seed provided in job config: {seed}")
+        else:
+            logger.info(f"🎲 No seed provided, will use random seed")
+        
         # Extract image-to-image parameters from metadata
         metadata = job_data.get('metadata', {})
         reference_image_url = metadata.get('reference_image_url')
@@ -529,13 +565,14 @@ class LustifySDXLWorker:
             
             # Generate batch of images
             start_time = time.time()
-            images = self.generate_images_batch(
+            images, used_seed = self.generate_images_batch(
                 prompt, 
                 job_type, 
                 num_images, 
                 reference_image=reference_image,
                 reference_strength=reference_strength,
-                reference_type=reference_type
+                reference_type=reference_type,
+                seed=seed
             )
             
             if not images:
@@ -551,21 +588,38 @@ class LustifySDXLWorker:
             total_time = time.time() - start_time
             logger.info(f"✅ SDXL job {job_id} completed in {total_time:.1f}s")
             logger.info(f"📁 Generated {len(upload_urls)} images")
+            logger.info(f"🌱 Seed used: {used_seed}")
             
-            # CONSISTENT: Notify completion with standardized parameter names
-            self.notify_completion(job_id, 'completed', assets=upload_urls)
+            # Prepare metadata for callback
+            callback_metadata = {
+                'seed': used_seed,
+                'generation_time': total_time,
+                'num_images': len(upload_urls),
+                'job_type': job_type
+            }
+            
+            # CONSISTENT: Notify completion with standardized parameter names and metadata
+            self.notify_completion(job_id, 'completed', assets=upload_urls, metadata=callback_metadata)
             
         except Exception as e:
             error_msg = str(e)
             logger.error(f"❌ SDXL job {job_id} failed: {error_msg}")
-            self.notify_completion(job_id, 'failed', error_message=error_msg)
+            
+            # Prepare error metadata
+            error_metadata = {
+                'error_type': type(e).__name__,
+                'job_type': job_type,
+                'timestamp': time.time()
+            }
+            
+            self.notify_completion(job_id, 'failed', error_message=error_msg, metadata=error_metadata)
         finally:
             # Always cleanup GPU memory
             torch.cuda.empty_cache()
             gc.collect()
 
-    def notify_completion(self, job_id, status, assets=None, error_message=None):
-        """CONSISTENT: Notify Supabase with standardized callback parameter names"""
+    def notify_completion(self, job_id, status, assets=None, error_message=None, metadata=None):
+        """CONSISTENT: Notify Supabase with standardized callback parameter names and metadata"""
         try:
             # CONSISTENT: Use standardized callback format across all workers
             callback_data = {
@@ -575,11 +629,16 @@ class LustifySDXLWorker:
                 'error_message': error_message      # ✅ Standard: error_message field
             }
             
+            # Add metadata if provided (for seed and other generation details)
+            if metadata:
+                callback_data['metadata'] = metadata
+            
             logger.info(f"📞 Sending CONSISTENT callback for job {job_id}:")
             logger.info(f"   Status: {status}")
             logger.info(f"   Assets count: {len(assets) if assets else 0}")
             logger.info(f"   Error: {error_message}")
-            logger.info(f"   Parameters: job_id, status, assets, error_message (CONSISTENT)")
+            logger.info(f"   Metadata: {metadata}")
+            logger.info(f"   Parameters: job_id, status, assets, error_message, metadata (CONSISTENT)")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -627,7 +686,8 @@ class LustifySDXLWorker:
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
         logger.info("🖼️ FLEXIBLE: User-selected quantities (1, 3, or 6 images)")
         logger.info("🖼️ IMAGE-TO-IMAGE: Style, composition, and character reference modes")
-        logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message)")
+        logger.info("🌱 SEED CONTROL: Reproducible generation and character consistency")
+        logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message, metadata)")
         
         job_count = 0
         
