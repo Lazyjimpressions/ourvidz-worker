@@ -350,8 +350,11 @@ class EnhancedWanWorker:
             os.chdir(self.wan_code_path)
             
             # Build WAN command for FLF2V task
+            # CRITICAL: Use correct path to wan_generate.py in worker repository
+            wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+            
             cmd = [
-                "python", "wan_generate.py",  # ✅ UPDATED: Use wan_generate.py instead of generate.py
+                "python", wan_generate_path,  # ✅ UPDATED: Use full path to wan_generate.py
                 "--task", "flf2v-14B",  # ✅ UPDATED: Use FLF2V task for reference frames
                 "--ckpt_dir", self.model_path,
                 "--offload_model", "True",
@@ -508,8 +511,11 @@ class EnhancedWanWorker:
             os.chdir(self.wan_code_path)
             
             # Build WAN command for T2V task
+            # CRITICAL: Use correct path to wan_generate.py in worker repository
+            wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+            
             cmd = [
-                "python", "wan_generate.py",  # ✅ UPDATED: Use wan_generate.py instead of generate.py
+                "python", wan_generate_path,  # ✅ UPDATED: Use full path to wan_generate.py
                 "--task", "t2v-14B",  # ✅ UPDATED: Use T2V-14B task for standard generation
                 "--ckpt_dir", self.model_path,
                 "--offload_model", "True",
@@ -639,8 +645,11 @@ class EnhancedWanWorker:
             os.chdir(self.wan_code_path)
             
             # Build WAN command with FLF2V task for reference frames
+            # CRITICAL: Use correct path to wan_generate.py in worker repository
+            wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+            
             cmd = [
-                "python", "wan_generate.py",  # ✅ UPDATED: Use wan_generate.py instead of generate.py
+                "python", wan_generate_path,  # ✅ UPDATED: Use full path to wan_generate.py
                 "--task", "flf2v-14B",  # ✅ UPDATED: Use FLF2V task for reference frames
                 "--ckpt_dir", self.model_path,
                 "--offload_model", "True",
@@ -1067,8 +1076,11 @@ Enhanced detailed prompt:"""
             
             # ENHANCED: Build WAN command with advanced NSFW-optimized parameters
             # Based on WAN 2.1 research: UniPC sampling, temporal consistency, advanced guidance
+            # CRITICAL: Use correct path to wan_generate.py in worker repository
+            wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+            
             cmd = [
-                "python", "generate.py",
+                "python", wan_generate_path,  # ✅ UPDATED: Use full path to wan_generate.py
                 "--task", "t2v-1.3B",                           # ✅ VERIFIED working task
                 "--ckpt_dir", self.model_path,                  # ✅ Model path
                 "--offload_model", "True",                      # ✅ VERIFIED: Memory management

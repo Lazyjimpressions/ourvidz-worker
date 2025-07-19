@@ -242,8 +242,11 @@ else:
     print(f"🎬 Using T2V task for standard video generation")
 
 # Build WAN command with correct task type
+# CRITICAL: Use correct path to wan_generate.py in worker repository
+wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+
 cmd = [
-    "python", "wan_generate.py",
+    "python", wan_generate_path,
     "--task", task_type,
     "--ckpt_dir", model_path,
     "--offload_model", "True",
@@ -457,8 +460,11 @@ def generate_flf2v_video(prompt, start_reference_url, end_reference_url, frame_n
         print(f"🖼️ End reference frame processed: {end_reference_url}")
     
     # Build WAN command for FLF2V task
+    # CRITICAL: Use correct path to wan_generate.py in worker repository
+    wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+    
     cmd = [
-        "python", "wan_generate.py",
+        "python", wan_generate_path,
         "--task", task_type,  # "flf2v-14B" or "flf2v-1.3B"
         "--ckpt_dir", model_path,
         "--offload_model", "True",
@@ -491,8 +497,11 @@ def generate_flf2v_video(prompt, start_reference_url, end_reference_url, frame_n
 def generate_t2v_video(prompt, frame_num, task_type):
     """Generate video using T2V task (standard video generation)"""
     # Build WAN command for T2V task
+    # CRITICAL: Use correct path to wan_generate.py in worker repository
+    wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+    
     cmd = [
-        "python", "wan_generate.py",
+        "python", wan_generate_path,
         "--task", task_type,  # "t2v-14B" or "t2v-1.3B"
         "--ckpt_dir", model_path,
         "--offload_model", "True",
