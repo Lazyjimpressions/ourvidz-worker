@@ -780,11 +780,13 @@ class EnhancedWanWorker:
         
         # CRITICAL: Add persistent dependencies to Python path
         python_deps_path = '/workspace/python_deps/lib/python3.11/site-packages'
+        wan_code_path = '/workspace/Wan2.1'  # Add WAN code directory to Python path
+        
         current_pythonpath = env.get('PYTHONPATH', '')
         if current_pythonpath:
-            new_pythonpath = f"{python_deps_path}:{current_pythonpath}"
+            new_pythonpath = f"{wan_code_path}:{python_deps_path}:{current_pythonpath}"
         else:
-            new_pythonpath = python_deps_path
+            new_pythonpath = f"{wan_code_path}:{python_deps_path}"
         
         env.update({
             'CUDA_VISIBLE_DEVICES': '0',
