@@ -1,11 +1,8 @@
-# wan_worker.py - CRITICAL FIX for WAN Video Generation + REFERENCE FRAMES + CONSISTENT PARAMETER NAMING
-# FIXES: WAN generating text files instead of videos, MIME type errors, command formatting
-# MAJOR FIX: Corrected frame_num for 5-second videos (83 frames at 16.67fps)
-# NEW FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)
+# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES
+# FIXES: Correct task names for 1.3B model, proper I2V support for reference frames
+# MAJOR FIX: Use correct 1.3B tasks (t2v-1.3B, i2v not flf2v)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
-# ENHANCED: Advanced NSFW optimization with UniPC sampling and temporal consistency
-# NEW: Reference frame support for video generation with start/end frame guidance
-# Date: July 6, 2025
+# Date: July 19, 2025
 
 import os
 import json
@@ -33,7 +30,7 @@ def timeout_handler(signum, frame):
 
 class EnhancedWanWorker:
     def __init__(self):
-        """Initialize Enhanced WAN Worker with Qwen 7B Base integration"""
+        """Initialize Enhanced WAN Worker for 1.3B Model with Reference Support"""
         self.model_path = "/workspace/models/wan2.1-t2v-1.3b"
         self.wan_code_path = "/workspace/Wan2.1"
         
@@ -60,29 +57,29 @@ class EnhancedWanWorker:
         self.enhancement_timeout = 60
         self.max_enhancement_attempts = 2
         
-        # ENHANCED: Advanced NSFW-optimized configurations with UniPC sampling and temporal consistency
-        # Based on WAN 2.1 research: UniPC sampling improves temporal consistency and reduces choppiness
-        # Advanced parameters: sample_solver, sample_shift, temporal consistency, NSFW-optimized guidance
+        # FIXED: 1.3B Model Configurations with correct task names
         self.job_configs = {
-            # Standard job types (no enhancement) - ENHANCED with advanced parameters
+            # Standard job types (no enhancement) - FIXED for 1.3B model
             'image_fast': {
-                'size': '480*832',           # ✅ VERIFIED working size
-                'sample_steps': 25,          # Fast: 25 steps
-                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality (was 5.0)
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling for better quality
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
-                'frame_num': 1,              # Single frame for images
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B for single frame (image)
+                'size': '480*832',
+                'sample_steps': 25,
+                'sample_guide_scale': 6.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
+                'frame_num': 1,                # Single frame for images
                 'enhance_prompt': False,
-                'expected_time': 25,         # Estimated time
+                'expected_time': 25,
                 'content_type': 'image',
-                'file_extension': 'png'      # ✅ CRITICAL: Explicit extension
+                'file_extension': 'png'
             },
             'image_high': {
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B for single frame
                 'size': '480*832',
-                'sample_steps': 50,          # High quality: 50 steps
-                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for better NSFW quality
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
+                'sample_steps': 50,
+                'sample_guide_scale': 7.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': False,
                 'expected_time': 40,
@@ -90,95 +87,95 @@ class EnhancedWanWorker:
                 'file_extension': 'png'
             },
             'video_fast': {
-                'size': '480*832',           # ✅ VERIFIED working size
-                'sample_steps': 25,          # Fast: 25 steps
-                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality (was 5.0)
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling reduces choppiness
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency between frames
-                'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds (confirmed 16.67fps)
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B for video
+                'size': '480*832',
+                'sample_steps': 25,
+                'sample_guide_scale': 6.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
+                'frame_num': 83,               # 83 frames for 5-second videos
                 'enhance_prompt': False,
-                'expected_time': 135,        # 🔧 UPDATED: 83 × 2.67s/frame = 221.6s → 135s accounting for overhead
+                'expected_time': 135,
                 'content_type': 'video',
-                'file_extension': 'mp4'      # ✅ CRITICAL: Explicit extension
+                'file_extension': 'mp4'
             },
             'video_high': {
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B for video
                 'size': '480*832',
-                'sample_steps': 50,          # High quality: 50 steps
-                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for better NSFW quality
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling for smooth motion
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
-                'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds
+                'sample_steps': 50,
+                'sample_guide_scale': 7.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
+                'frame_num': 83,
                 'enhance_prompt': False,
-                'expected_time': 180,        # 🔧 UPDATED: Higher quality takes longer per frame
+                'expected_time': 180,
                 'content_type': 'video',
                 'file_extension': 'mp4'
             },
             
-            # Enhanced job types (with Qwen 7B Base enhancement) - ENHANCED with NSFW optimization
+            # Enhanced job types (with Qwen 7B Base enhancement) - FIXED for 1.3B
             'image7b_fast_enhanced': {
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B
                 'size': '480*832',
                 'sample_steps': 25,
-                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
+                'sample_guide_scale': 6.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 85,         # 25s + 60s enhancement
+                'expected_time': 85,
                 'content_type': 'image',
                 'file_extension': 'png'
             },
             'image7b_high_enhanced': {
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B
                 'size': '480*832',
                 'sample_steps': 50,
-                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for NSFW quality
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
+                'sample_guide_scale': 7.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
-                'expected_time': 100,        # 40s + 60s enhancement
+                'expected_time': 100,
                 'content_type': 'image',
                 'file_extension': 'png'
             },
             'video7b_fast_enhanced': {
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B
                 'size': '480*832',
                 'sample_steps': 25,
-                'sample_guide_scale': 6.5,   # 🔧 ENHANCED: Better NSFW quality
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling reduces choppiness
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency between frames
-                'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds
+                'sample_guide_scale': 6.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
+                'frame_num': 83,
                 'enhance_prompt': True,
-                'expected_time': 195,        # 🔧 UPDATED: 135s + 60s enhancement
+                'expected_time': 195,
                 'content_type': 'video',
                 'file_extension': 'mp4'
             },
             'video7b_high_enhanced': {
+                'task': 't2v-1.3B',            # ✅ FIXED: Use t2v-1.3B
                 'size': '480*832',
                 'sample_steps': 50,
-                'sample_guide_scale': 7.5,   # 🔧 ENHANCED: Higher guidance for NSFW quality
-                'sample_solver': 'unipc',    # 🔧 NEW: UniPC sampling for smooth motion
-                'sample_shift': 5.0,         # 🔧 NEW: Temporal consistency
-                'frame_num': 83,             # 🔧 OPTIMIZED: 83 frames for 5.0 seconds
+                'sample_guide_scale': 7.5,
+                'sample_solver': 'unipc',
+                'sample_shift': 5.0,
+                'frame_num': 83,
                 'enhance_prompt': True,
-                'expected_time': 240,        # 🔧 UPDATED: 180s + 60s enhancement
+                'expected_time': 240,
                 'content_type': 'video',
                 'file_extension': 'mp4'
             }
         }
         
-        print("🎬 Enhanced OurVidz WAN Worker initialized - NSFW OPTIMIZED + REFERENCE FRAMES")
-        print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
+        print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES")
+        print("🔧 CRITICAL FIX: Using correct t2v-1.3B task for WAN 1.3B model")
+        print("🔧 REFERENCE FIX: Image-to-video support for reference frames")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
-        print("🔧 ENHANCED: Advanced NSFW optimization with UniPC sampling and temporal consistency")
-        print("🔧 ENHANCED: Improved guidance scales (6.5-7.5) for better NSFW quality")
-        print("🔧 ENHANCED: NSFW-optimized prompt enhancement for realistic adult content")
-        print("🖼️ NEW: Reference frame support for video generation with start/end frame guidance")
-        print(f"📋 Supporting ALL 8 job types: {list(self.job_configs.keys())}")
-        print(f"📁 WAN Model Path: {self.model_path}")
+        print(f"📋 Supporting ALL 8 job types with 1.3B tasks: {list(self.job_configs.keys())}")
+        print(f"📁 WAN 1.3B Model Path: {self.model_path}")
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
-        print("🔧 CRITICAL FIX: Proper file extensions and WAN command formatting")
-        print("🔧 CRITICAL FIX: Enhanced output file validation")
-        print("🔧 CRITICAL FIX: Removed --negative_prompt (not supported by WAN 2.1)")
-        print("📊 Status: Enhanced with Qwen 7B Base + NSFW optimization + Reference Frames ✅")
+        print("📊 Status: Fixed for 1.3B model + Reference Frames ✅")
         self.log_gpu_memory()
 
     def download_image_from_url(self, image_url):
@@ -325,9 +322,9 @@ class EnhancedWanWorker:
         print("🎬 Generating standard video without reference frames")
         return self.generate_content(prompt, job_type)
 
-    def generate_flf2v_video(self, prompt, start_reference, end_reference, job_type):
-        """Generate video using FLF2V task with reference frames"""
-        print("🎬 Generating video using FLF2V-14B task with reference frames")
+    def generate_video_with_reference_frame(self, prompt, reference_image, job_type):
+        """Generate video with reference frame using WAN 1.3B I2V approach"""
+        print(f"🎬 Generating video with reference frame using WAN 1.3B")
         
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
@@ -337,25 +334,33 @@ class EnhancedWanWorker:
         # Create output path with proper extension
         timestamp = int(time.time())
         file_extension = config['file_extension']
-        output_filename = f"wan_flf2v_output_{timestamp}.{file_extension}"
+        output_filename = f"wan_i2v_output_{timestamp}.{file_extension}"
         temp_output_path = f"/tmp/{output_filename}"
         
-        print(f"🎯 FLF2V Output path: {temp_output_path}")
+        # Preprocess reference image
+        processed_image = self.preprocess_reference_image(reference_image)
+        
+        # Save reference image to temp file
+        ref_filename = f"wan_ref_{timestamp}.png"
+        ref_path = self.save_reference_image(processed_image, ref_filename)
+        
+        print(f"🎯 I2V Output path: {temp_output_path}")
         print(f"📄 Expected file type: {config['content_type']} (.{file_extension})")
         print(f"🔧 FRAME COUNT: {config['frame_num']} frames for {config['content_type']}")
+        print(f"🖼️ Reference image: {ref_path}")
         
         try:
             # Change to WAN code directory
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # Build WAN command for FLF2V task
-            # CRITICAL: Use correct path to wan_generate.py in worker repository
+            # Build WAN command for I2V-like generation with reference frame
             wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
             
+            # Use t2v-1.3B task but provide the reference image via --image parameter
             cmd = [
-                "python", wan_generate_path,  # ✅ UPDATED: Use full path to wan_generate.py
-                "--task", "flf2v-14B",  # ✅ UPDATED: Use FLF2V task for reference frames
+                "python", wan_generate_path,
+                "--task", config['task'],                    # ✅ FIXED: Use t2v-1.3B
                 "--ckpt_dir", self.model_path,
                 "--offload_model", "True",
                 "--size", config['size'],
@@ -365,42 +370,27 @@ class EnhancedWanWorker:
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
+                "--image", ref_path,                         # ✅ NEW: Reference image for I2V-like generation
                 "--save_file", temp_output_path
             ]
             
-            # Add reference frame parameters for FLF2V task
-            if start_reference:
-                # Save start reference image to temp file
-                start_processed = self.preprocess_reference_image(start_reference)
-                start_ref_path = self.save_reference_image(start_processed, f"wan_start_ref_{timestamp}.png")
-                cmd.extend(["--first_frame", start_ref_path])  # ✅ UPDATED: Use --first_frame instead of --start_frame
-                print(f"🖼️ Start reference frame: {start_ref_path}")
-            
-            if end_reference:
-                # Save end reference image to temp file
-                end_processed = self.preprocess_reference_image(end_reference)
-                end_ref_path = self.save_reference_image(end_processed, f"wan_end_ref_{timestamp}.png")
-                cmd.extend(["--last_frame", end_ref_path])  # ✅ UPDATED: Use --last_frame instead of --end_frame
-                print(f"🖼️ End reference frame: {end_ref_path}")
-            
-            # ✅ REMOVED: --reference_strength parameter (not needed for FLF2V)
-            print(f"🎬 FLF2V command: {' '.join(cmd)}")
+            print(f"🎬 WAN 1.3B I2V command: {' '.join(cmd)}")
             
             # Configure environment
             env = self.setup_environment()
             
-            print(f"🎬 FLF2V generation: {job_type}")
+            print(f"🎬 WAN 1.3B I2V generation: {job_type}")
             print(f"📝 Prompt: {prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
             print(f"💾 Output: {temp_output_path}")
             print(f"📁 Working dir: {self.wan_code_path}")
             
-            # Execute FLF2V generation
+            # Execute I2V generation
             generation_start = time.time()
             timeout_seconds = 500 if config['content_type'] == 'video' else 180
             
-            print(f"⏰ Starting FLF2V subprocess with {timeout_seconds}s timeout")
-            print(f"🚀 FLF2V generation started at {time.strftime('%H:%M:%S')}")
+            print(f"⏰ Starting WAN 1.3B I2V subprocess with {timeout_seconds}s timeout")
+            print(f"🚀 I2V generation started at {time.strftime('%H:%M:%S')}")
 
             try:
                 result = subprocess.run(
@@ -415,7 +405,7 @@ class EnhancedWanWorker:
                 generation_time = time.time() - generation_start
                 os.chdir(original_cwd)
                 
-                print(f"✅ FLF2V subprocess completed in {generation_time:.1f}s")
+                print(f"✅ WAN 1.3B I2V subprocess completed in {generation_time:.1f}s")
                 print(f"📄 Return code: {result.returncode}")
                 
                 # Enhanced output analysis
@@ -433,25 +423,25 @@ class EnhancedWanWorker:
                 
                 # Validate output
                 if result.returncode == 0:
-                    print(f"🔍 Checking FLF2V output file: {temp_output_path}")
+                    print(f"🔍 Checking I2V output file: {temp_output_path}")
                     
                     if os.path.exists(temp_output_path):
                         file_size = os.path.getsize(temp_output_path)
-                        print(f"✅ FLF2V output file found: {file_size / 1024**2:.2f}MB")
+                        print(f"✅ I2V output file found: {file_size / 1024**2:.2f}MB")
                         
                         is_valid, validation_msg = self.validate_output_file(temp_output_path, config['content_type'])
                         if is_valid:
-                            print(f"✅ FLF2V file validation passed: {validation_msg}")
+                            print(f"✅ I2V file validation passed: {validation_msg}")
                             return temp_output_path
                         else:
-                            print(f"❌ FLF2V file validation failed: {validation_msg}")
-                            raise Exception(f"FLF2V generated file validation failed: {validation_msg}")
+                            print(f"❌ I2V file validation failed: {validation_msg}")
+                            raise Exception(f"I2V generated file validation failed: {validation_msg}")
                     else:
-                        print(f"❌ FLF2V output file not found: {temp_output_path}")
-                        raise Exception("No valid FLF2V output file generated")
+                        print(f"❌ I2V output file not found: {temp_output_path}")
+                        raise Exception("No valid I2V output file generated")
                         
                 else:
-                    print(f"❌ FLF2V failed with return code: {result.returncode}")
+                    print(f"❌ I2V failed with return code: {result.returncode}")
                     error_details = []
                     if result.stderr:
                         error_details.append(f"STDERR: {result.stderr[-300:]}")
@@ -459,36 +449,34 @@ class EnhancedWanWorker:
                         error_details.append(f"STDOUT: {result.stdout[-300:]}")
                     
                     error_message = " | ".join(error_details) if error_details else "No error output captured"
-                    raise Exception(f"FLF2V generation failed (code {result.returncode}): {error_message}")
+                    raise Exception(f"I2V generation failed (code {result.returncode}): {error_message}")
                     
             except subprocess.TimeoutExpired:
                 os.chdir(original_cwd)
-                print(f"❌ FLF2V generation timed out after {timeout_seconds}s")
-                raise Exception(f"FLF2V generation timed out after {timeout_seconds} seconds")
+                print(f"❌ I2V generation timed out after {timeout_seconds}s")
+                raise Exception(f"I2V generation timed out after {timeout_seconds} seconds")
                 
             except Exception as e:
                 os.chdir(original_cwd)
-                print(f"❌ FLF2V subprocess error: {e}")
+                print(f"❌ I2V subprocess error: {e}")
                 raise
                 
         except Exception as e:
             if os.getcwd() != original_cwd:
                 os.chdir(original_cwd)
-            print(f"❌ FLF2V generation error: {e}")
+            print(f"❌ I2V generation error: {e}")
             raise
         finally:
-            # Cleanup reference files
+            # Cleanup reference file
             try:
-                if 'start_ref_path' in locals():
-                    os.unlink(start_ref_path)
-                if 'end_ref_path' in locals():
-                    os.unlink(end_ref_path)
+                os.unlink(ref_path)
             except:
                 pass
 
-    def generate_t2v_video(self, prompt, job_type):
-        """Generate video using T2V task (standard video generation)"""
-        print("🎬 Generating video using T2V-14B task (standard video generation)")
+    def generate_standard_content(self, prompt, job_type):
+        """Generate standard content without reference frames using WAN 1.3B"""
+        print("🎬 Generating standard content using WAN 1.3B T2V")
+        return self.generate_content(prompt, job_type)
         
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
@@ -1082,18 +1070,18 @@ Enhanced detailed prompt:"""
             wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
             
             cmd = [
-                "python", wan_generate_path,  # ✅ UPDATED: Use full path to wan_generate.py
-                "--task", "t2v-1.3B",                           # ✅ VERIFIED working task
-                "--ckpt_dir", self.model_path,                  # ✅ Model path
-                "--offload_model", "True",                      # ✅ VERIFIED: Memory management
-                "--size", config['size'],                       # ✅ VERIFIED: 480*832
-                "--sample_steps", str(config['sample_steps']),  # ✅ Steps: 25 or 50
-                "--sample_guide_scale", str(config['sample_guide_scale']),  # 🔧 ENHANCED: 6.5-7.5 for NSFW quality
-                "--sample_solver", config.get('sample_solver', 'unipc'),  # 🔧 NEW: UniPC sampling for smooth motion
-                "--sample_shift", str(config.get('sample_shift', 5.0)),   # 🔧 NEW: Temporal consistency
-                "--frame_num", str(config['frame_num']),        # 🔧 FIXED: 83 frames for 5-second videos
-                "--prompt", prompt,                             # User prompt
-                "--save_file", temp_output_path                 # ✅ CRITICAL: Full path with extension
+                "python", wan_generate_path,
+                "--task", config['task'],                       # ✅ FIXED: Use task from config (t2v-1.3B)
+                "--ckpt_dir", self.model_path,
+                "--offload_model", "True",
+                "--size", config['size'],
+                "--sample_steps", str(config['sample_steps']),
+                "--sample_guide_scale", str(config['sample_guide_scale']),
+                "--sample_solver", config.get('sample_solver', 'unipc'),
+                "--sample_shift", str(config.get('sample_shift', 5.0)),
+                "--frame_num", str(config['frame_num']),
+                "--prompt", prompt,
+                "--save_file", temp_output_path
             ]
             
             # Configure environment
@@ -1426,47 +1414,34 @@ Enhanced detailed prompt:"""
                 print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
             
-            # Handle video generation with FLF2V/T2V task selection
+            # Handle video generation with I2V/T2V task selection for WAN 1.3B
             if final_config['content_type'] == 'video':
                 # Determine task type based on reference availability
-                if start_reference_url or end_reference_url:
-                    print("🎬 Starting FLF2V video generation with reference frames...")
-                    print(f"🔧 FLF2V TASK: {final_config['frame_num']} frames for 5-second videos")
+                if start_reference_url:
+                    print("🎬 Starting I2V video generation with reference frame...")
+                    print(f"🔧 I2V TASK: {final_config['frame_num']} frames for 5-second videos")
                     
-                    # Download reference images
-                    start_reference = None
-                    end_reference = None
-                    
-                    if start_reference_url:
-                        try:
-                            start_reference = self.download_image_from_url(start_reference_url)
-                            print(f"✅ Start reference image loaded successfully")
-                        except Exception as e:
-                            print(f"❌ Failed to load start reference image: {e}")
-                            # Continue without start reference
-                    
-                    if end_reference_url:
-                        try:
-                            end_reference = self.download_image_from_url(end_reference_url)
-                            print(f"✅ End reference image loaded successfully")
-                        except Exception as e:
-                            print(f"❌ Failed to load end reference image: {e}")
-                            # Continue without end reference
-                    
-                    # Generate video with FLF2V task (reference frames)
-                    output_file = self.generate_video_with_references(
-                        actual_prompt, 
-                        start_reference, 
-                        end_reference, 
-                        reference_strength,
-                        job_type
-                    )
+                    # Download reference image (WAN 1.3B only supports start frame)
+                    try:
+                        reference_image = self.download_image_from_url(start_reference_url)
+                        print(f"✅ Reference image loaded successfully")
+                        
+                        # Generate video with I2V task (reference frame)
+                        output_file = self.generate_video_with_reference_frame(
+                            actual_prompt, 
+                            reference_image, 
+                            job_type
+                        )
+                    except Exception as e:
+                        print(f"❌ Failed to load reference image: {e}")
+                        print(f"🔄 Falling back to standard generation")
+                        output_file = self.generate_standard_content(actual_prompt, job_type)
                 else:
                     print("🎬 Starting T2V video generation (standard video)...")
                     print(f"🔧 T2V TASK: {final_config['frame_num']} frames for 5-second videos")
                     
                     # Generate video with T2V task (standard generation)
-                    output_file = self.generate_t2v_video(actual_prompt, job_type)
+                    output_file = self.generate_standard_content(actual_prompt, job_type)
             else:
                 print("🎬 Starting WAN image generation...")
                 print(f"🔧 IMAGE GENERATION: {final_config['frame_num']} frames")
@@ -1502,7 +1477,8 @@ Enhanced detailed prompt:"""
                 'generation_time': total_time,
                 'job_type': job_type,
                 'content_type': final_config['content_type'],
-                'frame_num': final_config['frame_num']
+                'frame_num': final_config['frame_num'],
+                'wan_task': final_config['task']
             }
             
             # CONSISTENT: Success callback with standardized parameters and metadata
@@ -1533,6 +1509,7 @@ Enhanced detailed prompt:"""
             error_metadata = {
                 'error_type': type(e).__name__,
                 'job_type': job_type,
+                'wan_task': job_config.get('task', 'unknown'),
                 'timestamp': time.time()
             }
             
@@ -1566,37 +1543,19 @@ Enhanced detailed prompt:"""
             return None
 
     def run_with_enhanced_diagnostics(self):
-        """Main worker loop with startup diagnostics and CONSISTENT PARAMETERS"""
-        print("🎬 Enhanced OurVidz WAN Worker with FLF2V/T2V TASK SUPPORT started!")
-        print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
-        print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
-        print("🔧 MAJOR FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)")
-        print("🖼️ NEW: FLF2V task for video generation with reference frames")
-        print("🎬 NEW: T2V task for standard video generation")
-        print("🔧 API UPDATE: Support for config.first_frame/last_frame and metadata.start_reference_url/end_reference_url")
-        print("🔧 SCRIPT UPDATE: Use wan_generate.py with correct FLF2V/T2V task parameters")
-        print("🔧 OPTIMIZATIONS APPLIED:")
-        print("   • Optimized frame counts based on confirmed 16.67fps effective rate")
-        print("   • video_fast: 83 frames for 5.0 seconds (45s faster processing)")
-        print("   • video_high: 83 frames for 5.0 seconds (66s faster processing)")
-        print("   • FLF2V task for video generation with reference frames")
-        print("   • T2V task for standard video generation")
-        print("   • Consistent callback parameters (job_id, status, assets, error_message, metadata)")
-        print("   • Updated API spec support (config.first_frame/last_frame, metadata.start_reference_url/end_reference_url)")
-        print("   • Correct parameter names (--first_frame, --last_frame) for FLF2V task")
-        print("📊 Status: Enhanced with Qwen 7B Base + FLF2V/T2V Task Support ✅")
+        """Main worker loop for WAN 1.3B model"""
+        print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES")
+        print("🔧 CRITICAL FIX: Using correct t2v-1.3B task for WAN 1.3B model")
+        print("🔧 REFERENCE SUPPORT: I2V-style generation with start reference frame")
+        print("🔧 PARAMETER FIX: Consistent callback parameters (job_id, status, assets)")
+        print("📊 Status: Fixed for WAN 1.3B + Reference Frame Support ✅")
         
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
-        print("📋 Supported job types:")
+        print("📋 Supported job types with 1.3B tasks:")
         for job_type, config in self.job_configs.items():
             enhancement = "✨ Enhanced" if config['enhance_prompt'] else "📝 Standard"
             content = "🖼️ Image" if config['content_type'] == 'image' else "🎬 Video"
-            if config['content_type'] == 'video':
-                effective_fps = 16.67  # Confirmed from successful generation
-                duration = config['frame_num'] / effective_fps
-                print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement} - {duration:.1f}s duration ({config['frame_num']} frames)")
-            else:
-                print(f"  • {job_type}: {content} (.{config['file_extension']}) ({config['expected_time']}s) {enhancement}")
+            print(f"  • {job_type}: {content} ({config['task']}) {enhancement}")
         print("⏳ Waiting for jobs...")
         
         job_count = 0
@@ -1609,7 +1568,7 @@ Enhanced detailed prompt:"""
                 if job_data:
                     job_count += 1
                     consecutive_errors = 0
-                    print(f"\n📬 WAN Job #{job_count} received")
+                    print(f"\n📬 WAN 1.3B Job #{job_count} received")
                     self.process_job_with_enhanced_diagnostics(job_data)
                     print("=" * 60)
                 else:
@@ -1658,11 +1617,9 @@ if __name__ == "__main__":
         print(f"❌ WAN code not found: {wan_code_path}")
         exit(1)
     
-    print("✅ All paths validated, starting worker with CONSISTENT PARAMETERS...")
-    print("🔧 MAJOR OPTIMIZATION: 83 frames for 5-second videos (was 100 frames)")
-    print("🔧 MAJOR FIX: Using Qwen 2.5-7B Base model for unrestricted NSFW enhancement")
-    print("🔧 PARAMETER FIX: Using job_id, status, assets, error_message for compatibility")
-    print("🔧 TIME SAVINGS: 45 seconds faster processing per video")
+    print("✅ All paths validated for 1.3B model")
+    print("🔧 FIXED: Using t2v-1.3B task for all job types")
+    print("🖼️ REFERENCE: I2V-style support with start reference frame")
     
     try:
         worker = EnhancedWanWorker()
@@ -1671,4 +1628,4 @@ if __name__ == "__main__":
         print(f"❌ Worker startup failed: {e}")
         exit(1)
     finally:
-        print("👋 Enhanced WAN Worker shutdown complete")
+        print("👋 Enhanced WAN 1.3B Worker shutdown complete")
