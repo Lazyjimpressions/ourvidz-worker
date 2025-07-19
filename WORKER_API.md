@@ -347,6 +347,215 @@ def setup_environment(self):
 
 ---
 
+## **🔧 WAN Generate Script (`wan_generate.py`)**
+
+### **Overview**
+The `wan_generate.py` script is the core generation engine for the WAN worker, providing comprehensive AI content generation capabilities including text-to-video, image-to-video, and reference frame-based video generation.
+
+### **Location**
+```
+/workspace/ourvidz-worker/wan_generate.py
+```
+
+### **Supported Tasks**
+
+#### **Available Tasks**
+| Task | Model Size | Description | Reference Support |
+|------|------------|-------------|-------------------|
+| `t2v-1.3B` | 1.3B | Text-to-video generation | ✅ Single image (`--image`) |
+| `t2v-14B` | 14B | Text-to-video generation | ❌ Not used in production |
+| `t2i-14B` | 14B | Text-to-image generation | ❌ Not used in production |
+| `i2v-14B` | 14B | Image-to-video generation | ✅ Single image (`--image`) |
+| `flf2v-14B` | 14B | First-last frame to video | ✅ Start/end frames (`--first_frame`, `--last_frame`) |
+| `vace-1.3B` | 1.3B | Video animation with character editing | ✅ Multiple reference images |
+| `vace-14B` | 14B | Video animation with character editing | ✅ Multiple reference images |
+
+#### **Production Usage**
+OurVidz uses **only `t2v-1.3B`** for all video generation, with different reference frame parameters:
+- **Standard**: No reference frames
+- **Single Reference**: `--image` parameter
+- **Start Frame**: `--first_frame` parameter  
+- **End Frame**: `--last_frame` parameter
+- **Both Frames**: `--first_frame` and `--last_frame` parameters
+
+### **Command Line Interface**
+
+#### **Basic Usage**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py \
+  --task t2v-1.3B \
+  --ckpt_dir /workspace/models/wan2.1-t2v-1.3b \
+  --prompt "Your prompt here" \
+  --save_file output.mp4
+```
+
+#### **Required Parameters**
+```bash
+--task          # Task type (t2v-1.3B for production)
+--ckpt_dir      # Model checkpoint directory
+--prompt        # Text prompt for generation
+--save_file     # Output file path
+```
+
+#### **Optional Parameters**
+```bash
+--size              # Output size (default: 480*832)
+--frame_num         # Number of frames (default: 1 for images, 81 for videos)
+--sample_steps      # Sampling steps (default: 50 for T2V, 40 for I2V)
+--sample_guide_scale # Guidance scale (default: 5.0)
+--sample_solver     # Solver type (default: unipc)
+--sample_shift      # Sampling shift (default: 5.0)
+--base_seed         # Random seed (default: random)
+--offload_model     # Model offloading (default: True for single GPU)
+```
+
+#### **Reference Frame Parameters**
+```bash
+--image         # Single reference image for I2V-style generation
+--first_frame   # Start reference frame for video generation
+--last_frame    # End reference frame for video generation
+```
+
+### **Example Commands**
+
+#### **Standard Video Generation**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py \
+  --task t2v-1.3B \
+  --ckpt_dir /workspace/models/wan2.1-t2v-1.3b \
+  --size 480*832 \
+  --frame_num 83 \
+  --sample_steps 25 \
+  --sample_guide_scale 6.5 \
+  --prompt "A beautiful sunset over the ocean" \
+  --save_file /tmp/output.mp4
+```
+
+#### **Video with Single Reference Frame**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py \
+  --task t2v-1.3B \
+  --ckpt_dir /workspace/models/wan2.1-t2v-1.3b \
+  --size 480*832 \
+  --frame_num 83 \
+  --sample_steps 25 \
+  --sample_guide_scale 6.5 \
+  --prompt "A beautiful sunset over the ocean" \
+  --image /tmp/reference.png \
+  --save_file /tmp/output.mp4
+```
+
+#### **Video with Start and End Frames**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py \
+  --task t2v-1.3B \
+  --ckpt_dir /workspace/models/wan2.1-t2v-1.3b \
+  --size 480*832 \
+  --frame_num 83 \
+  --sample_steps 25 \
+  --sample_guide_scale 6.5 \
+  --prompt "A beautiful sunset over the ocean" \
+  --first_frame /tmp/start.png \
+  --last_frame /tmp/end.png \
+  --save_file /tmp/output.mp4
+```
+
+### **Environment Requirements**
+
+#### **Python Dependencies**
+```python
+import wan                    # WAN core library
+from wan.configs import *     # Configuration constants
+from wan.utils.prompt_extend import *  # Prompt enhancement
+from wan.utils.utils import * # Utility functions
+```
+
+#### **Model Paths**
+- **WAN Code**: `/workspace/Wan2.1`
+- **Model Checkpoints**: `/workspace/models/wan2.1-t2v-1.3b`
+- **Python Path**: Must include `/workspace/Wan2.1` for module resolution
+
+#### **GPU Requirements**
+- **VRAM**: 15-30GB (depending on model size and offloading)
+- **CUDA**: Compatible with PyTorch 2.4.1+cu124
+- **Device**: Single GPU (RTX 6000 ADA recommended)
+
+### **Error Handling**
+
+#### **Common Error Scenarios**
+```python
+# Module import errors
+ModuleNotFoundError: No module named 'wan'
+# Solution: Ensure PYTHONPATH includes /workspace/Wan2.1
+
+# Model loading errors
+FileNotFoundError: Checkpoint directory not found
+# Solution: Verify model path exists
+
+# GPU memory errors
+torch.cuda.OutOfMemoryError
+# Solution: Enable model offloading with --offload_model True
+
+# Parameter validation errors
+ValueError: Unsupported task or size
+# Solution: Use supported task types and sizes
+```
+
+#### **Validation Checks**
+- **Task Validation**: Ensures task is in `WAN_CONFIGS`
+- **Size Validation**: Ensures size is supported for the task
+- **Frame Number Validation**: Ensures frame_num is valid (4n+1 for videos)
+- **Model Path Validation**: Ensures checkpoint directory exists
+
+### **Performance Characteristics**
+
+#### **Generation Times**
+| Task | Model | Frames | Steps | Time (RTX 6000 ADA) |
+|------|-------|--------|-------|-------------------|
+| `t2v-1.3B` | 1.3B | 1 | 25 | 25-40s |
+| `t2v-1.3B` | 1.3B | 83 | 25 | 135-180s |
+| `t2v-1.3B` | 1.3B | 83 | 50 | 180-240s |
+
+#### **Memory Usage**
+- **Model Loading**: ~15GB VRAM
+- **Generation**: ~20-25GB VRAM
+- **Offloading**: Reduces peak memory usage
+
+### **Integration with WAN Worker**
+
+#### **Subprocess Execution**
+```python
+# WAN worker executes wan_generate.py as subprocess
+cmd = [
+    "python", "/workspace/ourvidz-worker/wan_generate.py",
+    "--task", "t2v-1.3B",
+    "--ckpt_dir", "/workspace/models/wan2.1-t2v-1.3b",
+    # ... other parameters
+]
+
+result = subprocess.run(cmd, capture_output=True, text=True)
+```
+
+#### **Environment Setup**
+```python
+# WAN worker sets up environment before execution
+env = setup_environment()
+env['PYTHONPATH'] = f"/workspace/Wan2.1:{env.get('PYTHONPATH', '')}"
+```
+
+#### **Output Processing**
+```python
+# WAN worker processes generated output
+if result.returncode == 0:
+    # Success - upload generated file
+    upload_to_storage(output_path, bucket, user_id, job_id)
+else:
+    # Error - handle failure
+    handle_generation_error(result.stderr)
+```
+
+---
+
 ## **🔄 Job Processing Flow**
 
 ### **1. Job Retrieval**

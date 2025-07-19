@@ -1,7 +1,8 @@
-# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES
+# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES + REFERENCE STRENGTH
 # FIXES: Correct task names for 1.3B model, proper I2V support for reference frames
 # MAJOR FIX: Use correct 1.3B tasks (t2v-1.3B, i2v not flf2v)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
+# REFERENCE STRENGTH FIX: Adjust sample_guide_scale based on reference strength
 # Date: July 19, 2025
 
 import os
@@ -168,15 +169,50 @@ class EnhancedWanWorker:
             }
         }
         
-        print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES")
+        print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES + REFERENCE STRENGTH")
         print("🔧 CRITICAL FIX: Using correct t2v-1.3B task for WAN 1.3B model")
         print("🔧 REFERENCE SUPPORT: All 5 reference modes (none, single, start, end, both)")
+        print("🔧 REFERENCE STRENGTH: Adjust guidance scale based on reference strength (0.1-1.0)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print(f"📋 Supporting ALL 8 job types with 1.3B tasks: {list(self.job_configs.keys())}")
         print(f"📁 WAN 1.3B Model Path: {self.model_path}")
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
-        print("📊 Status: Fixed for 1.3B model + Reference Frames ✅")
+        print("📊 Status: Fixed for 1.3B model + Reference Frames + Reference Strength ✅")
         self.log_gpu_memory()
+
+    def adjust_guidance_for_reference_strength(self, base_guide_scale, reference_strength):
+        """
+        Adjust sample_guide_scale based on reference strength to control reference influence
+        
+        Args:
+            base_guide_scale (float): Base guidance scale from job config
+            reference_strength (float): Reference strength (0.1-1.0)
+            
+        Returns:
+            float: Adjusted guidance scale
+        """
+        if reference_strength is None:
+            return base_guide_scale
+            
+        # Reference strength affects how much the reference frame influences generation
+        # Higher reference strength = higher guidance scale = stronger reference influence
+        # Base range: 6.5-7.5, adjusted range: 5.0-9.0
+        
+        # Calculate adjustment factor
+        # 0.1 strength = minimal influence (5.0 guidance)
+        # 1.0 strength = maximum influence (9.0 guidance)
+        min_guidance = 5.0
+        max_guidance = 9.0
+        
+        # Linear interpolation between min and max guidance
+        adjusted_guidance = min_guidance + (max_guidance - min_guidance) * reference_strength
+        
+        print(f"🎯 Reference strength adjustment:")
+        print(f"   Base guidance scale: {base_guide_scale}")
+        print(f"   Reference strength: {reference_strength}")
+        print(f"   Adjusted guidance scale: {adjusted_guidance:.2f}")
+        
+        return adjusted_guidance
 
     def download_image_from_url(self, image_url):
         """Download image from URL and return PIL Image object"""
@@ -322,14 +358,19 @@ class EnhancedWanWorker:
         print("🎬 Generating standard video without reference frames")
         return self.generate_content(prompt, job_type)
 
-    def generate_video_with_reference_frame(self, prompt, reference_image, job_type):
+    def generate_video_with_reference_frame(self, prompt, reference_image, job_type, reference_strength=0.85):
         """Generate video with single reference frame using WAN 1.3B (I2V-style)"""
         print(f"🎬 Generating video with single reference frame using WAN 1.3B")
         
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
-        config = self.job_configs[job_type]
+        config = self.job_configs[job_type].copy()
+        
+        # Adjust guidance scale based on reference strength
+        base_guide_scale = config['sample_guide_scale']
+        adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
+        config['sample_guide_scale'] = adjusted_guide_scale
         
         # Create output path with proper extension
         timestamp = int(time.time())
@@ -473,14 +514,19 @@ class EnhancedWanWorker:
             except:
                 pass
 
-    def generate_video_with_start_frame(self, prompt, start_reference_image, job_type):
+    def generate_video_with_start_frame(self, prompt, start_reference_image, job_type, reference_strength=0.85):
         """Generate video with start frame reference using WAN 1.3B"""
         print(f"🎬 Generating video with start frame reference using WAN 1.3B")
         
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
-        config = self.job_configs[job_type]
+        config = self.job_configs[job_type].copy()
+        
+        # Adjust guidance scale based on reference strength
+        base_guide_scale = config['sample_guide_scale']
+        adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
+        config['sample_guide_scale'] = adjusted_guide_scale
         
         # Create output path with proper extension
         timestamp = int(time.time())
@@ -624,14 +670,19 @@ class EnhancedWanWorker:
             except:
                 pass
 
-    def generate_video_with_end_frame(self, prompt, end_reference_image, job_type):
+    def generate_video_with_end_frame(self, prompt, end_reference_image, job_type, reference_strength=0.85):
         """Generate video with end frame reference using WAN 1.3B"""
         print(f"🎬 Generating video with end frame reference using WAN 1.3B")
         
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
-        config = self.job_configs[job_type]
+        config = self.job_configs[job_type].copy()
+        
+        # Adjust guidance scale based on reference strength
+        base_guide_scale = config['sample_guide_scale']
+        adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
+        config['sample_guide_scale'] = adjusted_guide_scale
         
         # Create output path with proper extension
         timestamp = int(time.time())
@@ -775,14 +826,19 @@ class EnhancedWanWorker:
             except:
                 pass
 
-    def generate_video_with_both_frames(self, prompt, start_reference_image, end_reference_image, job_type):
+    def generate_video_with_both_frames(self, prompt, start_reference_image, end_reference_image, job_type, reference_strength=0.85):
         """Generate video with both start and end frame references using WAN 1.3B"""
         print(f"🎬 Generating video with both start and end frame references using WAN 1.3B")
         
         if job_type not in self.job_configs:
             raise Exception(f"Unsupported job type: {job_type}")
             
-        config = self.job_configs[job_type]
+        config = self.job_configs[job_type].copy()
+        
+        # Adjust guidance scale based on reference strength
+        base_guide_scale = config['sample_guide_scale']
+        adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
+        config['sample_guide_scale'] = adjusted_guide_scale
         
         # Create output path with proper extension
         timestamp = int(time.time())
@@ -1894,7 +1950,8 @@ Enhanced detailed prompt:"""
                         output_file = self.generate_video_with_reference_frame(
                             actual_prompt, 
                             reference_image, 
-                            job_type
+                            job_type,
+                            reference_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load single reference image: {e}")
@@ -1916,7 +1973,8 @@ Enhanced detailed prompt:"""
                             actual_prompt, 
                             start_reference_image, 
                             end_reference_image, 
-                            job_type
+                            job_type,
+                            reference_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load both reference images: {e}")
@@ -1936,7 +1994,8 @@ Enhanced detailed prompt:"""
                         output_file = self.generate_video_with_start_frame(
                             actual_prompt, 
                             start_reference_image, 
-                            job_type
+                            job_type,
+                            reference_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load start reference image: {e}")
@@ -1956,7 +2015,8 @@ Enhanced detailed prompt:"""
                         output_file = self.generate_video_with_end_frame(
                             actual_prompt, 
                             end_reference_image, 
-                            job_type
+                            job_type,
+                            reference_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load end reference image: {e}")
