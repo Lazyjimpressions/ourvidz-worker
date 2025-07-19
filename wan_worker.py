@@ -169,8 +169,8 @@ class EnhancedWanWorker:
         }
         
         print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES")
-        print("🔧 CRITICAL FIX: Using correct t2v-1.3B task for WAN 1.3B model")
-        print("🔧 REFERENCE FIX: Image-to-video support for reference frames")
+        print("🔧 CRITICAL FIX: Using correct t2v-1.3B and i2v-1.3B tasks for WAN 1.3B model")
+        print("🔧 REFERENCE FIX: Image-to-video support with i2v-1.3B task")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print(f"📋 Supporting ALL 8 job types with 1.3B tasks: {list(self.job_configs.keys())}")
         print(f"📁 WAN 1.3B Model Path: {self.model_path}")
@@ -357,10 +357,10 @@ class EnhancedWanWorker:
             # Build WAN command for I2V-like generation with reference frame
             wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
             
-            # Use t2v-1.3B task but provide the reference image via --image parameter
+            # Use i2v-1.3B task for reference frame generation
             cmd = [
                 "python", wan_generate_path,
-                "--task", config['task'],                    # ✅ FIXED: Use t2v-1.3B
+                "--task", "i2v-1.3B",                        # ✅ FIXED: Use i2v-1.3B for reference frames
                 "--ckpt_dir", self.model_path,
                 "--offload_model", "True",
                 "--size", config['size'],
@@ -370,16 +370,16 @@ class EnhancedWanWorker:
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
-                "--image", ref_path,                         # ✅ NEW: Reference image for I2V-like generation
+                "--image", ref_path,                         # ✅ Reference image for I2V generation
                 "--save_file", temp_output_path
             ]
             
-            print(f"🎬 WAN 1.3B I2V command: {' '.join(cmd)}")
+            print(f"🎬 WAN 1.3B I2V command (i2v-1.3B task): {' '.join(cmd)}")
             
             # Configure environment
             env = self.setup_environment()
             
-            print(f"🎬 WAN 1.3B I2V generation: {job_type}")
+            print(f"🎬 WAN 1.3B I2V generation (i2v-1.3B): {job_type}")
             print(f"📝 Prompt: {prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
             print(f"💾 Output: {temp_output_path}")
@@ -389,7 +389,7 @@ class EnhancedWanWorker:
             generation_start = time.time()
             timeout_seconds = 500 if config['content_type'] == 'video' else 180
             
-            print(f"⏰ Starting WAN 1.3B I2V subprocess with {timeout_seconds}s timeout")
+            print(f"⏰ Starting WAN 1.3B I2V subprocess (i2v-1.3B task) with {timeout_seconds}s timeout")
             print(f"🚀 I2V generation started at {time.strftime('%H:%M:%S')}")
 
             try:
@@ -405,7 +405,7 @@ class EnhancedWanWorker:
                 generation_time = time.time() - generation_start
                 os.chdir(original_cwd)
                 
-                print(f"✅ WAN 1.3B I2V subprocess completed in {generation_time:.1f}s")
+                print(f"✅ WAN 1.3B I2V subprocess (i2v-1.3B) completed in {generation_time:.1f}s")
                 print(f"📄 Return code: {result.returncode}")
                 
                 # Enhanced output analysis
@@ -423,25 +423,25 @@ class EnhancedWanWorker:
                 
                 # Validate output
                 if result.returncode == 0:
-                    print(f"🔍 Checking I2V output file: {temp_output_path}")
+                    print(f"🔍 Checking I2V output file (i2v-1.3B): {temp_output_path}")
                     
                     if os.path.exists(temp_output_path):
                         file_size = os.path.getsize(temp_output_path)
-                        print(f"✅ I2V output file found: {file_size / 1024**2:.2f}MB")
+                        print(f"✅ I2V output file found (i2v-1.3B): {file_size / 1024**2:.2f}MB")
                         
                         is_valid, validation_msg = self.validate_output_file(temp_output_path, config['content_type'])
                         if is_valid:
-                            print(f"✅ I2V file validation passed: {validation_msg}")
+                            print(f"✅ I2V file validation passed (i2v-1.3B): {validation_msg}")
                             return temp_output_path
                         else:
-                            print(f"❌ I2V file validation failed: {validation_msg}")
+                            print(f"❌ I2V file validation failed (i2v-1.3B): {validation_msg}")
                             raise Exception(f"I2V generated file validation failed: {validation_msg}")
                     else:
-                        print(f"❌ I2V output file not found: {temp_output_path}")
+                        print(f"❌ I2V output file not found (i2v-1.3B): {temp_output_path}")
                         raise Exception("No valid I2V output file generated")
                         
                 else:
-                    print(f"❌ I2V failed with return code: {result.returncode}")
+                    print(f"❌ I2V failed with return code (i2v-1.3B): {result.returncode}")
                     error_details = []
                     if result.stderr:
                         error_details.append(f"STDERR: {result.stderr[-300:]}")
@@ -449,22 +449,22 @@ class EnhancedWanWorker:
                         error_details.append(f"STDOUT: {result.stdout[-300:]}")
                     
                     error_message = " | ".join(error_details) if error_details else "No error output captured"
-                    raise Exception(f"I2V generation failed (code {result.returncode}): {error_message}")
+                    raise Exception(f"I2V generation failed (i2v-1.3B task, code {result.returncode}): {error_message}")
                     
             except subprocess.TimeoutExpired:
                 os.chdir(original_cwd)
-                print(f"❌ I2V generation timed out after {timeout_seconds}s")
-                raise Exception(f"I2V generation timed out after {timeout_seconds} seconds")
+                print(f"❌ I2V generation timed out after {timeout_seconds}s (i2v-1.3B task)")
+                raise Exception(f"I2V generation timed out after {timeout_seconds} seconds (i2v-1.3B task)")
                 
             except Exception as e:
                 os.chdir(original_cwd)
-                print(f"❌ I2V subprocess error: {e}")
+                print(f"❌ I2V subprocess error (i2v-1.3B): {e}")
                 raise
                 
         except Exception as e:
             if os.getcwd() != original_cwd:
                 os.chdir(original_cwd)
-            print(f"❌ I2V generation error: {e}")
+            print(f"❌ I2V generation error (i2v-1.3B): {e}")
             raise
         finally:
             # Cleanup reference file
@@ -1482,7 +1482,7 @@ Enhanced detailed prompt:"""
                 'job_type': job_type,
                 'content_type': final_config['content_type'],
                 'frame_num': final_config['frame_num'],
-                'wan_task': final_config['task']
+                'wan_task': 'i2v-1.3B' if start_reference_url else final_config['task']
             }
             
             # CONSISTENT: Success callback with standardized parameters and metadata
@@ -1511,7 +1511,7 @@ Enhanced detailed prompt:"""
             error_metadata = {
                 'error_type': type(e).__name__,
                 'job_type': job_type,
-                'wan_task': job_config.get('task', 'unknown'),
+                'wan_task': 'i2v-1.3B' if start_reference_url else job_config.get('task', 'unknown'),
                 'timestamp': time.time()
             }
             
@@ -1547,8 +1547,8 @@ Enhanced detailed prompt:"""
     def run_with_enhanced_diagnostics(self):
         """Main worker loop for WAN 1.3B model"""
         print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES")
-        print("🔧 CRITICAL FIX: Using correct t2v-1.3B task for WAN 1.3B model")
-        print("🔧 REFERENCE SUPPORT: I2V-style generation with start reference frame")
+        print("🔧 CRITICAL FIX: Using correct t2v-1.3B and i2v-1.3B tasks for WAN 1.3B model")
+        print("🔧 REFERENCE SUPPORT: I2V-style generation with i2v-1.3B task")
         print("🔧 PARAMETER FIX: Consistent callback parameters (job_id, status, assets)")
         print("📊 Status: Fixed for WAN 1.3B + Reference Frame Support ✅")
         
@@ -1620,8 +1620,8 @@ if __name__ == "__main__":
         exit(1)
     
     print("✅ All paths validated for 1.3B model")
-    print("🔧 FIXED: Using t2v-1.3B task for all job types")
-    print("🖼️ REFERENCE: I2V-style support with start reference frame")
+    print("🔧 FIXED: Using t2v-1.3B and i2v-1.3B tasks for WAN 1.3B model")
+    print("🖼️ REFERENCE: I2V-style support with i2v-1.3B task")
     
     try:
         worker = EnhancedWanWorker()
