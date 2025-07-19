@@ -1382,6 +1382,7 @@ Enhanced detailed prompt:"""
                 print(f"📥 End reference frame URL (last_frame/end_reference_url): {end_reference_url}")
         
         job_start_time = time.time()
+        total_time = 0  # Initialize total_time variable
         
         try:
             if job_type not in self.job_configs:
@@ -1472,6 +1473,9 @@ Enhanced detailed prompt:"""
             except:
                 pass
             
+            # Calculate total time
+            total_time = time.time() - job_start_time
+            
             # Prepare metadata for callback
             callback_metadata = {
                 'generation_time': total_time,
@@ -1483,8 +1487,6 @@ Enhanced detailed prompt:"""
             
             # CONSISTENT: Success callback with standardized parameters and metadata
             self.notify_completion(job_id, 'completed', assets=[relative_path], metadata=callback_metadata)
-            
-            total_time = time.time() - job_start_time
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
             print(f"📁 Output: {relative_path}")
             print(f"✅ File type: {final_config['content_type']} (.{file_extension})")
