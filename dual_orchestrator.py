@@ -36,7 +36,7 @@ class DualWorkerOrchestrator:
             },
             'wan': {
                 'script': 'wan_worker.py', 
-                'name': 'Enhanced WAN Worker',
+                'name': 'Enhanced WAN Worker (Qwen 7B + FLF2V/T2V)',
                 'queue': 'wan_queue',
                 'job_types': ['image_fast', 'image_high', 'video_fast', 'video_high',
                              'image7b_fast_enhanced', 'image7b_high_enhanced', 
@@ -44,14 +44,14 @@ class DualWorkerOrchestrator:
                 'expected_vram': '15-30GB',
                 'restart_delay': 15,
                 'generation_time': '67-294s',
-                'status': 'Enhanced with Qwen 7B ✅'
+                'status': 'Qwen 7B Enhancement + FLF2V/T2V Tasks ✅'
             }
         }
         
         logger.info("🎭 Dual Worker Orchestrator initialized")
         logger.info("🎨 SDXL: Fast image generation (3-8s)")
-        logger.info("🎬 Enhanced WAN: Video + AI enhancement (67-294s)")
-        logger.info("🔧 FIXED: Graceful validation + consistent parameter naming")
+        logger.info("🎬 Enhanced WAN: Video + Qwen 7B enhancement + FLF2V/T2V tasks (67-294s)")
+        logger.info("🔧 FIXED: Graceful validation + consistent parameter naming + FLF2V/T2V support")
 
     def validate_environment(self):
         """Validate environment for dual worker operation"""
@@ -155,6 +155,18 @@ class DualWorkerOrchestrator:
                     logger.info("✅ WAN worker uses consistent parameter naming (job_id, assets)")
                 else:
                     consistency_issues.append("WAN worker parameter naming inconsistent")
+                
+                # Check for FLF2V/T2V task support
+                if "flf2v-14B" in wan_content and "t2v-14B" in wan_content:
+                    logger.info("✅ WAN worker supports FLF2V/T2V tasks")
+                else:
+                    consistency_issues.append("WAN worker missing FLF2V/T2V task support")
+                
+                # Check for correct parameter names
+                if "--first_frame" in wan_content and "--last_frame" in wan_content:
+                    logger.info("✅ WAN worker uses correct FLF2V parameter names (--first_frame, --last_frame)")
+                else:
+                    consistency_issues.append("WAN worker missing correct FLF2V parameter names")
         
         if sdxl_script_path.exists():
             with open(sdxl_script_path, 'r') as f:
@@ -243,6 +255,10 @@ class DualWorkerOrchestrator:
                 # Look for parameter consistency confirmations
                 if "job_id" in line and "assets" in line and worker_id in ['wan', 'sdxl']:
                     logger.info(f"✅ {worker_id.upper()} parameter consistency confirmed in operation")
+                
+                # Look for FLF2V/T2V task confirmations
+                if "FLF2V" in line or "T2V" in line and worker_id == 'wan':
+                    logger.info(f"✅ {worker_id.upper()} FLF2V/T2V task support confirmed in operation")
                 
             # Process ended
             process.wait()
@@ -383,7 +399,7 @@ class DualWorkerOrchestrator:
     def run(self):
         """Main orchestrator run loop"""
         logger.info("🎭 DUAL WORKER ORCHESTRATOR STARTING")
-        logger.info("🔧 GRACEFUL VALIDATION + CONSISTENT PARAMETERS VERSION - Production Ready")
+        logger.info("🔧 GRACEFUL VALIDATION + CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V VERSION - Production Ready")
         logger.info("=" * 70)
         
         # Validate environment
@@ -417,12 +433,13 @@ class DualWorkerOrchestrator:
         logger.info("")
         logger.info("🎬 Enhanced WAN Worker: wan_queue → 8 job types")
         logger.info("  📝 Standard: image_fast, image_high, video_fast, video_high")
-        logger.info("  ✨ Enhanced: image7b_fast_enhanced, image7b_high_enhanced, video7b_fast_enhanced, video7b_high_enhanced")
-        logger.info("  ⚡ Performance: 67-294s generation (includes Qwen 7B enhancement)")
+        logger.info("  ✨ Qwen 7B Enhanced: image7b_fast_enhanced, image7b_high_enhanced, video7b_fast_enhanced, video7b_high_enhanced")
+        logger.info("  ⚡ Performance: 67-294s generation (includes Qwen 7B prompt enhancement)")
+        logger.info("  🎬 FLF2V/T2V Tasks: Automatic task selection for video with reference frames")
         logger.info("  📋 Parameters: job_id, assets (consistent)")
         logger.info("")
         logger.info("💡 Both workers monitoring their respective queues")
-        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B, Consistent parameter naming")
+        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B prompt enhancement + FLF2V/T2V tasks, Consistent parameter naming")
         logger.info("=" * 70)
         
         # Main loop - keep orchestrator alive
@@ -448,7 +465,7 @@ class DualWorkerOrchestrator:
         return True
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting OurVidz Dual Worker System - CONSISTENT PARAMETERS VERSION")
+    logger.info("🚀 Starting OurVidz Dual Worker System - CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V VERSION")
     
     try:
         orchestrator = DualWorkerOrchestrator()
