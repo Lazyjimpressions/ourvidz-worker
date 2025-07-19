@@ -1,7 +1,7 @@
 # OurVidz Worker API Reference
 
 **Last Updated:** July 16, 2025  
-**Status:** ✅ Production Ready - All 10 Job Types Operational + Multi-Reference System Live  
+**Status:** ✅ Production Ready - All Job Types Operational + Comprehensive Reference Frame Support  
 **System:** Dual Worker (SDXL + WAN) on RTX 6000 ADA (48GB VRAM)
 
 ---
@@ -10,8 +10,8 @@
 
 OurVidz operates with a dual-worker architecture:
 
-1. **SDXL Worker** - High-quality image generation with flexible quantities
-2. **WAN Worker** - Video generation and enhanced image processing
+1. **SDXL Worker** - High-quality image generation with flexible quantities (1, 3, or 6 images)
+2. **WAN Worker** - Video generation and enhanced image processing with comprehensive reference frame support
 
 Both workers use standardized callback parameters and comprehensive metadata management.
 
@@ -32,7 +32,7 @@ Both workers use standardized callback parameters and comprehensive metadata man
   "type": "sdxl_image_fast" | "sdxl_image_high",
   "prompt": "string",
   "config": {
-    "size": "480*832",
+    "size": "1024*1024",
     "sample_steps": 15 | 25,
     "sample_guide_scale": 6.0 | 7.5,
     "sample_solver": "unipc",
@@ -40,7 +40,7 @@ Both workers use standardized callback parameters and comprehensive metadata man
     "frame_num": 1,
     "enhance_prompt": false,
     "seed": 123456789,
-    "expected_time": 4 | 8,
+    "expected_time": 30 | 42,
     "content_type": "image",
     "file_extension": "png",
     "num_images": 1 | 3 | 6
@@ -62,7 +62,7 @@ Both workers use standardized callback parameters and comprehensive metadata man
     "reference_image_url": "string",
     "reference_type": "style" | "composition" | "character",
     "reference_strength": 0.1-1.0,
-    "expected_generation_time": 4 | 8,
+    "expected_generation_time": 30 | 42,
     "dual_worker_routing": true,
     "negative_prompt_supported": true,
     "edge_function_version": "2.1.0"
@@ -89,8 +89,10 @@ Both workers use standardized callback parameters and comprehensive metadata man
     "content_type": "image" | "video",
     "file_extension": "png" | "mp4",
     "num_images": 1,
-    "first_frame": "string",  // ✅ NEW: Start reference frame URL for video generation
-    "last_frame": "string"    // ✅ NEW: End reference frame URL for video generation
+    "task": "t2v-1.3B",
+    "image": "string",           // ✅ Single reference frame URL (I2V-style)
+    "first_frame": "string",     // ✅ Start reference frame URL
+    "last_frame": "string"       // ✅ End reference frame URL
   },
   "user_id": "uuid",
   "created_at": "2025-07-16T...",
@@ -104,11 +106,10 @@ Both workers use standardized callback parameters and comprehensive metadata man
     "queue": "wan_queue",
     "seed": 123456789,
     "num_images": 1,
-    "reference_image_url": "string",
-    "reference_type": "style" | "composition" | "character",
+    "reference_image_url": "string",  // ✅ Single reference frame URL (fallback)
+    "start_reference_url": "string",  // ✅ Start reference frame URL (fallback)
+    "end_reference_url": "string",    // ✅ End reference frame URL (fallback)
     "reference_strength": 0.1-1.0,
-    "start_reference_url": "string",  // ✅ NEW: Start reference frame URL for video generation
-    "end_reference_url": "string",    // ✅ NEW: End reference frame URL for video generation
     "expected_generation_time": 25-240,
     "dual_worker_routing": true,
     "negative_prompt_supported": false,
@@ -137,7 +138,12 @@ POST /functions/v1/job-callback
   "metadata": {
     "seed": 123456789,
     "generation_time": 15.5,
-    "num_images": 3
+    "num_images": 3,
+    "job_type": "sdxl_image_fast",
+    "content_type": "image",
+    "frame_num": 1,
+    "wan_task": "t2v-1.3B",
+    "reference_mode": "none" | "single" | "start" | "end" | "both"
   }
 }
 ```
@@ -173,8 +179,8 @@ POST /functions/v1/job-callback
 ### **Job Types Supported**
 | Job Type | Quality | Steps | Guidance | Time | Quantity |
 |----------|---------|-------|----------|------|----------|
-| `sdxl_image_fast` | Fast | 15 | 6.0 | 3-8s | 1,3,6 |
-| `sdxl_image_high` | High | 25 | 7.5 | 9-24s | 1,3,6 |
+| `sdxl_image_fast` | Fast | 15 | 6.0 | 30s | 1,3,6 |
+| `sdxl_image_high` | High | 25 | 7.5 | 42s | 1,3,6 |
 
 ### **Performance Metrics**
 - **1 Image**: 3-8 seconds
@@ -203,327 +209,140 @@ if reference_image_url:
     result = generate_with_reference(prompt, reference_image, reference_type, reference_strength)
 ```
 
-### **Video Reference Frame Support** ✅ NEW
-```python
-# Video reference frame parameters
-start_reference_url = "https://storage.example.com/start_frame.jpg"
-end_reference_url = "https://storage.example.com/end_frame.jpg"
-reference_strength = 0.85
-
-# Video generation with reference frames using FLF2V task
-if start_reference_url or end_reference_url:
-    # Use FLF2V (First-Last Frame to Video) task
-    task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
-    
-    # Generate video with reference frames
-    video = generate_flf2v_video(
-        prompt, 
-        start_reference_url, 
-        end_reference_url, 
-        frame_num,
-        task_type
-    )
-else:
-    # Use T2V (Text to Video) task for standard generation
-    task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
-    video = generate_t2v_video(prompt, frame_num, task_type)
-```
-
-### **WAN Command with FLF2V Task for Reference Frames**
-```python
-# Determine task type based on reference availability
-if start_ref_path or end_ref_path:
-    # Use FLF2V task for video with reference frames
-    task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
-    print(f"🎬 Using FLF2V task for video with reference frames")
-else:
-    # Use standard T2V task
-    task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
-    print(f"🎬 Using T2V task for standard video generation")
-
-# Build WAN command with correct task type
-# CRITICAL: Use correct path to wan_generate.py in worker repository
-wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
-
-cmd = [
-    "python", wan_generate_path,
-    "--task", task_type,
-    "--ckpt_dir", model_path,
-    "--offload_model", "True",
-    "--size", config['size'],
-    "--sample_steps", str(config['sample_steps']),
-    "--sample_guide_scale", str(config['sample_guide_scale']),
-    "--sample_solver", config.get('sample_solver', 'unipc'),
-    "--sample_shift", str(config.get('sample_shift', 5.0)),
-    "--frame_num", str(config['frame_num']),
-    "--prompt", prompt,
-    "--save_file", output_path
-]
-
-# Add reference frame parameters for FLF2V task
-if task_type.startswith("flf2v"):
-    if start_ref_path:
-        cmd.extend(["--first_frame", start_ref_path])
-        print(f"🖼️ Start reference frame: {start_ref_path}")
-    
-    if end_ref_path:
-        cmd.extend(["--last_frame", end_ref_path])
-        print(f"🖼️ End reference frame: {end_ref_path}")
-    
-    print(f"🎬 FLF2V command: {' '.join(cmd)}")
-else:
-    print(f"🎬 T2V command: {' '.join(cmd)}")
-```
-
-### **Enhanced Negative Prompt Generation**
-```python
-def generate_negative_prompt_for_sdxl(user_prompt):
-    # Priority 1: Critical Quality (Always Included)
-    critical_negatives = [
-        "bad anatomy", "extra limbs", "deformed", "missing limbs",
-        "worst quality", "low quality", "normal quality", "lowres"
-    ]
-    
-    # Priority 2: Anatomical Accuracy (Always Included)
-    anatomical_negatives = [
-        "deformed hands", "extra fingers", "deformed face", "malformed",
-        "bad hands", "bad fingers", "missing fingers", "distorted features"
-    ]
-    
-    # Priority 3: Technical Artifacts (High Priority)
-    artifact_negatives = [
-        "text", "watermark", "logo", "signature", "contact info",
-        "username", "artist name", "title", "caption"
-    ]
-    
-    # Priority 4: Style Prevention (Medium Priority)
-    style_negatives = [
-        "anime", "cartoon", "graphic", "render", "cgi", "3d",
-        "painting", "drawing", "illustration", "sketch"
-    ]
-    
-    # Priority 5: NSFW-Specific (Conditional)
-    nsfw_negatives = ["child", "minor"]
-    
-    # Priority 6: Multi-Party Scene Prevention (Critical for group scenes)
-    multi_party_negatives = [
-        "three girls", "all girls", "only girls", "no male", "missing male",
-        "disembodied penis", "floating penis", "detached penis",
-        "penis not attached", "wrong gender ratio", "incorrect participants",
-        "wrong number of people"
-    ]
-    
-    # Priority 7: Position and Action Accuracy (Critical for explicit scenes)
-    position_negatives = [
-        "wrong position", "incorrect pose", "impossible position",
-        "unnatural pose", "penis in wrong place", "anatomical mismatch",
-        "position confusion", "wrong body parts", "misplaced anatomy",
-        "anatomical errors"
-    ]
-    
-    # Priority 8: NSFW Anatomical Improvements (Conditional)
-    nsfw_anatomical_negatives = [
-        "deformed breasts", "extra breasts", "anatomical errors",
-        "wrong anatomy", "distorted bodies", "unnatural poses"
-    ]
-    
-    # Build SDXL negative prompt with priority system
-    sdxl_negatives = [
-        *critical_negatives,
-        *anatomical_negatives,
-        *artifact_negatives[:4],
-        *style_negatives[:3],
-        *nsfw_negatives
-    ]
-    
-    # Enhanced multi-party prevention for group scenes
-    prompt_lower = user_prompt.lower()
-    has_multiple_people = any(word in prompt_lower for word in ['two', 'both', 'sisters', 'girls'])
-    has_females = any(word in prompt_lower for word in ['girl', 'woman', 'sister', 'female'])
-    has_males = any(word in prompt_lower for word in ['guy', 'man', 'male', 'boy'])
-    
-    if has_multiple_people and has_females and has_males:
-        sdxl_negatives.extend(multi_party_negatives[:6])
-    elif has_multiple_people and has_females and not has_males:
-        sdxl_negatives.extend(["three girls", "all girls", "only girls", "wrong number of people"])
-    
-    # Add position accuracy for explicit scenes
-    if any(word in prompt_lower for word in ['sex', 'oral', 'doggy', 'sucking']):
-        sdxl_negatives.extend(position_negatives[:5])
-    
-    # Add NSFW anatomical improvements if applicable
-    if any(word in prompt_lower for word in ['naked', 'nude', 'sex', 'topless']):
-        sdxl_negatives.extend(nsfw_anatomical_negatives[:4])
-    
-    return ", ".join(sdxl_negatives)
-```
-
 ---
 
 ## **🎬 WAN Worker Specifications**
 
 ### **Model Configuration**
-- **Model**: WAN 2.1.1.3B
+- **Model**: WAN 2.1 T2V 1.3B
+- **Model Path**: `/workspace/models/wan2.1-t2v-1.3b`
 - **Pipeline**: Video generation and enhanced image processing
 - **VRAM**: 48GB RTX 6000 ADA
+- **Script Path**: `/workspace/ourvidz-worker/wan_generate.py`
+
+### **WAN 1.3B Definitive Capabilities**
+
+| **Reference Mode** | **Task** | **Parameters** | **Use Case** |
+|-------------------|----------|----------------|--------------|
+| **Standard Generation** | `t2v-1.3B` | None | Text-to-video only |
+| **Single Reference** | `t2v-1.3B` | `--image ref.png` | Image-to-video style |
+| **Start Frame Only** | `t2v-1.3B` | `--first_frame start.png` | Video begins with reference |
+| **End Frame Only** | `t2v-1.3B` | `--last_frame end.png` | Video ends with reference |
+| **Both Frames** | `t2v-1.3B` | `--first_frame start.png --last_frame end.png` | Transition video |
 
 ### **Job Types Supported**
-| Job Type | Quality | Steps | Guidance | Time | Quantity |
-|----------|---------|-------|----------|------|----------|
-| `image_fast` | Fast | 25 | 6.5 | 25-40s | 1 |
-| `image_high` | High | 50 | 7.5 | 40-100s | 1 |
-| `video_fast` | Fast | 25 | 6.5 | 135-180s | 1 |
-| `video_high` | High | 50 | 7.5 | 180-240s | 1 |
-| `image7b_fast_enhanced` | Fast Enhanced | 25 | 6.5 | 85-100s | 1 |
-| `image7b_high_enhanced` | High Enhanced | 50 | 7.5 | 100-240s | 1 |
-| `video7b_fast_enhanced` | Fast Enhanced | 25 | 6.5 | 195-240s | 1 |
-| `video7b_high_enhanced` | High Enhanced | 50 | 7.5 | 240+s | 1 |
+| Job Type | Quality | Steps | Guidance | Time | Quantity | Enhancement |
+|----------|---------|-------|----------|------|----------|-------------|
+| `image_fast` | Fast | 25 | 6.5 | 25-40s | 1 | No |
+| `image_high` | High | 50 | 7.5 | 40-100s | 1 | No |
+| `video_fast` | Fast | 25 | 6.5 | 135-180s | 1 | No |
+| `video_high` | High | 50 | 7.5 | 180-240s | 1 | No |
+| `image7b_fast_enhanced` | Fast Enhanced | 25 | 6.5 | 85-100s | 1 | Yes |
+| `image7b_high_enhanced` | High Enhanced | 50 | 7.5 | 100-240s | 1 | Yes |
+| `video7b_fast_enhanced` | Fast Enhanced | 25 | 6.5 | 195-240s | 1 | Yes |
+| `video7b_high_enhanced` | High Enhanced | 50 | 7.5 | 240+s | 1 | Yes |
 
 ### **Key Features**
 - **Video Generation**: High-quality video output with temporal consistency
-- **Enhanced Processing**: 7B model variants for improved quality
-- **Reference Support**: Image-to-image for video start/end frames
+- **Enhanced Processing**: 7B model variants for improved quality with AI prompt enhancement
+- **Comprehensive Reference Support**: All 5 reference frame modes supported
 - **Seed Control**: Reproducible generation (no negative prompts)
-- **Path Consistency**: Fixed video path handling
+- **Path Consistency**: Fixed video path handling with correct script paths
 
-### **Video Generation with Reference Frames**
+### **Reference Frame Processing**
+
+#### **Reference Mode Detection**
 ```python
-# Video generation parameters
-frame_num = 83  # Number of frames
-sample_solver = "unipc"  # Temporal consistency
-sample_shift = 5.0  # Motion control
-
-# Extract reference frame parameters from job config and metadata
-start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
-end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
-reference_strength = metadata.get('reference_strength', 0.85)
-
-# Determine task type based on reference availability
-if start_reference_url or end_reference_url:
-    # Use FLF2V (First-Last Frame to Video) task for reference frames
-    task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
-    print(f"🎬 Using FLF2V task for video with reference frames")
-else:
-    # Use standard T2V (Text to Video) task
-    task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
-    print(f"🎬 Using T2V task for standard video generation")
-
-# Generate video with appropriate task type
-if task_type.startswith("flf2v"):
-    # FLF2V generation with reference frames
-    video = generate_flf2v_video(
-        prompt, 
-        start_reference_url, 
-        end_reference_url, 
-        frame_num,
-        task_type
-    )
-else:
-    # Standard T2V generation
-    video = generate_t2v_video(prompt, frame_num, task_type)
+def determine_reference_mode(single_reference_url, start_reference_url, end_reference_url):
+    if single_reference_url and not start_reference_url and not end_reference_url:
+        return 'single'
+    elif start_reference_url and end_reference_url:
+        return 'both'
+    elif start_reference_url and not end_reference_url:
+        return 'start'
+    elif end_reference_url and not start_reference_url:
+        return 'end'
+    else:
+        return 'none'
 ```
 
-### **Reference Frame Processing with FLF2V Task**
+#### **Command Building Logic**
 ```python
-def download_image_from_url(image_url):
-    """Download image from URL and return PIL Image object"""
-    response = requests.get(image_url, timeout=30)
-    response.raise_for_status()
-    image = Image.open(io.BytesIO(response.content))
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    return image
-
-def preprocess_reference_image(image, target_size=(480, 832)):
-    """Preprocess reference image for WAN video generation"""
-    image.thumbnail(target_size, Image.Resampling.LANCZOS)
-    new_image = Image.new('RGB', target_size, (0, 0, 0))
-    x = (target_size[0] - image.width) // 2
-    y = (target_size[1] - image.height) // 2
-    new_image.paste(image, (x, y))
-    return new_image
-
-def generate_flf2v_video(prompt, start_reference_url, end_reference_url, frame_num, task_type):
-    """Generate video using FLF2V task with reference frames"""
-    # Download and process reference images
-    start_reference = None
-    end_reference = None
-    
-    if start_reference_url:
-        start_reference = download_image_from_url(start_reference_url)
-        start_reference = preprocess_reference_image(start_reference)
-        print(f"🖼️ Start reference frame processed: {start_reference_url}")
-    
-    if end_reference_url:
-        end_reference = download_image_from_url(end_reference_url)
-        end_reference = preprocess_reference_image(end_reference)
-        print(f"🖼️ End reference frame processed: {end_reference_url}")
-    
-    # Build WAN command for FLF2V task
-    # CRITICAL: Use correct path to wan_generate.py in worker repository
-    wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
-    
+def build_wan_command(prompt, job_type, config):
     cmd = [
-        "python", wan_generate_path,
-        "--task", task_type,  # "flf2v-14B" or "flf2v-1.3B"
-        "--ckpt_dir", model_path,
-        "--offload_model", "True",
-        "--size", "480*832",
-        "--sample_steps", "25",
-        "--sample_guide_scale", "6.5",
-        "--sample_solver", "unipc",
-        "--sample_shift", "5.0",
-        "--frame_num", str(frame_num),
-        "--prompt", prompt,
-        "--save_file", output_path
+        "python", "/workspace/ourvidz-worker/wan_generate.py",
+        "--task", "t2v-1.3B",  # Always t2v-1.3B
+        "--ckpt_dir", "/workspace/models/wan2.1-t2v-1.3b",
+        # ... other standard parameters ...
+        "--prompt", prompt
     ]
     
-    # Add reference frame parameters
-    if start_reference_url:
-        cmd.extend(["--first_frame", start_reference_url])
-    if end_reference_url:
-        cmd.extend(["--last_frame", end_reference_url])
+    # Add reference parameters based on config
+    if 'image' in config:
+        cmd.extend(["--image", config['image']])
     
-    print(f"🎬 FLF2V command: {' '.join(cmd)}")
+    if 'first_frame' in config:
+        cmd.extend(["--first_frame", config['first_frame']])
+        
+    if 'last_frame' in config:
+        cmd.extend(["--last_frame", config['last_frame']])
     
-    # Execute the command
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        raise Exception(f"FLF2V generation failed: {result.stderr}")
-    
-    return output_path
+    return cmd
+```
 
-def generate_t2v_video(prompt, frame_num, task_type):
-    """Generate video using T2V task (standard video generation)"""
-    # Build WAN command for T2V task
-    # CRITICAL: Use correct path to wan_generate.py in worker repository
-    wan_generate_path = "/workspace/ourvidz-worker/wan_generate.py"
+#### **Reference Frame Generation Examples**
+
+**Standard Generation (no reference):**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py --task t2v-1.3B --prompt "..." --save_file output.mp4
+```
+
+**Single Reference:**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py --task t2v-1.3B --prompt "..." --image reference.png --save_file output.mp4
+```
+
+**Start Frame Only:**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py --task t2v-1.3B --prompt "..." --first_frame start.png --save_file output.mp4
+```
+
+**End Frame Only:**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py --task t2v-1.3B --prompt "..." --last_frame end.png --save_file output.mp4
+```
+
+**Both Frames:**
+```bash
+python /workspace/ourvidz-worker/wan_generate.py --task t2v-1.3B --prompt "..." --first_frame start.png --last_frame end.png --save_file output.mp4
+```
+
+### **Environment Setup**
+```python
+def setup_environment(self):
+    """Configure environment variables for WAN and Qwen"""
+    env = os.environ.copy()
     
-    cmd = [
-        "python", wan_generate_path,
-        "--task", task_type,  # "t2v-14B" or "t2v-1.3B"
-        "--ckpt_dir", model_path,
-        "--offload_model", "True",
-        "--size", "480*832",
-        "--sample_steps", "25",
-        "--sample_guide_scale", "6.5",
-        "--sample_solver", "unipc",
-        "--sample_shift", "5.0",
-        "--frame_num", str(frame_num),
-        "--prompt", prompt,
-        "--save_file", output_path
-    ]
+    # CRITICAL: Add WAN code directory to Python path for module resolution
+    python_deps_path = '/workspace/python_deps/lib/python3.11/site-packages'
+    wan_code_path = '/workspace/Wan2.1'  # WAN code directory
     
-    print(f"🎬 T2V command: {' '.join(cmd)}")
+    current_pythonpath = env.get('PYTHONPATH', '')
+    if current_pythonpath:
+        new_pythonpath = f"{wan_code_path}:{python_deps_path}:{current_pythonpath}"
+    else:
+        new_pythonpath = f"{wan_code_path}:{python_deps_path}"
     
-    # Execute the command
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        raise Exception(f"T2V generation failed: {result.stderr}")
-    
-    return output_path
+    env.update({
+        'CUDA_VISIBLE_DEVICES': '0',
+        'TORCH_USE_CUDA_DSA': '1',
+        'PYTHONUNBUFFERED': '1',
+        'PYTHONPATH': new_pythonpath,
+        'HF_HOME': self.hf_cache_path,
+        'TRANSFORMERS_CACHE': self.hf_cache_path,
+        'HUGGINGFACE_HUB_CACHE': f"{self.hf_cache_path}/hub"
+    })
+    return env
 ```
 
 ---
@@ -544,7 +363,19 @@ config = job_data["config"]
 user_id = job_data["user_id"]
 ```
 
-### **2. Model Loading**
+### **2. Reference Frame Detection (WAN Worker)**
+```python
+# Extract reference frame parameters from config and metadata
+metadata = job_data.get('metadata', {})
+single_reference_url = config.get('image') or metadata.get('reference_image_url')
+start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
+end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
+
+# Determine reference mode
+reference_mode = determine_reference_mode(single_reference_url, start_reference_url, end_reference_url)
+```
+
+### **3. Model Loading**
 ```python
 # Load appropriate model based on job type
 if job_type.startswith("sdxl_"):
@@ -555,9 +386,10 @@ else:
     model = load_wan_image_model()
 ```
 
-### **3. Generation Execution**
+### **4. Generation Execution**
+
+#### **SDXL Generation**
 ```python
-# Execute generation with parameters
 if job_type.startswith("sdxl_"):
     # SDXL generation with flexible quantities
     num_images = config.get("num_images", 1)
@@ -570,29 +402,37 @@ if job_type.startswith("sdxl_"):
         results.append(result)
     
     assets = results
-else:
-    # WAN generation with reference frame support
-    if config.get('content_type') == 'video':
-        # Check for video reference frames
-        start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
-        end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
-        
-        if start_reference_url or end_reference_url:
-            # Use FLF2V task for video with reference frames
-            task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
-            result = generate_flf2v_video(prompt, start_reference_url, end_reference_url, config.get('frame_num', 83), task_type)
-        else:
-            # Use T2V task for standard video generation
-            task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
-            result = generate_t2v_video(prompt, config.get('frame_num', 83), task_type)
-    else:
-        # Standard image generation
-        result = generate_wan_content(prompt, config)
-    
-    assets = [result]
 ```
 
-### **4. Asset Upload**
+#### **WAN Generation**
+```python
+else:
+    # WAN generation with comprehensive reference frame support
+    if config.get('content_type') == 'video':
+        # Determine reference frame mode and route to appropriate generation function
+        if single_reference_url and not start_reference_url and not end_reference_url:
+            # Single reference frame mode (I2V-style)
+            output_file = generate_video_with_reference_frame(prompt, single_reference_image, job_type)
+        elif start_reference_url and end_reference_url:
+            # Both frames mode (start + end)
+            output_file = generate_video_with_both_frames(prompt, start_reference_image, end_reference_image, job_type)
+        elif start_reference_url and not end_reference_url:
+            # Start frame only mode
+            output_file = generate_video_with_start_frame(prompt, start_reference_image, job_type)
+        elif end_reference_url and not start_reference_url:
+            # End frame only mode
+            output_file = generate_video_with_end_frame(prompt, end_reference_image, job_type)
+        else:
+            # Standard generation (no reference frames)
+            output_file = generate_standard_content(prompt, job_type)
+    else:
+        # Standard image generation
+        output_file = generate_content(prompt, job_type)
+    
+    assets = [output_file]
+```
+
+### **5. Asset Upload**
 ```python
 # Upload generated assets to storage
 uploaded_assets = []
@@ -603,18 +443,24 @@ for asset in assets:
     uploaded_assets.append(asset_url)
 ```
 
-### **5. Callback Execution**
+### **6. Callback Execution**
 ```python
+# Prepare metadata for callback
+callback_metadata = {
+    'generation_time': total_time,
+    'job_type': job_type,
+    'content_type': final_config['content_type'],
+    'frame_num': final_config['frame_num'],
+    'wan_task': 't2v-1.3B',  # Always t2v-1.3B for WAN 1.3B model
+    'reference_mode': reference_mode
+}
+
 # Send standardized callback
 callback_data = {
     "job_id": job_id,
     "status": "completed",
     "assets": uploaded_assets,
-    "metadata": {
-        "seed": config.get("seed"),
-        "generation_time": generation_time,
-        "num_images": len(uploaded_assets)
-    }
+    "metadata": callback_metadata
 }
 
 response = requests.post(callback_url, json=callback_data)
@@ -666,7 +512,9 @@ error_callback = {
     "metadata": {
         "error_type": type(error).__name__,
         "error_timestamp": datetime.now().isoformat(),
-        "worker_version": "2.1.0"
+        "worker_version": "2.1.0",
+        "wan_task": "t2v-1.3B",
+        "reference_mode": reference_mode
     }
 }
 ```
@@ -725,6 +573,7 @@ worker_metrics = {
     "job_type": job_type,
     "generation_time": generation_time,
     "vram_used": vram_used,
+    "reference_mode": reference_mode,
     "success": True,
     "timestamp": datetime.now().isoformat()
 }
@@ -740,6 +589,7 @@ completion_stats = {
     "job_id": job_id,
     "user_id": user_id,
     "job_type": job_type,
+    "reference_mode": reference_mode,
     "assets_generated": len(assets),
     "total_size_mb": sum(get_file_size(asset) for asset in assets),
     "completion_timestamp": datetime.now().isoformat()
@@ -751,21 +601,25 @@ completion_stats = {
 ## **🚀 Recent Updates (July 16, 2025)**
 
 ### **Major Enhancements**
-1. **Standardized Callback Parameters**: Consistent `job_id`, `assets` array across all workers
-2. **Enhanced Negative Prompts**: Intelligent generation for SDXL with multi-party scene detection
-3. **Seed Support**: User-controlled seeds for reproducible generation
-4. **Flexible SDXL Quantities**: User-selectable 1, 3, or 6 images per batch
-5. **Reference Image Support**: Optional image-to-image with type and strength control
-6. **Video Reference Frame Support**: ✅ NEW: FLF2V task with start/end frame references for video generation
-7. **Comprehensive Error Handling**: Enhanced debugging and error tracking
-8. **Metadata Consistency**: Improved data flow and storage
-9. **Path Consistency Fix**: Fixed video path handling for WAN workers
+1. **✅ WAN 1.3B Model Support**: Complete support for WAN 2.1 T2V 1.3B model
+2. **✅ Comprehensive Reference Frame Support**: All 5 reference modes (none, single, start, end, both)
+3. **✅ Correct Task Usage**: Always uses `t2v-1.3B` task with appropriate parameters
+4. **✅ Fixed Module Imports**: Proper PYTHONPATH configuration for WAN module resolution
+5. **✅ Correct File Paths**: Uses `/workspace/ourvidz-worker/wan_generate.py` consistently
+6. **✅ Standardized Callback Parameters**: Consistent `job_id`, `assets` array across all workers
+7. **✅ Enhanced Negative Prompts**: Intelligent generation for SDXL with multi-party scene detection
+8. **✅ Seed Support**: User-controlled seeds for reproducible generation
+9. **✅ Flexible SDXL Quantities**: User-selectable 1, 3, or 6 images per batch
+10. **✅ Comprehensive Error Handling**: Enhanced debugging and error tracking
+11. **✅ Metadata Consistency**: Improved data flow and storage
+12. **✅ Path Consistency Fix**: Fixed video path handling for WAN workers
 
 ### **Performance Improvements**
 - Optimized batch processing for multi-image SDXL jobs
 - Enhanced error recovery and retry mechanisms
 - Improved Redis queue management
 - Better resource utilization tracking
+- Fixed module import issues for reliable WAN execution
 
 ### **Developer Experience**
 - Enhanced API documentation and examples
@@ -777,4 +631,41 @@ completion_stats = {
 - All existing job types remain functional
 - Legacy metadata fields are preserved
 - Single-reference workflows continue to work
-- Non-reference generation unchanged 
+- Non-reference generation unchanged
+
+---
+
+## **📋 WAN 1.3B Reference Frame Support Matrix**
+
+| **Reference Mode** | **Config Parameter** | **Metadata Fallback** | **WAN Parameters** | **Use Case** |
+|-------------------|---------------------|----------------------|-------------------|--------------|
+| **None** | No parameters | No parameters | None | Standard T2V |
+| **Single** | `config.image` | `metadata.reference_image_url` | `--image ref.png` | I2V-style |
+| **Start** | `config.first_frame` | `metadata.start_reference_url` | `--first_frame start.png` | Start frame |
+| **End** | `config.last_frame` | `metadata.end_reference_url` | `--last_frame end.png` | End frame |
+| **Both** | `config.first_frame` + `config.last_frame` | `metadata.start_reference_url` + `metadata.end_reference_url` | `--first_frame start.png --last_frame end.png` | Transition |
+
+---
+
+## **✅ Production Status**
+
+### **Active Components**
+- **Dual Orchestrator**: Main production controller managing both workers
+- **SDXL Worker**: Fast image generation with batch support (1, 3, or 6 images)
+- **Enhanced WAN Worker**: Video generation with comprehensive reference frame support
+
+### **Testing Status**
+- **SDXL Jobs**: ✅ Both job types tested and working
+- **WAN Jobs**: ✅ All 8 job types tested and working
+- **Reference Frames**: ✅ All 5 reference modes tested and working
+- **Performance Baselines**: ✅ Real data established for all jobs
+
+### **System Capabilities**
+- **✅ 10 Job Types**: All job types operational
+- **✅ 5 Reference Modes**: Complete reference frame support
+- **✅ Batch Processing**: SDXL supports 1, 3, or 6 images
+- **✅ AI Enhancement**: WAN enhanced variants with Qwen 7B
+- **✅ Error Recovery**: Robust error handling and fallback mechanisms
+- **✅ Performance Monitoring**: Comprehensive metrics and logging
+
+The OurVidz Worker system is **production-ready** with comprehensive reference frame support, robust error handling, and optimized performance for high-quality AI content generation! 🎯 
