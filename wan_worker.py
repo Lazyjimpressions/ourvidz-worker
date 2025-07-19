@@ -235,21 +235,21 @@ class EnhancedWanWorker:
             raise
 
     def generate_video_with_references(self, prompt, start_reference, end_reference, strength, job_type):
-        """Generate video with start and/or end reference frames"""
-        print(f"🎬 Generating video with reference frames (strength: {strength})")
+        """Generate video with start and/or end reference frames using FLF2V task"""
+        print(f"🎬 Generating video with reference frames using FLF2V task")
         
         if start_reference and end_reference:
-            print("🖼️ Using both start and end reference frames")
-            return self.generate_video_with_start_end_references(prompt, start_reference, end_reference, strength, job_type)
+            print("🖼️ Using both start and end reference frames with FLF2V-14B")
+            return self.generate_flf2v_video(prompt, start_reference, end_reference, job_type)
         elif start_reference:
-            print("🖼️ Using start reference frame only")
-            return self.generate_video_with_start_reference(prompt, start_reference, strength, job_type)
+            print("🖼️ Using start reference frame only with FLF2V-14B")
+            return self.generate_flf2v_video(prompt, start_reference, None, job_type)
         elif end_reference:
-            print("🖼️ Using end reference frame only")
-            return self.generate_video_with_end_reference(prompt, end_reference, strength, job_type)
+            print("🖼️ Using end reference frame only with FLF2V-14B")
+            return self.generate_flf2v_video(prompt, None, end_reference, job_type)
         else:
-            print("⚠️ No reference frames provided, falling back to standard generation")
-            return self.generate_standard_video(prompt, job_type)
+            print("⚠️ No reference frames provided, falling back to T2V task")
+            return self.generate_t2v_video(prompt, job_type)
 
     def generate_video_with_start_end_references(self, prompt, start_ref, end_ref, strength, job_type):
         """Generate video with both start and end reference frames"""
@@ -325,6 +325,297 @@ class EnhancedWanWorker:
         print("🎬 Generating standard video without reference frames")
         return self.generate_content(prompt, job_type)
 
+    def generate_flf2v_video(self, prompt, start_reference, end_reference, job_type):
+        """Generate video using FLF2V task with reference frames"""
+        print("🎬 Generating video using FLF2V-14B task with reference frames")
+        
+        if job_type not in self.job_configs:
+            raise Exception(f"Unsupported job type: {job_type}")
+            
+        config = self.job_configs[job_type]
+        
+        # Create output path with proper extension
+        timestamp = int(time.time())
+        file_extension = config['file_extension']
+        output_filename = f"wan_flf2v_output_{timestamp}.{file_extension}"
+        temp_output_path = f"/tmp/{output_filename}"
+        
+        print(f"🎯 FLF2V Output path: {temp_output_path}")
+        print(f"📄 Expected file type: {config['content_type']} (.{file_extension})")
+        print(f"🔧 FRAME COUNT: {config['frame_num']} frames for {config['content_type']}")
+        
+        try:
+            # Change to WAN code directory
+            original_cwd = os.getcwd()
+            os.chdir(self.wan_code_path)
+            
+            # Build WAN command for FLF2V task
+            cmd = [
+                "python", "wan_generate.py",  # ✅ UPDATED: Use wan_generate.py instead of generate.py
+                "--task", "flf2v-14B",  # ✅ UPDATED: Use FLF2V task for reference frames
+                "--ckpt_dir", self.model_path,
+                "--offload_model", "True",
+                "--size", config['size'],
+                "--sample_steps", str(config['sample_steps']),
+                "--sample_guide_scale", str(config['sample_guide_scale']),
+                "--sample_solver", config.get('sample_solver', 'unipc'),
+                "--sample_shift", str(config.get('sample_shift', 5.0)),
+                "--frame_num", str(config['frame_num']),
+                "--prompt", prompt,
+                "--save_file", temp_output_path
+            ]
+            
+            # Add reference frame parameters for FLF2V task
+            if start_reference:
+                # Save start reference image to temp file
+                start_processed = self.preprocess_reference_image(start_reference)
+                start_ref_path = self.save_reference_image(start_processed, f"wan_start_ref_{timestamp}.png")
+                cmd.extend(["--first_frame", start_ref_path])  # ✅ UPDATED: Use --first_frame instead of --start_frame
+                print(f"🖼️ Start reference frame: {start_ref_path}")
+            
+            if end_reference:
+                # Save end reference image to temp file
+                end_processed = self.preprocess_reference_image(end_reference)
+                end_ref_path = self.save_reference_image(end_processed, f"wan_end_ref_{timestamp}.png")
+                cmd.extend(["--last_frame", end_ref_path])  # ✅ UPDATED: Use --last_frame instead of --end_frame
+                print(f"🖼️ End reference frame: {end_ref_path}")
+            
+            # ✅ REMOVED: --reference_strength parameter (not needed for FLF2V)
+            print(f"🎬 FLF2V command: {' '.join(cmd)}")
+            
+            # Configure environment
+            env = self.setup_environment()
+            
+            print(f"🎬 FLF2V generation: {job_type}")
+            print(f"📝 Prompt: {prompt[:100]}...")
+            print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
+            print(f"💾 Output: {temp_output_path}")
+            print(f"📁 Working dir: {self.wan_code_path}")
+            
+            # Execute FLF2V generation
+            generation_start = time.time()
+            timeout_seconds = 500 if config['content_type'] == 'video' else 180
+            
+            print(f"⏰ Starting FLF2V subprocess with {timeout_seconds}s timeout")
+            print(f"🚀 FLF2V generation started at {time.strftime('%H:%M:%S')}")
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.wan_code_path,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds
+                )
+                
+                generation_time = time.time() - generation_start
+                os.chdir(original_cwd)
+                
+                print(f"✅ FLF2V subprocess completed in {generation_time:.1f}s")
+                print(f"📄 Return code: {result.returncode}")
+                
+                # Enhanced output analysis
+                if result.stdout:
+                    stdout_lines = result.stdout.strip().split('\n')
+                    print(f"📄 STDOUT ({len(stdout_lines)} lines):")
+                    for line in stdout_lines[-10:]:
+                        print(f"   [OUT] {line}")
+                
+                if result.stderr:
+                    stderr_lines = result.stderr.strip().split('\n')
+                    print(f"📄 STDERR ({len(stderr_lines)} lines):")
+                    for line in stderr_lines[-10:]:
+                        print(f"   [ERR] {line}")
+                
+                # Validate output
+                if result.returncode == 0:
+                    print(f"🔍 Checking FLF2V output file: {temp_output_path}")
+                    
+                    if os.path.exists(temp_output_path):
+                        file_size = os.path.getsize(temp_output_path)
+                        print(f"✅ FLF2V output file found: {file_size / 1024**2:.2f}MB")
+                        
+                        is_valid, validation_msg = self.validate_output_file(temp_output_path, config['content_type'])
+                        if is_valid:
+                            print(f"✅ FLF2V file validation passed: {validation_msg}")
+                            return temp_output_path
+                        else:
+                            print(f"❌ FLF2V file validation failed: {validation_msg}")
+                            raise Exception(f"FLF2V generated file validation failed: {validation_msg}")
+                    else:
+                        print(f"❌ FLF2V output file not found: {temp_output_path}")
+                        raise Exception("No valid FLF2V output file generated")
+                        
+                else:
+                    print(f"❌ FLF2V failed with return code: {result.returncode}")
+                    error_details = []
+                    if result.stderr:
+                        error_details.append(f"STDERR: {result.stderr[-300:]}")
+                    if result.stdout:
+                        error_details.append(f"STDOUT: {result.stdout[-300:]}")
+                    
+                    error_message = " | ".join(error_details) if error_details else "No error output captured"
+                    raise Exception(f"FLF2V generation failed (code {result.returncode}): {error_message}")
+                    
+            except subprocess.TimeoutExpired:
+                os.chdir(original_cwd)
+                print(f"❌ FLF2V generation timed out after {timeout_seconds}s")
+                raise Exception(f"FLF2V generation timed out after {timeout_seconds} seconds")
+                
+            except Exception as e:
+                os.chdir(original_cwd)
+                print(f"❌ FLF2V subprocess error: {e}")
+                raise
+                
+        except Exception as e:
+            if os.getcwd() != original_cwd:
+                os.chdir(original_cwd)
+            print(f"❌ FLF2V generation error: {e}")
+            raise
+        finally:
+            # Cleanup reference files
+            try:
+                if 'start_ref_path' in locals():
+                    os.unlink(start_ref_path)
+                if 'end_ref_path' in locals():
+                    os.unlink(end_ref_path)
+            except:
+                pass
+
+    def generate_t2v_video(self, prompt, job_type):
+        """Generate video using T2V task (standard video generation)"""
+        print("🎬 Generating video using T2V-14B task (standard video generation)")
+        
+        if job_type not in self.job_configs:
+            raise Exception(f"Unsupported job type: {job_type}")
+            
+        config = self.job_configs[job_type]
+        
+        # Create output path with proper extension
+        timestamp = int(time.time())
+        file_extension = config['file_extension']
+        output_filename = f"wan_t2v_output_{timestamp}.{file_extension}"
+        temp_output_path = f"/tmp/{output_filename}"
+        
+        print(f"🎯 T2V Output path: {temp_output_path}")
+        print(f"📄 Expected file type: {config['content_type']} (.{file_extension})")
+        print(f"🔧 FRAME COUNT: {config['frame_num']} frames for {config['content_type']}")
+        
+        try:
+            # Change to WAN code directory
+            original_cwd = os.getcwd()
+            os.chdir(self.wan_code_path)
+            
+            # Build WAN command for T2V task
+            cmd = [
+                "python", "wan_generate.py",  # ✅ UPDATED: Use wan_generate.py instead of generate.py
+                "--task", "t2v-14B",  # ✅ UPDATED: Use T2V-14B task for standard generation
+                "--ckpt_dir", self.model_path,
+                "--offload_model", "True",
+                "--size", config['size'],
+                "--sample_steps", str(config['sample_steps']),
+                "--sample_guide_scale", str(config['sample_guide_scale']),
+                "--sample_solver", config.get('sample_solver', 'unipc'),
+                "--sample_shift", str(config.get('sample_shift', 5.0)),
+                "--frame_num", str(config['frame_num']),
+                "--prompt", prompt,
+                "--save_file", temp_output_path
+            ]
+            
+            print(f"🎬 T2V command: {' '.join(cmd)}")
+            
+            # Configure environment
+            env = self.setup_environment()
+            
+            print(f"🎬 T2V generation: {job_type}")
+            print(f"📝 Prompt: {prompt[:100]}...")
+            print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
+            print(f"💾 Output: {temp_output_path}")
+            print(f"📁 Working dir: {self.wan_code_path}")
+            
+            # Execute T2V generation
+            generation_start = time.time()
+            timeout_seconds = 500 if config['content_type'] == 'video' else 180
+            
+            print(f"⏰ Starting T2V subprocess with {timeout_seconds}s timeout")
+            print(f"🚀 T2V generation started at {time.strftime('%H:%M:%S')}")
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.wan_code_path,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds
+                )
+                
+                generation_time = time.time() - generation_start
+                os.chdir(original_cwd)
+                
+                print(f"✅ T2V subprocess completed in {generation_time:.1f}s")
+                print(f"📄 Return code: {result.returncode}")
+                
+                # Enhanced output analysis
+                if result.stdout:
+                    stdout_lines = result.stdout.strip().split('\n')
+                    print(f"📄 STDOUT ({len(stdout_lines)} lines):")
+                    for line in stdout_lines[-10:]:
+                        print(f"   [OUT] {line}")
+                
+                if result.stderr:
+                    stderr_lines = result.stderr.strip().split('\n')
+                    print(f"📄 STDERR ({len(stderr_lines)} lines):")
+                    for line in stderr_lines[-10:]:
+                        print(f"   [ERR] {line}")
+                
+                # Validate output
+                if result.returncode == 0:
+                    print(f"🔍 Checking T2V output file: {temp_output_path}")
+                    
+                    if os.path.exists(temp_output_path):
+                        file_size = os.path.getsize(temp_output_path)
+                        print(f"✅ T2V output file found: {file_size / 1024**2:.2f}MB")
+                        
+                        is_valid, validation_msg = self.validate_output_file(temp_output_path, config['content_type'])
+                        if is_valid:
+                            print(f"✅ T2V file validation passed: {validation_msg}")
+                            return temp_output_path
+                        else:
+                            print(f"❌ T2V file validation failed: {validation_msg}")
+                            raise Exception(f"T2V generated file validation failed: {validation_msg}")
+                    else:
+                        print(f"❌ T2V output file not found: {temp_output_path}")
+                        raise Exception("No valid T2V output file generated")
+                        
+                else:
+                    print(f"❌ T2V failed with return code: {result.returncode}")
+                    error_details = []
+                    if result.stderr:
+                        error_details.append(f"STDERR: {result.stderr[-300:]}")
+                    if result.stdout:
+                        error_details.append(f"STDOUT: {result.stdout[-300:]}")
+                    
+                    error_message = " | ".join(error_details) if error_details else "No error output captured"
+                    raise Exception(f"T2V generation failed (code {result.returncode}): {error_message}")
+                    
+            except subprocess.TimeoutExpired:
+                os.chdir(original_cwd)
+                print(f"❌ T2V generation timed out after {timeout_seconds}s")
+                raise Exception(f"T2V generation timed out after {timeout_seconds} seconds")
+                
+            except Exception as e:
+                os.chdir(original_cwd)
+                print(f"❌ T2V subprocess error: {e}")
+                raise
+                
+        except Exception as e:
+            if os.getcwd() != original_cwd:
+                os.chdir(original_cwd)
+            print(f"❌ T2V generation error: {e}")
+            raise
+
     def generate_content_with_references(self, prompt, job_type, start_ref_path=None, end_ref_path=None, strength=0.5):
         """Generate content with reference frames using WAN command line"""
         if job_type not in self.job_configs:
@@ -347,10 +638,10 @@ class EnhancedWanWorker:
             original_cwd = os.getcwd()
             os.chdir(self.wan_code_path)
             
-            # Build WAN command with reference frame support
+            # Build WAN command with FLF2V task for reference frames
             cmd = [
-                "python", "generate.py",
-                "--task", "t2v-1.3B",
+                "python", "wan_generate.py",  # ✅ UPDATED: Use wan_generate.py instead of generate.py
+                "--task", "flf2v-14B",  # ✅ UPDATED: Use FLF2V task for reference frames
                 "--ckpt_dir", self.model_path,
                 "--offload_model", "True",
                 "--size", config['size'],
@@ -363,35 +654,33 @@ class EnhancedWanWorker:
                 "--save_file", temp_output_path
             ]
             
-            # Add reference frame parameters if provided
+            # Add reference frame parameters for FLF2V task
             if start_ref_path:
-                cmd.extend(["--start_frame", start_ref_path])
+                cmd.extend(["--first_frame", start_ref_path])  # ✅ UPDATED: Use --first_frame instead of --start_frame
                 print(f"🖼️ Start reference frame: {start_ref_path}")
             
             if end_ref_path:
-                cmd.extend(["--end_frame", end_ref_path])
+                cmd.extend(["--last_frame", end_ref_path])  # ✅ UPDATED: Use --last_frame instead of --end_frame
                 print(f"🖼️ End reference frame: {end_ref_path}")
             
-            if start_ref_path or end_ref_path:
-                cmd.extend(["--reference_strength", str(strength)])
-                print(f"🔧 Reference strength: {strength}")
+            # ✅ REMOVED: --reference_strength parameter (not needed for FLF2V)
+            print(f"🎬 FLF2V command: {' '.join(cmd)}")
             
             # Configure environment
             env = self.setup_environment()
             
-            print(f"🎬 WAN generation with references: {job_type}")
+            print(f"🎬 FLF2V generation: {job_type}")
             print(f"📝 Prompt: {prompt[:100]}...")
             print(f"🔧 Config: {config['sample_steps']} steps, {config['frame_num']} frames, {config['size']}")
             print(f"💾 Output: {temp_output_path}")
             print(f"📁 Working dir: {self.wan_code_path}")
-            print(f"🔧 Command: {' '.join(cmd)}")
             
-            # Execute WAN generation
+            # Execute FLF2V generation
             generation_start = time.time()
             timeout_seconds = 500 if config['content_type'] == 'video' else 180
             
-            print(f"⏰ Starting WAN subprocess with {timeout_seconds}s timeout")
-            print(f"🚀 Generation started at {time.strftime('%H:%M:%S')}")
+            print(f"⏰ Starting FLF2V subprocess with {timeout_seconds}s timeout")
+            print(f"🚀 FLF2V generation started at {time.strftime('%H:%M:%S')}")
 
             try:
                 result = subprocess.run(
@@ -406,7 +695,7 @@ class EnhancedWanWorker:
                 generation_time = time.time() - generation_start
                 os.chdir(original_cwd)
                 
-                print(f"✅ WAN subprocess completed in {generation_time:.1f}s")
+                print(f"✅ FLF2V subprocess completed in {generation_time:.1f}s")
                 print(f"📄 Return code: {result.returncode}")
                 
                 # Enhanced output analysis
@@ -442,7 +731,7 @@ class EnhancedWanWorker:
                         raise Exception("No valid output file generated")
                         
                 else:
-                    print(f"❌ WAN failed with return code: {result.returncode}")
+                    print(f"❌ FLF2V failed with return code: {result.returncode}")
                     error_details = []
                     if result.stderr:
                         error_details.append(f"STDERR: {result.stderr[-300:]}")
@@ -450,22 +739,22 @@ class EnhancedWanWorker:
                         error_details.append(f"STDOUT: {result.stdout[-300:]}")
                     
                     error_message = " | ".join(error_details) if error_details else "No error output captured"
-                    raise Exception(f"WAN generation failed (code {result.returncode}): {error_message}")
+                    raise Exception(f"FLF2V generation failed (code {result.returncode}): {error_message}")
                     
             except subprocess.TimeoutExpired:
                 os.chdir(original_cwd)
-                print(f"❌ WAN generation timed out after {timeout_seconds}s")
-                raise Exception(f"WAN generation timed out after {timeout_seconds} seconds")
+                print(f"❌ FLF2V generation timed out after {timeout_seconds}s")
+                raise Exception(f"FLF2V generation timed out after {timeout_seconds} seconds")
                 
             except Exception as e:
                 os.chdir(original_cwd)
-                print(f"❌ WAN subprocess error: {e}")
+                print(f"❌ FLF2V subprocess error: {e}")
                 raise
                 
         except Exception as e:
             if os.getcwd() != original_cwd:
                 os.chdir(original_cwd)
-            print(f"❌ WAN generation error: {e}")
+            print(f"❌ FLF2V generation error: {e}")
             raise
 
     def log_gpu_memory(self):
@@ -1123,44 +1412,52 @@ Enhanced detailed prompt:"""
                 print("📝 Using original prompt (no enhancement)")
                 actual_prompt = original_prompt
             
-            # Handle reference frame generation for video jobs
-            if final_config['content_type'] == 'video' and (start_reference_url or end_reference_url):
-                print("🎬 Starting WAN video generation with reference frames...")
-                print(f"🔧 REFERENCE FRAME MODE: {final_config['frame_num']} frames for 5-second videos")
-                
-                # Download reference images
-                start_reference = None
-                end_reference = None
-                
-                if start_reference_url:
-                    try:
-                        start_reference = self.download_image_from_url(start_reference_url)
-                        print(f"✅ Start reference image loaded successfully")
-                    except Exception as e:
-                        print(f"❌ Failed to load start reference image: {e}")
-                        # Continue without start reference
-                
-                if end_reference_url:
-                    try:
-                        end_reference = self.download_image_from_url(end_reference_url)
-                        print(f"✅ End reference image loaded successfully")
-                    except Exception as e:
-                        print(f"❌ Failed to load end reference image: {e}")
-                        # Continue without end reference
-                
-                # Generate video with reference frames
-                output_file = self.generate_video_with_references(
-                    actual_prompt, 
-                    start_reference, 
-                    end_reference, 
-                    reference_strength,
-                    job_type
-                )
+            # Handle video generation with FLF2V/T2V task selection
+            if final_config['content_type'] == 'video':
+                # Determine task type based on reference availability
+                if start_reference_url or end_reference_url:
+                    print("🎬 Starting FLF2V video generation with reference frames...")
+                    print(f"🔧 FLF2V TASK: {final_config['frame_num']} frames for 5-second videos")
+                    
+                    # Download reference images
+                    start_reference = None
+                    end_reference = None
+                    
+                    if start_reference_url:
+                        try:
+                            start_reference = self.download_image_from_url(start_reference_url)
+                            print(f"✅ Start reference image loaded successfully")
+                        except Exception as e:
+                            print(f"❌ Failed to load start reference image: {e}")
+                            # Continue without start reference
+                    
+                    if end_reference_url:
+                        try:
+                            end_reference = self.download_image_from_url(end_reference_url)
+                            print(f"✅ End reference image loaded successfully")
+                        except Exception as e:
+                            print(f"❌ Failed to load end reference image: {e}")
+                            # Continue without end reference
+                    
+                    # Generate video with FLF2V task (reference frames)
+                    output_file = self.generate_video_with_references(
+                        actual_prompt, 
+                        start_reference, 
+                        end_reference, 
+                        reference_strength,
+                        job_type
+                    )
+                else:
+                    print("🎬 Starting T2V video generation (standard video)...")
+                    print(f"🔧 T2V TASK: {final_config['frame_num']} frames for 5-second videos")
+                    
+                    # Generate video with T2V task (standard generation)
+                    output_file = self.generate_t2v_video(actual_prompt, job_type)
             else:
-                print("🎬 Starting WAN generation with CRITICAL FIXES...")
-                print(f"🔧 FIXED FRAME COUNT: {final_config['frame_num']} frames for 5-second videos")
+                print("🎬 Starting WAN image generation...")
+                print(f"🔧 IMAGE GENERATION: {final_config['frame_num']} frames")
                 
-                # CRITICAL: Generate content with enhanced error handling
+                # Generate image content
                 output_file = self.generate_content(actual_prompt, job_type)
             
             if not output_file:
@@ -1256,20 +1553,24 @@ Enhanced detailed prompt:"""
 
     def run_with_enhanced_diagnostics(self):
         """Main worker loop with startup diagnostics and CONSISTENT PARAMETERS"""
-        print("🎬 Enhanced OurVidz WAN Worker with UPDATED API SPEC + REFERENCE FRAMES started!")
+        print("🎬 Enhanced OurVidz WAN Worker with FLF2V/T2V TASK SUPPORT started!")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print("🔧 MAJOR FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)")
-        print("🖼️ NEW: Reference frame support for video generation with start/end frame guidance")
+        print("🖼️ NEW: FLF2V task for video generation with reference frames")
+        print("🎬 NEW: T2V task for standard video generation")
         print("🔧 API UPDATE: Support for config.first_frame/last_frame and metadata.start_reference_url/end_reference_url")
+        print("🔧 SCRIPT UPDATE: Use wan_generate.py with correct FLF2V/T2V task parameters")
         print("🔧 OPTIMIZATIONS APPLIED:")
         print("   • Optimized frame counts based on confirmed 16.67fps effective rate")
         print("   • video_fast: 83 frames for 5.0 seconds (45s faster processing)")
         print("   • video_high: 83 frames for 5.0 seconds (66s faster processing)")
-        print("   • Reference frame support for enhanced video generation")
+        print("   • FLF2V task for video generation with reference frames")
+        print("   • T2V task for standard video generation")
         print("   • Consistent callback parameters (job_id, status, assets, error_message, metadata)")
         print("   • Updated API spec support (config.first_frame/last_frame, metadata.start_reference_url/end_reference_url)")
-        print("📊 Status: Enhanced with Qwen 7B Base + Reference Frames ✅")
+        print("   • Correct parameter names (--first_frame, --last_frame) for FLF2V task")
+        print("📊 Status: Enhanced with Qwen 7B Base + FLF2V/T2V Task Support ✅")
         
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
         print("📋 Supported job types:")

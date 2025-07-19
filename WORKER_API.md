@@ -208,41 +208,43 @@ if reference_image_url:
 # Video reference frame parameters
 start_reference_url = "https://storage.example.com/start_frame.jpg"
 end_reference_url = "https://storage.example.com/end_frame.jpg"
-reference_strength = 0.1-1.0
+reference_strength = 0.85
 
-# Video generation with reference frames
+# Video generation with reference frames using FLF2V task
 if start_reference_url or end_reference_url:
-    # Download and process reference images
-    start_reference = None
-    end_reference = None
-    
-    if start_reference_url:
-        start_reference = download_image_from_url(start_reference_url)
-        start_reference = preprocess_reference_image(start_reference)
-    
-    if end_reference_url:
-        end_reference = download_image_from_url(end_reference_url)
-        end_reference = preprocess_reference_image(end_reference)
+    # Use FLF2V (First-Last Frame to Video) task
+    task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
     
     # Generate video with reference frames
-    video = generate_video_with_references(
+    video = generate_flf2v_video(
         prompt, 
-        start_reference, 
-        end_reference, 
-        reference_strength,
-        job_type
+        start_reference_url, 
+        end_reference_url, 
+        frame_num,
+        task_type
     )
 else:
-    # Standard video generation
-    video = generate_standard_video(prompt, job_type)
+    # Use T2V (Text to Video) task for standard generation
+    task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
+    video = generate_t2v_video(prompt, frame_num, task_type)
 ```
 
-### **WAN Command with Reference Frames**
+### **WAN Command with FLF2V Task for Reference Frames**
 ```python
-# Build WAN command with reference frame support
+# Determine task type based on reference availability
+if start_ref_path or end_ref_path:
+    # Use FLF2V task for video with reference frames
+    task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
+    print(f"🎬 Using FLF2V task for video with reference frames")
+else:
+    # Use standard T2V task
+    task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
+    print(f"🎬 Using T2V task for standard video generation")
+
+# Build WAN command with correct task type
 cmd = [
-    "python", "generate.py",
-    "--task", "t2v-1.3B",
+    "python", "wan_generate.py",
+    "--task", task_type,
     "--ckpt_dir", model_path,
     "--offload_model", "True",
     "--size", config['size'],
@@ -255,18 +257,19 @@ cmd = [
     "--save_file", output_path
 ]
 
-# Add reference frame parameters if provided
-if start_ref_path:
-    cmd.extend(["--start_frame", start_ref_path])
-    print(f"🖼️ Start reference frame: {start_ref_path}")
-
-if end_ref_path:
-    cmd.extend(["--end_frame", end_ref_path])
-    print(f"🖼️ End reference frame: {end_ref_path}")
-
-if start_ref_path or end_ref_path:
-    cmd.extend(["--reference_strength", str(strength)])
-    print(f"🔧 Reference strength: {strength}")
+# Add reference frame parameters for FLF2V task
+if task_type.startswith("flf2v"):
+    if start_ref_path:
+        cmd.extend(["--first_frame", start_ref_path])
+        print(f"🖼️ Start reference frame: {start_ref_path}")
+    
+    if end_ref_path:
+        cmd.extend(["--last_frame", end_ref_path])
+        print(f"🖼️ End reference frame: {end_ref_path}")
+    
+    print(f"🎬 FLF2V command: {' '.join(cmd)}")
+else:
+    print(f"🎬 T2V command: {' '.join(cmd)}")
 ```
 
 ### **Enhanced Negative Prompt Generation**
@@ -390,36 +393,34 @@ sample_shift = 5.0  # Motion control
 # Extract reference frame parameters from job config and metadata
 start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
 end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
-reference_strength = metadata.get('reference_strength', 0.5)
+reference_strength = metadata.get('reference_strength', 0.85)
 
-# Generate video with reference frames
+# Determine task type based on reference availability
 if start_reference_url or end_reference_url:
-    # Download and process reference images
-    start_reference = None
-    end_reference = None
-    
-    if start_reference_url:
-        start_reference = download_image_from_url(start_reference_url)
-        start_reference = preprocess_reference_image(start_reference)
-    
-    if end_reference_url:
-        end_reference = download_image_from_url(end_reference_url)
-        end_reference = preprocess_reference_image(end_reference)
-    
-    # Generate video with reference frames
-    video = generate_video_with_references(
+    # Use FLF2V (First-Last Frame to Video) task for reference frames
+    task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
+    print(f"🎬 Using FLF2V task for video with reference frames")
+else:
+    # Use standard T2V (Text to Video) task
+    task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
+    print(f"🎬 Using T2V task for standard video generation")
+
+# Generate video with appropriate task type
+if task_type.startswith("flf2v"):
+    # FLF2V generation with reference frames
+    video = generate_flf2v_video(
         prompt, 
-        start_reference, 
-        end_reference, 
-        reference_strength,
-        job_type
+        start_reference_url, 
+        end_reference_url, 
+        frame_num,
+        task_type
     )
 else:
-    # Standard video generation
-    video = generate_video(prompt, frame_num)
+    # Standard T2V generation
+    video = generate_t2v_video(prompt, frame_num, task_type)
 ```
 
-### **Reference Frame Processing**
+### **Reference Frame Processing with FLF2V Task**
 ```python
 def download_image_from_url(image_url):
     """Download image from URL and return PIL Image object"""
@@ -439,16 +440,81 @@ def preprocess_reference_image(image, target_size=(480, 832)):
     new_image.paste(image, (x, y))
     return new_image
 
-def generate_video_with_references(prompt, start_reference, end_reference, strength, job_type):
-    """Generate video with start and/or end reference frames"""
-    if start_reference and end_reference:
-        return generate_video_with_start_end_references(prompt, start_reference, end_reference, strength, job_type)
-    elif start_reference:
-        return generate_video_with_start_reference(prompt, start_reference, strength, job_type)
-    elif end_reference:
-        return generate_video_with_end_reference(prompt, end_reference, strength, job_type)
-    else:
-        return generate_standard_video(prompt, job_type)
+def generate_flf2v_video(prompt, start_reference_url, end_reference_url, frame_num, task_type):
+    """Generate video using FLF2V task with reference frames"""
+    # Download and process reference images
+    start_reference = None
+    end_reference = None
+    
+    if start_reference_url:
+        start_reference = download_image_from_url(start_reference_url)
+        start_reference = preprocess_reference_image(start_reference)
+        print(f"🖼️ Start reference frame processed: {start_reference_url}")
+    
+    if end_reference_url:
+        end_reference = download_image_from_url(end_reference_url)
+        end_reference = preprocess_reference_image(end_reference)
+        print(f"🖼️ End reference frame processed: {end_reference_url}")
+    
+    # Build WAN command for FLF2V task
+    cmd = [
+        "python", "wan_generate.py",
+        "--task", task_type,  # "flf2v-14B" or "flf2v-1.3B"
+        "--ckpt_dir", model_path,
+        "--offload_model", "True",
+        "--size", "480*832",
+        "--sample_steps", "25",
+        "--sample_guide_scale", "6.5",
+        "--sample_solver", "unipc",
+        "--sample_shift", "5.0",
+        "--frame_num", str(frame_num),
+        "--prompt", prompt,
+        "--save_file", output_path
+    ]
+    
+    # Add reference frame parameters
+    if start_reference_url:
+        cmd.extend(["--first_frame", start_reference_url])
+    if end_reference_url:
+        cmd.extend(["--last_frame", end_reference_url])
+    
+    print(f"🎬 FLF2V command: {' '.join(cmd)}")
+    
+    # Execute the command
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        raise Exception(f"FLF2V generation failed: {result.stderr}")
+    
+    return output_path
+
+def generate_t2v_video(prompt, frame_num, task_type):
+    """Generate video using T2V task (standard video generation)"""
+    # Build WAN command for T2V task
+    cmd = [
+        "python", "wan_generate.py",
+        "--task", task_type,  # "t2v-14B" or "t2v-1.3B"
+        "--ckpt_dir", model_path,
+        "--offload_model", "True",
+        "--size", "480*832",
+        "--sample_steps", "25",
+        "--sample_guide_scale", "6.5",
+        "--sample_solver", "unipc",
+        "--sample_shift", "5.0",
+        "--frame_num", str(frame_num),
+        "--prompt", prompt,
+        "--save_file", output_path
+    ]
+    
+    print(f"🎬 T2V command: {' '.join(cmd)}")
+    
+    # Execute the command
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        raise Exception(f"T2V generation failed: {result.stderr}")
+    
+    return output_path
 ```
 
 ---
@@ -503,11 +569,13 @@ else:
         end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
         
         if start_reference_url or end_reference_url:
-            # Generate video with reference frames
-            result = generate_wan_video_with_references(prompt, config, start_reference_url, end_reference_url)
+            # Use FLF2V task for video with reference frames
+            task_type = "flf2v-14B"  # or "flf2v-1.3B" for smaller model
+            result = generate_flf2v_video(prompt, start_reference_url, end_reference_url, config.get('frame_num', 83), task_type)
         else:
-            # Standard video generation
-            result = generate_wan_content(prompt, config)
+            # Use T2V task for standard video generation
+            task_type = "t2v-14B"  # or "t2v-1.3B" for smaller model
+            result = generate_t2v_video(prompt, config.get('frame_num', 83), task_type)
     else:
         # Standard image generation
         result = generate_wan_content(prompt, config)
@@ -679,7 +747,7 @@ completion_stats = {
 3. **Seed Support**: User-controlled seeds for reproducible generation
 4. **Flexible SDXL Quantities**: User-selectable 1, 3, or 6 images per batch
 5. **Reference Image Support**: Optional image-to-image with type and strength control
-6. **Video Reference Frame Support**: ✅ NEW: Start/end frame references for video generation
+6. **Video Reference Frame Support**: ✅ NEW: FLF2V task with start/end frame references for video generation
 7. **Comprehensive Error Handling**: Enhanced debugging and error tracking
 8. **Metadata Consistency**: Improved data flow and storage
 9. **Path Consistency Fix**: Fixed video path handling for WAN workers
