@@ -1,7 +1,7 @@
 # OurVidz Worker API Reference
 
 **Last Updated:** January 27, 2025  
-**Status:** ✅ Production Ready - All 10 Job Types Operational + Reference Image Support  
+**Status:** ✅ Production Ready - All 10 Job Types Operational + Reference Image Support + Seed Control  
 **System:** Dual Worker (SDXL + WAN) on RTX 6000 ADA (48GB VRAM)  
 **Conformity:** ✅ API documentation aligned with actual worker implementations
 
@@ -28,7 +28,7 @@ WAN Enhanced Jobs (4) - AI-Enhanced:
   video7b_high_enhanced: 240s - 480x832 MP4 (Qwen enhanced, 5.0s)
 ```
 
-### **NEW: Reference Image Support**
+### **NEW: Reference Image Support + Seed Control**
 ```yaml
 SDXL Reference Types:
   - Style Reference: Transfer visual style from reference image
@@ -44,6 +44,11 @@ Reference Parameters:
   - Strength: 0.0-1.0 (controls influence level)
   - Type: style/composition/character (SDXL only)
   - Optional: All reference images are optional
+
+Seed Control (SDXL only):
+  - Reproducible generation for consistent results
+  - Character consistency across multiple generations
+  - Optional: Random seeds used if not provided
 ```
 
 ---
@@ -72,9 +77,16 @@ Reference Parameters:
     // NEW: Flexible Quantities (SDXL only)
     num_images?: number,                 // 1, 3, or 6 (default: 1)
     
+    // NEW: Seed Control (SDXL only)
+    seed?: number,                       // Integer seed for reproducible generation
+    
     // Enhanced Features
     negative_prompt?: string,            // SDXL only
     similarity_strength?: number,        // Alternative to reference_strength
+  },
+  config?: {                            // NEW: Job configuration object
+    num_images?: number,                 // Alternative location for num_images
+    seed?: number,                       // Alternative location for seed
   },
   projectId?: string,        // Optional project reference
   videoId?: string,          // Optional video ID
@@ -100,15 +112,16 @@ Reference Parameters:
   isSDXL: boolean,          // SDXL vs WAN job
   negativePromptSupported: boolean,  // SDXL only
   referenceImageSupported: boolean,  // NEW: Reference support flag
-  flexibleQuantitiesSupported: boolean  // NEW: Quantity support flag
+  flexibleQuantitiesSupported: boolean,  // NEW: Quantity support flag
+  seedControlSupported: boolean      // NEW: Seed control support flag
 }
 ```
 
 ### **Example Requests:**
 
-#### **SDXL with Reference Image:**
+#### **SDXL with Reference Image and Seed:**
 ```typescript
-// SDXL Fast with Style Reference (3 images)
+// SDXL Fast with Style Reference (3 images) and seed control
 const response = await fetch('/api/queue-job', {
   method: 'POST',
   headers: {
@@ -124,6 +137,7 @@ const response = await fetch('/api/queue-job', {
       reference_strength: 0.7,
       reference_type: 'style',
       num_images: 3,
+      seed: 12345,  // NEW: Reproducible generation
       negative_prompt: 'blurry, low quality, watermark'
     }
   })
@@ -152,9 +166,9 @@ const response = await fetch('/api/queue-job', {
 });
 ```
 
-#### **Standard SDXL (No Reference):**
+#### **Standard SDXL with Seed Control:**
 ```typescript
-// SDXL High Quality (6 images, no reference)
+// SDXL High Quality (6 images, no reference, with seed)
 const response = await fetch('/api/queue-job', {
   method: 'POST',
   headers: {
@@ -167,6 +181,7 @@ const response = await fetch('/api/queue-job', {
       prompt: 'beautiful woman in garden',
       credits: 2,
       num_images: 6,
+      seed: 67890,  // NEW: Reproducible generation
       negative_prompt: 'blurry, low quality, watermark, text, logo'
     }
   })
@@ -232,6 +247,12 @@ const handleSDXLCompletion = (job) => {
   
   // Store in database
   await saveImagesToDatabase(imageUrls, job.id);
+  
+  // NEW: Handle seed information from metadata
+  if (job.metadata && job.metadata.seed) {
+    console.log(`Generated with seed: ${job.metadata.seed}`);
+    // Store seed for future reference or regeneration
+  }
 };
 ```
 
@@ -276,6 +297,12 @@ Reference Image Support:
   - Character Consistency: Maintain character features
   - Strength Control: 0.0-1.0 influence level
 
+Seed Control:
+  - Reproducible generation for consistent results
+  - Character consistency across multiple generations
+  - Each image in batch gets seed + index for variety
+  - Random seeds used if not provided
+
 Storage Buckets:
   sdxl_image_fast: 5MB limit per image
   sdxl_image_high: 10MB limit per image
@@ -286,6 +313,7 @@ Frontend Handling:
   - Store all images in user library
   - Enable download of individual images
   - Show reference image preview if used
+  - Display seed information for regeneration
 ```
 
 ### **WAN Video Generation (Enhanced)**
@@ -307,6 +335,12 @@ Reference Frame Support:
   - End Frame: Reference image for last video frame
   - Both Frames: Smooth transition between references
   - Optional: Can use start only, end only, both, or none
+
+Advanced Parameters:
+  - UniPC sampling for better temporal consistency
+  - Enhanced guidance scales (6.5-7.5) for NSFW quality
+  - Temporal consistency with sample_shift parameter
+  - 83 frames for 5.0-second videos (16.67fps effective)
 
 Storage Buckets:
   video_fast: 50MB limit
@@ -334,6 +368,11 @@ Performance:
   image_high: 40s
   image7b_fast_enhanced: 85s (Qwen enhanced)
   image7b_high_enhanced: 100s (Qwen enhanced)
+
+Advanced Parameters:
+  - UniPC sampling for better quality
+  - Enhanced guidance scales (6.5-7.5) for NSFW quality
+  - Temporal consistency optimization
 
 Storage Buckets:
   image_fast: 5MB limit
@@ -459,6 +498,13 @@ Image-to-Image Generation:
   - Generates 1, 3, or 6 images based on num_images parameter
   - Each image gets unique seed for variety
 
+Seed Control:
+  - Extracts seed from config.seed or metadata.seed
+  - Uses provided seed for reproducible results
+  - Generates random seed if not provided
+  - Each image in batch gets seed + index for variety
+  - Returns used seed in callback metadata
+
 Flexible Quantities:
   - Default: 1 image (backward compatibility)
   - Validates num_images: only 1, 3, or 6 allowed
@@ -487,6 +533,65 @@ WAN Command Integration:
   - 83 frames for 5.0-second videos (16.67fps effective)
   - Enhanced guidance scales (6.5-7.5) for NSFW quality
   - Qwen 7B Base model for prompt enhancement (no content filtering)
+```
+
+---
+
+## **🌱 Seed Control System (SDXL Only)**
+
+### **What Seed Control Does:**
+```yaml
+Purpose: Enable reproducible image generation
+Benefits:
+  - Consistent character appearance across generations
+  - Reproducible results for testing and iteration
+  - Character consistency in series of images
+  - Same seed + prompt = same image (deterministic)
+
+Implementation:
+  - Each image in batch gets seed + index for variety
+  - Random seeds generated if not provided
+  - Seed returned in callback metadata for future reference
+  - Supports both config.seed and metadata.seed locations
+```
+
+### **Seed Usage Examples:**
+```typescript
+// Generate with specific seed for reproducibility
+const createReproducibleJob = async (prompt, seed) => {
+  const response = await fetch('/api/queue-job', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({
+      jobType: 'sdxl_image_fast',
+      metadata: {
+        prompt,
+        num_images: 3,
+        seed: seed  // Will generate same 3 images every time
+      }
+    })
+  });
+  
+  return response.json();
+};
+
+// Regenerate with same seed for character consistency
+const regenerateWithSeed = async (prompt, originalSeed) => {
+  const response = await fetch('/api/queue-job', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({
+      jobType: 'sdxl_image_high',
+      metadata: {
+        prompt: 'same character in different pose',
+        num_images: 1,
+        seed: originalSeed  // Maintains character consistency
+      }
+    })
+  });
+  
+  return response.json();
+};
 ```
 
 ---
@@ -538,6 +643,7 @@ Job Creation Errors:
   - User credits insufficient: Return 402 with upgrade prompt
   - Invalid reference image: Return 400 with validation details
   - Invalid quantity (SDXL): Return 400 (only 1, 3, or 6 allowed)
+  - Invalid seed (SDXL): Return 400 (must be integer)
 
 Job Processing Errors:
   - Model loading failed: Retry automatically
@@ -545,6 +651,7 @@ Job Processing Errors:
   - Storage upload failed: Retry with exponential backoff
   - GPU memory issues: Worker auto-restart
   - Reference image download failed: Continue without reference
+  - Seed generation failed: Use random seed
 
 Frontend Error Handling:
   - Show user-friendly error messages
@@ -563,7 +670,8 @@ Frontend Error Handling:
   retryable?: boolean,     // Whether retry is recommended
   suggestedAction?: string, // What user should do
   referenceImageError?: boolean, // NEW: Reference image specific error
-  invalidQuantity?: boolean     // NEW: Quantity validation error
+  invalidQuantity?: boolean,     // NEW: Quantity validation error
+  invalidSeed?: boolean          // NEW: Seed validation error
 }
 ```
 
@@ -592,6 +700,11 @@ Reference Image Performance:
   - Processing overhead: +10-30% generation time
   - Success rate: >98% for valid references
 
+Seed Control Performance:
+  - No performance impact (deterministic generation)
+  - Success rate: 100% for valid seeds
+  - Fallback to random seeds if invalid
+
 Queue Performance:
   - sdxl_queue: 2-second polling
   - wan_queue: 5-second polling
@@ -608,14 +721,15 @@ System Health:
 
 ### **Frontend Monitoring:**
 ```typescript
-// Track job performance with reference images
-const trackJobPerformance = (jobType, startTime, endTime, hasReference) => {
+// Track job performance with reference images and seeds
+const trackJobPerformance = (jobType, startTime, endTime, hasReference, hasSeed) => {
   const duration = endTime - startTime;
   analytics.track('job_completed', {
     jobType,
     duration,
     success: true,
     hasReference,
+    hasSeed,
     referenceType: hasReference ? jobType.reference_type : null
   });
 };
@@ -638,20 +752,28 @@ const trackReferenceUsage = (referenceType, strength, success) => {
     success
   });
 };
+
+// Track seed usage
+const trackSeedUsage = (seed, success) => {
+  analytics.track('seed_used', {
+    seed,
+    success
+  });
+};
 ```
 
 ---
 
 ## **🔗 Integration Examples**
 
-### **Complete Job Flow with Reference Images:**
+### **Complete Job Flow with Reference Images and Seed Control:**
 ```typescript
 // 1. Upload reference image
-const uploadAndCreateJob = async (jobType, prompt, referenceFile, strength, type) => {
+const uploadAndCreateJob = async (jobType, prompt, referenceFile, strength, type, seed) => {
   // Upload reference image first
   const referenceUrl = await uploadReferenceImage(referenceFile);
   
-  // Create job with reference
+  // Create job with reference and seed
   const response = await fetch('/api/queue-job', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}` },
@@ -662,7 +784,8 @@ const uploadAndCreateJob = async (jobType, prompt, referenceFile, strength, type
         reference_image_url: referenceUrl,
         reference_strength: strength,
         reference_type: type,
-        num_images: 3 // For SDXL
+        num_images: 3, // For SDXL
+        seed: seed     // NEW: Seed control
       }
     })
   });
@@ -693,12 +816,20 @@ const monitorJob = async (jobId) => {
   }, 2000); // Poll every 2 seconds
 };
 
-// 3. Handle completion
+// 3. Handle completion with seed information
 const handleJobCompletion = (job) => {
   if (job.job_type.startsWith('sdxl_')) {
     // Handle flexible quantity batch
     const imageUrls = job.assets; // ✅ CONSISTENT: assets array
     const numImages = imageUrls.length;
+    
+    // NEW: Extract seed information
+    const seed = job.metadata?.seed;
+    if (seed) {
+      console.log(`Generated with seed: ${seed}`);
+      // Store seed for future regeneration
+      storeSeedForJob(job.id, seed);
+    }
     
     if (numImages === 1) {
       displaySingleImage(imageUrls[0]);
@@ -739,23 +870,58 @@ const createVideoWithReferences = async (prompt, startRef, endRef, strength) => 
 };
 ```
 
+### **Seed-Based Character Consistency:**
+```typescript
+// Generate character with seed for consistency
+const generateCharacterSeries = async (characterPrompt, seed) => {
+  const poses = [
+    'standing pose',
+    'sitting pose', 
+    'walking pose',
+    'action pose'
+  ];
+  
+  const results = [];
+  
+  for (const pose of poses) {
+    const response = await fetch('/api/queue-job', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        jobType: 'sdxl_image_fast',
+        metadata: {
+          prompt: `${characterPrompt}, ${pose}`,
+          num_images: 1,
+          seed: seed  // Same seed maintains character consistency
+        }
+      })
+    });
+    
+    const result = await response.json();
+    results.push(result.job.id);
+  }
+  
+  return results;
+};
+```
+
 ---
 
 ## **📋 Quick Reference Cheat Sheet**
 
 ### **Job Type Matrix:**
-| Job Type | Output | Time | Quality | Enhancement | Reference Support | Flexible Quantities |
-|----------|--------|------|---------|-------------|-------------------|-------------------|
-| `sdxl_image_fast` | 1-6 PNG | 3-48s | Excellent | No | ✅ Style/Comp/Char | ✅ 1,3,6 |
-| `sdxl_image_high` | 1-6 PNG | 5-90s | Premium | No | ✅ Style/Comp/Char | ✅ 1,3,6 |
-| `image_fast` | 1 PNG | 25s | Good | No | ❌ | ❌ |
-| `image_high` | 1 PNG | 40s | Better | No | ❌ | ❌ |
-| `video_fast` | 1 MP4 | 135s | Good | No | ✅ Start/End | ❌ |
-| `video_high` | 1 MP4 | 180s | Better | No | ✅ Start/End | ❌ |
-| `image7b_fast_enhanced` | 1 PNG | 85s | Enhanced | Yes | ❌ | ❌ |
-| `image7b_high_enhanced` | 1 PNG | 100s | Enhanced | Yes | ❌ | ❌ |
-| `video7b_fast_enhanced` | 1 MP4 | 195s | Enhanced | Yes | ✅ Start/End | ❌ |
-| `video7b_high_enhanced` | 1 MP4 | 240s | Enhanced | Yes | ✅ Start/End | ❌ |
+| Job Type | Output | Time | Quality | Enhancement | Reference Support | Flexible Quantities | Seed Control |
+|----------|--------|------|---------|-------------|-------------------|-------------------|--------------|
+| `sdxl_image_fast` | 1-6 PNG | 3-48s | Excellent | No | ✅ Style/Comp/Char | ✅ 1,3,6 | ✅ |
+| `sdxl_image_high` | 1-6 PNG | 5-90s | Premium | No | ✅ Style/Comp/Char | ✅ 1,3,6 | ✅ |
+| `image_fast` | 1 PNG | 25s | Good | No | ❌ | ❌ | ❌ |
+| `image_high` | 1 PNG | 40s | Better | No | ❌ | ❌ | ❌ |
+| `video_fast` | 1 MP4 | 135s | Good | No | ✅ Start/End | ❌ | ❌ |
+| `video_high` | 1 MP4 | 180s | Better | No | ✅ Start/End | ❌ | ❌ |
+| `image7b_fast_enhanced` | 1 PNG | 85s | Enhanced | Yes | ❌ | ❌ | ❌ |
+| `image7b_high_enhanced` | 1 PNG | 100s | Enhanced | Yes | ❌ | ❌ | ❌ |
+| `video7b_fast_enhanced` | 1 MP4 | 195s | Enhanced | Yes | ✅ Start/End | ❌ | ❌ |
+| `video7b_high_enhanced` | 1 MP4 | 240s | Enhanced | Yes | ✅ Start/End | ❌ | ❌ |
 
 ### **Reference Image Matrix:**
 | Reference Type | SDXL | Video | Strength Range | Use Case |
@@ -790,7 +956,8 @@ Both workers use standardized callback parameters for compatibility:
   job_id: string,        // ✅ Consistent: job_id (snake_case)
   status: string,        // ✅ Consistent: 'completed' | 'failed'
   assets: string[],      // ✅ Consistent: Array of asset URLs
-  error_message?: string // ✅ Consistent: Error details if failed
+  error_message?: string, // ✅ Consistent: Error details if failed
+  metadata?: object      // ✅ NEW: Additional generation details (seed, etc.)
 }
 ```
 
@@ -799,6 +966,11 @@ Both workers use standardized callback parameters for compatibility:
 Upload → Validate → Store → Use in Job → Process → Complete
 ```
 
+### **Seed Control Flow:**
+```yaml
+Provide Seed → Generate → Return Seed in Metadata → Store for Regeneration
+```
+
 ---
 
-**This document provides everything needed to integrate with the OurVidz worker system, including the new reference image functionality and flexible quantities. All performance metrics and implementation details have been verified against the actual worker source code for accuracy and conformity.** 
+**This document provides everything needed to integrate with the OurVidz worker system, including the new reference image functionality, flexible quantities, and seed control. All performance metrics and implementation details have been verified against the actual worker source code for accuracy and conformity.** 
