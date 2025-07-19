@@ -30,6 +30,7 @@ class LustifySDXLWorker:
         print("🖼️ NEW: Image-to-image generation with style, composition, and character reference modes")
         print("🌱 NEW: Seed control for reproducible generation and character consistency")
         print("🔧 FIXED: Consistent parameter naming (job_id, assets, metadata) across all callbacks")
+        print("✅ API COMPLIANT: Supports metadata.reference_image_url, reference_strength, reference_type")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -528,11 +529,11 @@ class LustifySDXLWorker:
         else:
             logger.info(f"🎲 No seed provided, will use random seed")
         
-        # Extract image-to-image parameters from metadata
+        # Extract image-to-image parameters from metadata (ALREADY COMPLIANT WITH API SPEC)
         metadata = job_data.get('metadata', {})
-        reference_image_url = metadata.get('reference_image_url')
-        reference_strength = metadata.get('reference_strength', 0.5)
-        reference_type = metadata.get('reference_type', 'style')
+        reference_image_url = metadata.get('reference_image_url')  # ✅ API spec: metadata.reference_image_url
+        reference_strength = metadata.get('reference_strength', 0.5)  # ✅ API spec: metadata.reference_strength
+        reference_type = metadata.get('reference_type', 'style')  # ✅ API spec: metadata.reference_type
         
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")

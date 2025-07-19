@@ -1016,22 +1016,27 @@ Enhanced detailed prompt:"""
             print(f"❌ Supabase upload error: {e}")
             raise
 
-    def notify_completion(self, job_id, status, output_url=None, error_message=None):
-        """CONSISTENT: Notify Supabase with standardized callback parameter names"""
+    def notify_completion(self, job_id, status, assets=None, error_message=None, metadata=None):
+        """CONSISTENT: Notify Supabase with standardized callback parameter names and metadata"""
         try:
             # CONSISTENT: Use standardized callback format across all workers
             callback_data = {
                 'job_id': job_id,        # ✅ Standard: job_id (snake_case)
                 'status': status,        # ✅ Standard: status field
-                'assets': [output_url] if output_url else [],  # ✅ Standard: assets array
+                'assets': assets if assets else [],  # ✅ Standard: assets array
                 'error_message': error_message      # ✅ Standard: error_message field
             }
             
+            # Add metadata if provided (for generation details)
+            if metadata:
+                callback_data['metadata'] = metadata
+            
             print(f"📞 Sending CONSISTENT callback for job {job_id}:")
             print(f"   Status: {status}")
-            print(f"   Output URL: {output_url}")
+            print(f"   Assets count: {len(assets) if assets else 0}")
             print(f"   Error: {error_message}")
-            print(f"   Parameters: job_id, status, assets, error_message (CONSISTENT)")
+            print(f"   Metadata: {metadata}")
+            print(f"   Parameters: job_id, status, assets, error_message, metadata (CONSISTENT)")
             
             response = requests.post(
                 f"{self.supabase_url}/functions/v1/job-callback",
@@ -1065,10 +1070,11 @@ Enhanced detailed prompt:"""
         image_id = job_data.get('image_id', f"image_{int(time.time())}")
         config = job_data.get('config', {})
         
-        # Extract reference frame parameters from metadata
+        # Extract reference frame parameters from config and metadata (UPDATED API SPEC)
         metadata = job_data.get('metadata', {})
-        start_reference_url = metadata.get('start_reference_image_url')
-        end_reference_url = metadata.get('end_reference_image_url')
+        # ✅ NEW: Check config level first, then metadata level (per API spec)
+        start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
+        end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
         reference_strength = metadata.get('reference_strength', 0.5)
         
         print(f"🔄 Processing job {job_id} ({job_type}) with CONSISTENT PARAMETERS")
@@ -1076,13 +1082,13 @@ Enhanced detailed prompt:"""
         print(f"🎯 Video ID: {video_id}")
         print(f"👤 User ID: {user_id}")
         
-        # Log reference frame parameters if present
+        # Log reference frame parameters if present (UPDATED API SPEC)
         if start_reference_url or end_reference_url:
             print(f"🖼️ Reference frame mode: strength {reference_strength}")
             if start_reference_url:
-                print(f"📥 Start reference image URL: {start_reference_url}")
+                print(f"📥 Start reference frame URL (first_frame/start_reference_url): {start_reference_url}")
             if end_reference_url:
-                print(f"📥 End reference image URL: {end_reference_url}")
+                print(f"📥 End reference frame URL (last_frame/end_reference_url): {end_reference_url}")
         
         job_start_time = time.time()
         
@@ -1180,8 +1186,16 @@ Enhanced detailed prompt:"""
             except:
                 pass
             
-            # CONSISTENT: Success callback with standardized parameters
-            self.notify_completion(job_id, 'completed', relative_path)
+            # Prepare metadata for callback
+            callback_metadata = {
+                'generation_time': total_time,
+                'job_type': job_type,
+                'content_type': final_config['content_type'],
+                'frame_num': final_config['frame_num']
+            }
+            
+            # CONSISTENT: Success callback with standardized parameters and metadata
+            self.notify_completion(job_id, 'completed', assets=[relative_path], metadata=callback_metadata)
             
             total_time = time.time() - job_start_time
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
@@ -1204,8 +1218,15 @@ Enhanced detailed prompt:"""
             except:
                 pass
             
-            # CONSISTENT: Failure callback with standardized parameters
-            self.notify_completion(job_id, 'failed', error_message=error_msg)
+            # Prepare error metadata
+            error_metadata = {
+                'error_type': type(e).__name__,
+                'job_type': job_type,
+                'timestamp': time.time()
+            }
+            
+            # CONSISTENT: Failure callback with standardized parameters and metadata
+            self.notify_completion(job_id, 'failed', error_message=error_msg, metadata=error_metadata)
 
     def poll_queue(self):
         """Poll Redis queue for new jobs with non-blocking RPOP (Upstash REST API compatible)"""
@@ -1235,17 +1256,19 @@ Enhanced detailed prompt:"""
 
     def run_with_enhanced_diagnostics(self):
         """Main worker loop with startup diagnostics and CONSISTENT PARAMETERS"""
-        print("🎬 Enhanced OurVidz WAN Worker with CONSISTENT PARAMETERS + REFERENCE FRAMES started!")
+        print("🎬 Enhanced OurVidz WAN Worker with UPDATED API SPEC + REFERENCE FRAMES started!")
         print("🔧 MAJOR FIX: Corrected frame counts for 5-second videos (83 frames)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
         print("🔧 MAJOR FIX: Updated to use Qwen 2.5-7B Base model (no content filtering)")
         print("🖼️ NEW: Reference frame support for video generation with start/end frame guidance")
+        print("🔧 API UPDATE: Support for config.first_frame/last_frame and metadata.start_reference_url/end_reference_url")
         print("🔧 OPTIMIZATIONS APPLIED:")
         print("   • Optimized frame counts based on confirmed 16.67fps effective rate")
         print("   • video_fast: 83 frames for 5.0 seconds (45s faster processing)")
         print("   • video_high: 83 frames for 5.0 seconds (66s faster processing)")
         print("   • Reference frame support for enhanced video generation")
-        print("   • Consistent callback parameters (job_id, status, assets, error_message)")
+        print("   • Consistent callback parameters (job_id, status, assets, error_message, metadata)")
+        print("   • Updated API spec support (config.first_frame/last_frame, metadata.start_reference_url/end_reference_url)")
         print("📊 Status: Enhanced with Qwen 7B Base + Reference Frames ✅")
         
         print("🔧 UPSTASH COMPATIBLE: Using non-blocking RPOP for Redis polling")
