@@ -5,7 +5,7 @@
 # Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s on RTX 6000 ADA
 
 """
-🎯 COMPEL INTEGRATION USAGE EXAMPLES:
+🎯 COMPEL INTEGRATION USAGE EXAMPLES (SIMPLE STRING CONCATENATION):
 
 # Example 1: Basic Compel enhancement
 job_data = {
@@ -13,10 +13,10 @@ job_data = {
     "type": "sdxl_image_high",
     "prompt": "beautiful woman in garden",
     "user_id": "user-123",
+    "compel_enabled": True,
+    "compel_weights": "(beautiful:1.3), (woman:1.2), (garden:1.1)",
     "config": {
-        "num_images": 1,
-        "compel_enabled": True,
-        "compel_weights": "(beautiful:1.3), (woman:1.2), (garden:1.1)"
+        "num_images": 1
     }
 }
 
@@ -26,10 +26,10 @@ job_data = {
     "type": "sdxl_image_fast",
     "prompt": "portrait of a person",
     "user_id": "user-123",
+    "compel_enabled": True,
+    "compel_weights": "(portrait:1.4), (person:1.1)",
     "config": {
-        "num_images": 3,
-        "compel_enabled": True,
-        "compel_weights": "(portrait:1.4), (person:1.1)"
+        "num_images": 3
     },
     "metadata": {
         "reference_image_url": "https://example.com/reference.jpg",
@@ -44,17 +44,17 @@ job_data = {
     "type": "sdxl_image_high", 
     "prompt": "landscape painting",
     "user_id": "user-123",
+    "compel_enabled": False,  # or omit this field
     "config": {
-        "num_images": 6,
-        "compel_enabled": False  # or omit this field
+        "num_images": 6
     }
 }
 
-🎯 COMPEL WEIGHTS SYNTAX:
-- (word:weight) - Apply weight to specific word
-- (phrase:weight) - Apply weight to phrase
-- Multiple weights: "(beautiful:1.3), (woman:1.2), (garden:1.1)"
-- Weight range: 0.1 to 2.0 (recommended: 0.8 to 1.5)
+🎯 COMPEL WEIGHTS SYNTAX (SIMPLE CONCATENATION):
+- The frontend sends the correct Compel syntax
+- We simply concatenate: prompt + " " + compel_weights
+- Example: "beautiful woman" + " " + "(beautiful:1.3), (woman:1.2)"
+- Result: "beautiful woman (beautiful:1.3), (woman:1.2)"
 """
 
 import os
@@ -67,7 +67,6 @@ import gc
 import io
 import sys
 sys.path.append('/workspace/python_deps/lib/python3.11/site-packages')
-from compel import Compel
 from pathlib import Path
 from PIL import Image
 from diffusers import StableDiffusionXLPipeline
@@ -94,7 +93,6 @@ class LustifySDXLWorker:
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
         self.pipeline = None
         self.model_loaded = False
-        self.compel = None  # ✅ NEW: Compel instance
         
         # Job configurations with batch support
         self.job_configs = {
@@ -367,13 +365,7 @@ class LustifySDXLWorker:
                 use_safetensors=True
             ).to("cuda")
             
-            # ✅ NEW: Initialize Compel after pipeline loads
-            if self.pipeline:
-                self.compel = Compel(
-                    tokenizer=self.pipeline.tokenizer,
-                    text_encoder=self.pipeline.text_encoder
-                )
-                logger.info("✅ Compel initialized for SDXL")
+
             
             # Enable memory optimizations
             try:
@@ -401,45 +393,30 @@ class LustifySDXLWorker:
 
     def process_compel_weights(self, prompt, weights_config=None):
         """
-        Process prompt with Compel weights
+        Process prompt with Compel weights (simple string concatenation)
         weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
         """
-        if not self.compel or not weights_config:
+        if not weights_config:
             return prompt, None
             
         try:
-            # Apply Compel weights to prompt
-            weighted_prompt = self.compel(weights_config)
-            logger.info(f"✅ Compel weights applied: {prompt} -> {weighted_prompt}")
-            return weighted_prompt, prompt  # Return enhanced and original
+            # Simple string concatenation approach
+            final_prompt = f"{prompt} {weights_config}"
+            logger.info(f"✅ Compel weights applied: {prompt} -> {final_prompt}")
+            return final_prompt, prompt  # Return enhanced and original
         except Exception as e:
             logger.error(f"❌ Compel processing failed: {e}")
             return prompt, None  # Fallback to original prompt
 
-    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style', seed=None, config=None):
+    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style', seed=None):
         """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image and seed control"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
             
-        if config is None:
-            config = self.job_configs[job_type]
+        config = self.job_configs[job_type]
         
         # Ensure model is loaded
         self.load_model()
-        
-        # ✅ NEW: Extract Compel configuration
-        compel_weights = config.get('compel_weights')
-        compel_enabled = config.get('compel_enabled', False)
-        original_prompt = prompt
-        
-        # Process with Compel if enabled
-        if compel_enabled and compel_weights:
-            enhanced_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
-            final_prompt = enhanced_prompt
-            logger.info(f"🎯 Using Compel-enhanced prompt: {final_prompt}")
-        else:
-            final_prompt = prompt
-            enhanced_prompt = None
         
         # Handle seed configuration
         if seed:
@@ -456,7 +433,7 @@ class LustifySDXLWorker:
         if reference_image:
             logger.info(f"🎨 Generating {num_images} image(s) with {reference_type} reference (strength: {reference_strength})")
         else:
-            logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {final_prompt[:50]}...")
+            logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
             
         if num_images > 1:
             logger.info(f"📊 Expected performance: {num_images * config['expected_time_per_image']:.0f}s total")
@@ -469,18 +446,18 @@ class LustifySDXLWorker:
             # Handle image-to-image generation
             if reference_image:
                 if reference_type == 'style':
-                    images = self.generate_with_style_reference(final_prompt, reference_image, reference_strength, config, num_images, generators)
+                    images = self.generate_with_style_reference(prompt, reference_image, reference_strength, config, num_images, generators)
                 elif reference_type == 'composition':
-                    images = self.generate_with_composition_reference(final_prompt, reference_image, reference_strength, config, num_images, generators)
+                    images = self.generate_with_composition_reference(prompt, reference_image, reference_strength, config, num_images, generators)
                 elif reference_type == 'character':
-                    images = self.generate_with_character_reference(final_prompt, reference_image, reference_strength, config, num_images, generators)
+                    images = self.generate_with_character_reference(prompt, reference_image, reference_strength, config, num_images, generators)
                 else:
                     # Default image-to-image
-                    images = self.generate_image_to_image(final_prompt, reference_image, reference_strength, config, num_images, generators)
+                    images = self.generate_image_to_image(prompt, reference_image, reference_strength, config, num_images, generators)
             else:
                 # Standard text-to-image generation
                 generation_kwargs = {
-                    'prompt': [final_prompt] * num_images,  # Replicate prompt for batch
+                    'prompt': [prompt] * num_images,  # Replicate prompt for batch
                     'height': config['height'],
                     'width': config['width'],
                     'num_inference_steps': config['num_inference_steps'],
@@ -510,17 +487,7 @@ class LustifySDXLWorker:
             torch.cuda.empty_cache()
             gc.collect()
             
-            # ✅ NEW: Return enhanced metadata
-            generation_metadata = {
-                "seed": seed,
-                "original_prompt": original_prompt,
-                "enhanced_prompt": enhanced_prompt,
-                "compel_enabled": compel_enabled,
-                "compel_weights": compel_weights,
-                "enhancement_strategy": "compel" if compel_enabled else None
-            }
-            
-            return images, seed, generation_metadata
+            return images, seed
             
         except Exception as e:
             logger.error(f"❌ Batch generation failed: {e}")
@@ -644,9 +611,9 @@ class LustifySDXLWorker:
         reference_strength = metadata.get('reference_strength', 0.5)  # ✅ API spec: metadata.reference_strength
         reference_type = metadata.get('reference_type', 'style')  # ✅ API spec: metadata.reference_type
         
-        # ✅ NEW: Extract Compel configuration from config
-        compel_weights = config.get('compel_weights')
-        compel_enabled = config.get('compel_enabled', False)
+        # ✅ COMPEL SUPPORT: Extract Compel parameters directly from job payload
+        compel_enabled = job_data.get("compel_enabled", False)
+        compel_weights = job_data.get("compel_weights", "")
         
         logger.info(f"🚀 Processing SDXL job {job_id} ({job_type})")
         logger.info(f"📝 Prompt: {prompt}")
@@ -681,17 +648,43 @@ class LustifySDXLWorker:
                     # Continue with text-to-image generation
                     reference_image = None
             
-            # Generate batch of images with Compel integration
+            # Process Compel enhancement
+            final_prompt = prompt
+            compel_metadata = {
+                "compel_enabled": compel_enabled,
+                "compel_weights": compel_weights,
+                "enhancement_strategy": "none"
+            }
+            
+            if compel_enabled and compel_weights:
+                logger.info(f"🎯 Compel enhancement enabled: {compel_weights}")
+                
+                try:
+                    # Apply Compel weights to the prompt (simple string concatenation)
+                    final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
+                    compel_metadata["enhancement_strategy"] = "compel"
+                    
+                    logger.info(f"✅ Compel processing successful")
+                    logger.info(f"🎯 Using Compel-enhanced prompt: {final_prompt}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Compel processing failed: {e}")
+                    logger.info(f"🎯 Using original prompt: {prompt}")
+                    compel_metadata["enhancement_strategy"] = "fallback"
+                    final_prompt = prompt
+            else:
+                logger.info(f"🎯 Using standard prompt: {prompt}")
+            
+            # Generate batch of images with final prompt
             start_time = time.time()
-            images, used_seed, generation_metadata = self.generate_images_batch(
-                prompt, 
+            images, used_seed = self.generate_images_batch(
+                final_prompt, 
                 job_type, 
                 num_images, 
                 reference_image=reference_image,
                 reference_strength=reference_strength,
                 reference_type=reference_type,
-                seed=seed,
-                config=config  # ✅ NEW: Pass config for Compel processing
+                seed=seed
             )
             
             if not images:
@@ -709,17 +702,17 @@ class LustifySDXLWorker:
             logger.info(f"📁 Generated {len(upload_urls)} images")
             logger.info(f"🌱 Seed used: {used_seed}")
             
-            # ✅ NEW: Prepare metadata for callback with Compel information
+            # ✅ COMPEL SUPPORT: Prepare metadata for callback with Compel information
             callback_metadata = {
                 'seed': used_seed,
                 'generation_time': total_time,
                 'num_images': len(upload_urls),
                 'job_type': job_type,
-                'original_prompt': generation_metadata.get('original_prompt'),
-                'enhanced_prompt': generation_metadata.get('enhanced_prompt'),
-                'compel_enabled': generation_metadata.get('compel_enabled'),
-                'compel_weights': generation_metadata.get('compel_weights'),
-                'enhancement_strategy': generation_metadata.get('enhancement_strategy')
+                'original_prompt': prompt,
+                'final_prompt': final_prompt,
+                'compel_enabled': compel_enabled,
+                'compel_weights': compel_weights,
+                'enhancement_strategy': compel_metadata.get('enhancement_strategy')
             }
             
             # CONSISTENT: Notify completion with standardized parameter names and metadata
@@ -844,25 +837,25 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
     def test_compel_integration(self):
-        """Test Compel integration with sample prompts"""
-        logger.info("🧪 Testing Compel integration...")
+        """Test Compel integration with simple string concatenation"""
+        logger.info("🧪 Testing Compel integration (simple concatenation)...")
         
         # Test cases
         test_cases = [
             {
                 "prompt": "beautiful woman in garden",
                 "compel_weights": "(beautiful:1.3), (woman:1.2), (garden:1.1)",
-                "expected_enhancement": True
+                "expected_result": "beautiful woman in garden (beautiful:1.3), (woman:1.2), (garden:1.1)"
             },
             {
                 "prompt": "portrait of a person",
                 "compel_weights": "(portrait:1.4), (person:1.1)",
-                "expected_enhancement": True
+                "expected_result": "portrait of a person (portrait:1.4), (person:1.1)"
             },
             {
                 "prompt": "landscape painting",
                 "compel_weights": None,
-                "expected_enhancement": False
+                "expected_result": "landscape painting"
             }
         ]
         
@@ -875,16 +868,10 @@ class LustifySDXLWorker:
                 test_case['compel_weights']
             )
             
-            if test_case['expected_enhancement']:
-                if enhanced_prompt and enhanced_prompt != test_case['prompt']:
-                    logger.info(f"✅ Compel enhancement successful: {enhanced_prompt}")
-                else:
-                    logger.warning(f"⚠️ Compel enhancement failed or no change")
+            if enhanced_prompt == test_case['expected_result']:
+                logger.info(f"✅ Compel concatenation successful: {enhanced_prompt}")
             else:
-                if enhanced_prompt == test_case['prompt']:
-                    logger.info(f"✅ Compel correctly skipped (no weights)")
-                else:
-                    logger.warning(f"⚠️ Compel unexpectedly enhanced prompt")
+                logger.warning(f"⚠️ Compel concatenation failed. Expected: {test_case['expected_result']}, Got: {enhanced_prompt}")
         
         logger.info("🧪 Compel integration test completed")
 
