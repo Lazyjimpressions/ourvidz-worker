@@ -449,22 +449,37 @@ class LustifySDXLWorker:
             return prompt, None  # Fallback to original prompt
 
     def clean_compel_weights(self, weights_config):
-        """Clean and deduplicate Compel weights"""
+        """Clean and deduplicate Compel weights (case-insensitive, normalized)"""
         if not weights_config:
             return ""
-            
+        
         # Split by commas and clean each weight
         weights = [w.strip() for w in weights_config.split(',')]
         
-        # Remove duplicates while preserving order
+        # Normalize weights for deduplication: strip, lowercase, remove extra spaces inside parentheses/colons
+        def normalize_weight(w):
+            w = w.strip().lower()
+            # Remove spaces after '(' and before ')', and around ':'
+            if w.startswith('(') and w.endswith(')'):
+                w = w[1:-1].strip()
+                if ':' in w:
+                    parts = w.split(':', 1)
+                    left = parts[0].strip()
+                    right = parts[1].strip()
+                    w = f"({left}:{right})"
+                else:
+                    w = f"({w})"
+            return w
+        
         seen = set()
         cleaned_weights = []
         for weight in weights:
-            if weight not in seen:
-                cleaned_weights.append(weight)
-                seen.add(weight)
+            norm = normalize_weight(weight)
+            if norm not in seen:
+                cleaned_weights.append(weight.strip())  # Keep original formatting for output
+                seen.add(norm)
             else:
-                logger.info(f"🧹 Removed duplicate weight: {weight}")
+                logger.info(f"🧹 Removed duplicate weight (normalized): {weight}")
         
         # Limit to reasonable number of weights (max 6 for token efficiency)
         if len(cleaned_weights) > 6:
