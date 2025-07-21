@@ -1251,15 +1251,15 @@ curl -X POST http://localhost:8000/test-compel \
 ```
 🎯 Compel enhancement enabled: (masterpiece:1.3), (best quality:1.2)
 ✅ Compel weights applied with SDXL library integration (list API)
-📝 Original prompt: beautiful woman
-🎯 Compel weights: (masterpiece:1.3), (best quality:1.2)
+📝 Final combined prompt: (beautiful woman:1.1), (masterpiece:1.3), (best quality:1.2)
 🔧 Generated prompt_embeds: torch.Size([1, 77, 2048])
 🔧 Generated pooled_prompt_embeds: torch.Size([1, 1280])
+🔧 Generated negative_prompt_embeds: torch.Size([1, 77, 2048])
+🔧 Generated negative_pooled_prompt_embeds: torch.Size([1, 1280])
 ✅ Compel processing successful
 🎯 Using Compel conditioning tensors for SDXL generation
 ✅ Generated with Compel conditioning tensors (SDXL)
 ```
-
 **Fallback Behavior:**
 ```
 🎯 Compel enhancement enabled: (invalid:weights)
@@ -1270,16 +1270,12 @@ curl -X POST http://localhost:8000/test-compel \
 ✅ Generated with string prompt (no Compel)
 ```
 
-**Legacy Single Tensor Fallback:**
-```
-🎯 Compel enhancement enabled: (masterpiece:1.3), (best quality:1.2)
-✅ Compel weights applied with library integration (legacy)
-📝 Original prompt: beautiful woman
-🎯 Compel weights: (masterpiece:1.3), (best quality:1.2)
-✅ Compel processing successful
-🎯 Using single Compel conditioning tensor for generation
-✅ Generated with single Compel conditioning tensor (legacy)
-```
+#### **Deprecated/Incorrect Approaches**
+- String concatenation for SDXL+Compel
+- More than 6 enhancement weights
+- Duplicate weights
+- No negative conditioning for SDXL
+- Logging or metadata that dumps tensor values
 
 ### **Dependencies**
 
@@ -1348,88 +1344,98 @@ The OurVidz Worker system is **production-ready** with comprehensive reference f
 
 ## **🎯 Compel Integration: Latest Fixes & Learnings (2025-07)**
 
-### **Critical Fix: SDXL Compel Integration**
+#### **Prompt Engineering Best Practices for SDXL + Compel**
+- **Subject First:** Always structure your prompt as `(subject:1.1), (enhancement1:weight), (enhancement2:weight), ...` to ensure the model focuses on the main subject.
+- **Deduplicate Weights:** Remove duplicate Compel weights to avoid conflicting or diluted effects.
+- **Limit Weights:** Use a maximum of 6 enhancement weights for token efficiency and clarity.
+- **No String Concatenation:** Do not use simple string concatenation for prompt+weights; always use the Compel library for SDXL.
+- **Negative Conditioning:** Always generate and use both positive and negative conditioning tensors for SDXL jobs with Compel.
+- **Safe Compel Version Logging:** Use `getattr(compel, '__version__', 'unknown')` to avoid AttributeError in logs.
 
-- **Old (INCORRECT):** Used string concatenation for prompt and weights, causing CLIP token limit violations and partial prompt processing.
-- **New (CORRECT):** Uses Compel library's native SDXL integration with `requires_pooled=[False, True]` for Compel 2.1.1+.
-- **Why:** SDXL requires two text encoders; the first does not need pooled embeddings, the second does. Passing a boolean to `requires_pooled` causes errors in Compel 2.1.1+.
-- **Result:** No more token limit violations, correct prompt embedding, and robust error handling.
-
-### **Correct SDXL Compel Usage Example**
+#### **Correct SDXL Compel Usage Example (2025-07)**
 ```python
 def process_compel_weights(self, prompt, weights_config=None):
     """
     Process prompt with proper Compel library integration for SDXL.
-    FIXED: Use requires_pooled=[False, True] for Compel 2.1.1 with SDXL.
+    FIXED: Deduplicate/limit weights, subject first, and generate both positive and negative conditioning tensors.
     """
     if not weights_config:
         return prompt, None
     try:
         if not self.model_loaded:
             self.load_model()
-        logger.info(f"🔧 Initializing Compel 2.1.1 with SDXL encoders - FIXED SYNTAX")
+        version = getattr(compel, '__version__', 'unknown')
+        logger.info(f"🔧 Initializing Compel {version} with SDXL encoders")
         compel_processor = Compel(
             tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
             text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],
-            requires_pooled=[False, True]  # ✅ FIXED: List instead of boolean for Compel 2.1.1
+            requires_pooled=[False, True]
         )
-        logger.info(f"✅ Compel processor initialized successfully with FIXED SDXL syntax")
-        combined_prompt = f"{prompt} {weights_config}"
-        logger.info(f"📝 Combined prompt: {combined_prompt}")
-        # Always unpack as a tuple
+        cleaned_weights = self.clean_compel_weights(weights_config)
+        combined_prompt = f"({prompt}:1.1), {cleaned_weights}"
+        logger.info(f"📝 Final combined prompt: {combined_prompt}")
         prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
-        logger.info(f"✅ Compel weights applied with proper SDXL library integration")
-        logger.info(f"📝 Original prompt: {prompt}")
-        logger.info(f"🎯 Compel weights: {weights_config}")
-        logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
-        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
-        return (prompt_embeds, pooled_prompt_embeds), prompt
+        negative_prompt = ("blurry, low quality, distorted, deformed, bad anatomy, "
+                         "watermark, signature, text, logo, extra limbs, missing limbs")
+        negative_prompt_embeds, negative_pooled_prompt_embeds = compel_processor(negative_prompt)
+        return {
+            'prompt_embeds': prompt_embeds,
+            'pooled_prompt_embeds': pooled_prompt_embeds,
+            'negative_prompt_embeds': negative_prompt_embeds,
+            'negative_pooled_prompt_embeds': negative_pooled_prompt_embeds
+        }, prompt
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
         logger.info(f"🔄 Falling back to original prompt: {prompt}")
-        return prompt, None  # Fallback to original prompt
+        return prompt, None
+
+def clean_compel_weights(self, weights_config):
+    """Deduplicate and limit Compel weights to 6 max."""
+    weights = [w.strip() for w in weights_config.split(',')]
+    seen = set()
+    cleaned_weights = []
+    for weight in weights:
+        if weight not in seen:
+            cleaned_weights.append(weight)
+            seen.add(weight)
+    if len(cleaned_weights) > 6:
+        cleaned_weights = cleaned_weights[:6]
+    return ", ".join(cleaned_weights)
 ```
 
-### **Key Learnings**
-- **Always use Compel library for SDXL prompt+weights, not string concatenation.**
-- **For Compel 2.1.1+ and SDXL:** `requires_pooled` must be `[False, True]` (not a boolean).
-- **Always unpack Compel output as a tuple:** `prompt_embeds, pooled_prompt_embeds = compel_processor(...)`
-- **If you see `'bool' object is not iterable'`, you are using the wrong `requires_pooled` value.**
-- **Fallback to original prompt if Compel fails, but log the error.**
-- **Set `PYTHONPATH` if using custom dependency paths:**
-  ```bash
-  export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPATH
-  ```
-
-### **Deprecated Approach (Do NOT Use for SDXL)**
+#### **Persistent Environment Setup for RunPod**
+- To ensure custom dependencies are always available, set persistent `PYTHONPATH` and `HF_HOME` at the top of `dual_orchestrator.py`:
 ```python
-# ❌ Deprecated: String concatenation causes token limit violations
-final_prompt = f"{prompt} {weights_config}"
-# This can result in >77 tokens and partial prompt processing!
+PYTHON_DEPS_PATH = '/workspace/python_deps/lib/python3.11/site-packages'
+if PYTHON_DEPS_PATH not in sys.path:
+    sys.path.insert(0, PYTHON_DEPS_PATH)
+os.environ['PYTHONPATH'] = f"{PYTHON_DEPS_PATH}:{os.environ.get('PYTHONPATH', '')}"
+os.environ['HF_HOME'] = '/workspace/models/huggingface_cache'
 ```
+- This ensures all worker subprocesses inherit the correct environment, even after container restarts.
 
-### **Validation Checklist (2025-07)**
+#### **Validation Checklist (2025-07)**
 - [x] Compel library imports successfully
 - [x] `process_compel_weights` uses `requires_pooled=[False, True]` for SDXL
-- [x] Always unpacks Compel output as a tuple for SDXL
-- [x] No fallback logic for single tensor/boolean for SDXL
-- [x] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
+- [x] Prompt structure is subject first, then enhancements
+- [x] Weights are deduplicated and limited to 6
+- [x] Both positive and negative conditioning tensors are generated and used
+- [x] No string concatenation for SDXL+Compel
+- [x] Safe Compel version logging
 - [x] Error handling includes fallback to original prompt
-- [x] Metadata includes Compel processing status and tensor types
-- [x] No more 'bool object is not iterable' or argument errors in logs
-- [x] Compel weights are properly applied without token limit violations
-- [x] Both conditioning tensors are generated and used correctly
-- [x] Legacy single tensor fallback works for backward compatibility (non-SDXL)
+- [x] Metadata/logs do not dump tensors
+- [x] Legacy single tensor fallback works for backward compatibility
 
-### **Expected Log Output (2025-07)**
+#### **Expected Log Output (2025-07)**
 **Successful Compel Processing:**
 ```
 🎯 Compel enhancement enabled: (masterpiece:1.3), (best quality:1.2)
 ✅ Compel weights applied with SDXL library integration (list API)
-📝 Original prompt: beautiful woman
-🎯 Compel weights: (masterpiece:1.3), (best quality:1.2)
+📝 Final combined prompt: (beautiful woman:1.1), (masterpiece:1.3), (best quality:1.2)
 🔧 Generated prompt_embeds: torch.Size([1, 77, 2048])
 🔧 Generated pooled_prompt_embeds: torch.Size([1, 1280])
+🔧 Generated negative_prompt_embeds: torch.Size([1, 77, 2048])
+🔧 Generated negative_pooled_prompt_embeds: torch.Size([1, 1280])
 ✅ Compel processing successful
 🎯 Using Compel conditioning tensors for SDXL generation
 ✅ Generated with Compel conditioning tensors (SDXL)
@@ -1442,4 +1448,45 @@ final_prompt = f"{prompt} {weights_config}"
 🔄 Using original prompt due to Compel failure: beautiful woman
 🎯 Using standard prompt (no Compel): beautiful woman
 ✅ Generated with string prompt (no Compel)
-``` 
+```
+
+#### **Deprecated/Incorrect Approaches**
+- String concatenation for SDXL+Compel
+- More than 6 enhancement weights
+- Duplicate weights
+- No negative conditioning for SDXL
+- Logging or metadata that dumps tensor values
+
+### **Dependencies**
+
+**Ensure these are installed in the SDXL worker environment:**
+```bash
+pip install compel==0.1.8
+pip install pyparsing==3.0.9
+```
+
+**Verify PYTHONPATH is set:**
+```bash
+export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPATH
+```
+
+### **Validation Checklist**
+
+- [x] Compel library imports successfully
+- [x] `process_compel_weights` uses `requires_pooled=[False, True]` for SDXL
+- [x] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
+- [x] Error handling includes fallback to original prompt
+- [x] Metadata includes Compel processing status and tensor types
+- [x] No more 'bool object is not iterable' or argument errors in logs
+- [x] Compel weights are properly applied without token limit violations
+- [x] Both conditioning tensors are generated and used correctly
+- [x] Legacy single tensor fallback works for backward compatibility
+
+### **Rollback Plan**
+
+If issues occur, the worker can be rolled back by:
+1. Reverting to the string concatenation approach
+2. Disabling Compel processing temporarily
+3. Using the original prompt without enhancement
+
+The fallback mechanisms ensure the worker continues to function even if Compel processing fails. 

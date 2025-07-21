@@ -500,7 +500,12 @@ class LustifySDXLWorker:
         if reference_image:
             logger.info(f"🎨 Generating {num_images} image(s) with {reference_type} reference (strength: {reference_strength})")
         else:
-            logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
+            if isinstance(prompt, str):
+                logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
+            elif isinstance(prompt, dict) and 'prompt_embeds' in prompt:
+                logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: [Compel conditioning tensors]...")
+            else:
+                logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {str(prompt)[:50]}...")
             
         if num_images > 1:
             logger.info(f"📊 Expected performance: {num_images * config['expected_time_per_image']:.0f}s total")
@@ -807,8 +812,10 @@ class LustifySDXLWorker:
             # Logging Fix: Avoid dumping tensors in logs
             if isinstance(final_prompt, dict) and 'prompt_embeds' in final_prompt:
                 logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: [Compel conditioning tensors]...")
-            else:
+            elif isinstance(final_prompt, str):
                 logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {final_prompt[:50]}...")
+            else:
+                logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {str(final_prompt)[:50]}...")
             
             # Generate batch of images with final prompt
             start_time = time.time()
