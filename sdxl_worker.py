@@ -413,7 +413,11 @@ class LustifySDXLWorker:
             logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
             combined_prompt = f"{prompt} {weights_config}"
             logger.info(f"📝 Combined prompt: {combined_prompt}")
-            prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
+            # DEBUG: Check what Compel actually returns
+            result = compel_processor(combined_prompt)
+            logger.info(f"🔍 DEBUG: Compel returned type: {type(result)}")
+            logger.info(f"🔍 DEBUG: Compel returned value: {result}")
+            prompt_embeds, pooled_prompt_embeds = result  # This will fail if not a tuple
             logger.info(f"✅ Compel weights applied with proper SDXL library integration")
             logger.info(f"📝 Original prompt: {prompt}")
             logger.info(f"🎯 Compel weights: {weights_config}")
