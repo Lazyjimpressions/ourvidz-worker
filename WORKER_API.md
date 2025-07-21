@@ -122,25 +122,24 @@ POST /functions/v1/job-callback
 
 ### **🎯 Compel Integration (CURRENT STATUS)**
 
-#### **Current Compel Processing (Compel 2.1.1+)**
+#### **Current Compel Processing (Compel 2.x+)**
 ```python
 def process_compel_weights(self, prompt, weights_config=None):
     """
     Process prompt with proper Compel library integration for SDXL
-    FIXED: Use correct API for Compel 2.1.1+ with requires_pooled=True
+    FIXED: Use correct API for Compel 2.x with tokenizers=, text_encoders= (plural) and requires_pooled=True
     weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
     """
     if not weights_config:
         return prompt, None
     try:
-        # Ensure model is loaded before processing Compel weights
         if not self.model_loaded:
             self.load_model()
-        logger.info(f"🔧 Initializing Compel 2.1.1+ with SDXL encoders as lists + requires_pooled=True")
+        logger.info(f"🔧 Initializing Compel 2.x with SDXL encoders as lists + requires_pooled=True")
         compel_processor = Compel(
-            tokenizer=[self.pipe.tokenizer, self.pipe.tokenizer_2],  # List format
-            text_encoder=[self.pipe.text_encoder, self.pipe.text_encoder_2],  # List format
-            requires_pooled=True  # Essential for SDXL to get pooled embeddings
+            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],  # plural
+            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2],  # plural
+            requires_pooled=True
         )
         logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
         combined_prompt = f"{prompt} {weights_config}"
@@ -167,39 +166,16 @@ def process_compel_weights(self, prompt, weights_config=None):
         return prompt, None  # Fallback to original prompt
 ```
 
-#### **SDXL Generation Call**
-```python
-if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
-    prompt_embeds, pooled_prompt_embeds = final_prompt
-    result = self.pipe(
-        prompt_embeds=prompt_embeds,
-        pooled_prompt_embeds=pooled_prompt_embeds,
-        **config
-    ).images[0]
-    logger.info("✅ Generated with Compel conditioning tensors (SDXL)")
-elif isinstance(final_prompt, torch.Tensor):
-    result = self.pipe(
-        prompt_embeds=final_prompt,
-        **config
-    ).images[0]
-    logger.info("✅ Generated with single Compel conditioning tensor (legacy)")
-else:
-    result = self.pipe(
-        prompt=final_prompt,
-        **config
-    ).images[0]
-    logger.info("✅ Generated with string prompt (no Compel)")
-```
-
-#### **Note:**
-- This API is required for Compel 2.1.1+ and above for SDXL support.
-- Do **not** use text_encoder_2=... or tokenizer_2=... as named arguments; use lists as shown above.
-- Always set requires_pooled=True for SDXL.
+#### **Important:**
+- **Always use plural parameter names:** `tokenizers=[...]`, `text_encoders=[...]` (not `tokenizer=` or `text_encoder=`)
+- **Always set `requires_pooled=True` for SDXL.**
+- **If you use singular parameter names, you will get errors like `'bool' object is not iterable'` in Compel 2.x.**
+- This API is required for Compel 2.x and above for SDXL support.
 - The worker is backward compatible with legacy single-tensor Compel output for non-SDXL models.
 
 #### **Validation Checklist**
 - [ ] Compel library imports successfully
-- [ ] `process_compel_weights` uses tokenizer=[...], text_encoder=[...], requires_pooled=True for SDXL
+- [ ] `process_compel_weights` uses tokenizers=[...], text_encoders=[...], requires_pooled=True for SDXL
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types
@@ -1286,7 +1262,7 @@ export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPAT
 ### **Validation Checklist**
 
 - [ ] Compel library imports successfully
-- [ ] `process_compel_weights` uses tokenizer=[...], text_encoder=[...], requires_pooled=True for SDXL
+- [ ] `process_compel_weights` uses tokenizers=[...], text_encoders=[...], requires_pooled=True for SDXL
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types

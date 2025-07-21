@@ -396,19 +396,18 @@ class LustifySDXLWorker:
     def process_compel_weights(self, prompt, weights_config=None):
         """
         Process prompt with proper Compel library integration for SDXL
-        FIXED: Use correct API for Compel 2.x with tokenizers=, text_encoders= (plural) and requires_pooled=True
+        FIXED: Use correct API for Compel 2.x (positional args for encoders/tokenizers)
         weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
         """
         if not weights_config:
             return prompt, None
         try:
-            # Ensure model is loaded before processing Compel weights
             if not self.model_loaded:
                 self.load_model()
-            logger.info(f"🔧 Initializing Compel 2.x with SDXL encoders as lists + requires_pooled=True")
+            logger.info(f"🔧 Initializing Compel 2.x with SDXL encoders as positional args + requires_pooled=True")
             compel_processor = Compel(
-                tokenizers=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],  # plural
-                text_encoders=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],  # plural
+                [self.pipeline.tokenizer, self.pipeline.tokenizer_2],
+                [self.pipeline.text_encoder, self.pipeline.text_encoder_2],
                 requires_pooled=True
             )
             logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
