@@ -486,23 +486,41 @@ class LustifySDXLWorker:
                 if isinstance(prompt, tuple) and len(prompt) == 2:
                     # Compel conditioning tensors were returned (prompt_embeds, pooled_prompt_embeds)
                     prompt_embeds, pooled_prompt_embeds = prompt
+                    
+                    # CRITICAL FIX: Replicate tensors for batch generation
+                    if num_images > 1:
+                        prompt_embeds = prompt_embeds.repeat(num_images, 1, 1)  # [num_images, 77, 2048]
+                        pooled_prompt_embeds = pooled_prompt_embeds.repeat(num_images, 1)  # [num_images, 1280]
+                        logger.info(f"🔧 Replicated Compel tensors for {num_images} images")
+                        logger.info(f"🔧 prompt_embeds shape: {prompt_embeds.shape}")
+                        logger.info(f"🔧 pooled_prompt_embeds shape: {pooled_prompt_embeds.shape}")
+                    
                     generation_kwargs['prompt_embeds'] = prompt_embeds
                     generation_kwargs['pooled_prompt_embeds'] = pooled_prompt_embeds  # SDXL requires this
-                    logger.info("✅ Using Compel conditioning tensors for SDXL generation")
+                    
+                    # CRITICAL FIX: Don't add negative prompt when using conditioning tensors
+                    # This prevents the string/tensor mismatch issue
+                    logger.info("✅ Using Compel conditioning tensors for SDXL generation (no negative prompt)")
+                    
                 elif isinstance(prompt, torch.Tensor):
                     # Legacy single conditioning tensor (fallback)
+                    if num_images > 1:
+                        prompt = prompt.repeat(num_images, 1, 1)
+                        logger.info(f"🔧 Replicated legacy tensor for {num_images} images")
                     generation_kwargs['prompt_embeds'] = prompt
                     logger.info("✅ Using single Compel conditioning tensor for generation (legacy)")
+                    
                 else:
                     # String prompt (no Compel or Compel failed)
                     generation_kwargs['prompt'] = [prompt] * num_images  # Replicate prompt for batch
+                    
+                    # Only add negative prompt for string prompts (not conditioning tensors)
+                    generation_kwargs['negative_prompt'] = [
+                        "blurry, low quality, distorted, deformed, bad anatomy, "
+                        "watermark, signature, text, logo, extra limbs, missing limbs"
+                    ] * num_images
+                    
                     logger.info("✅ Using string prompt for generation (no Compel)")
-                
-                # Add negative prompt for better quality
-                generation_kwargs['negative_prompt'] = [
-                    "blurry, low quality, distorted, deformed, bad anatomy, "
-                    "watermark, signature, text, logo, extra limbs, missing limbs"
-                ] * num_images
                 
                 # Generate batch of images
                 with torch.inference_mode():
