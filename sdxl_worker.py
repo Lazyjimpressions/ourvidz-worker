@@ -407,12 +407,10 @@ class LustifySDXLWorker:
             if not self.model_loaded:
                 self.load_model()
             
-            # Initialize Compel with both SDXL text encoders and tokenizers
+            # Initialize Compel with SDXL encoders/tokenizers as lists (Compel >=0.2.x API)
             compel_processor = Compel(
-                tokenizer=self.pipeline.tokenizer,
-                text_encoder=self.pipeline.text_encoder,
-                text_encoder_2=self.pipeline.text_encoder_2,  # SDXL needs both encoders
-                tokenizer_2=self.pipeline.tokenizer_2
+                tokenizers=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
+                text_encoders=[self.pipeline.text_encoder, self.pipeline.text_encoder_2]
             )
             
             # Build both conditioning tensors for SDXL
@@ -420,7 +418,7 @@ class LustifySDXLWorker:
                 f"{prompt} {weights_config}"
             )
             
-            logger.info(f"✅ Compel weights applied with proper SDXL library integration")
+            logger.info(f"✅ Compel weights applied with proper SDXL library integration (list API)")
             logger.info(f"📝 Original prompt: {prompt}")
             logger.info(f"🎯 Compel weights: {weights_config}")
             logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")

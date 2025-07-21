@@ -185,10 +185,8 @@ def process_compel_weights_sdxl(self, prompt, weights_config=None):
     try:
         # Initialize Compel with both SDXL text encoders and tokenizers
         compel_processor = Compel(
-            tokenizer=self.pipe.tokenizer,
-            text_encoder=self.pipe.text_encoder,
-            text_encoder_2=self.pipe.text_encoder_2,  # SDXL needs both encoders
-            tokenizer_2=self.pipe.tokenizer_2
+            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],
+            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2]
         )
         
         # Build both conditioning tensors for SDXL
@@ -968,10 +966,8 @@ def process_compel_weights_sdxl(self, prompt, weights_config=None):
     try:
         # Initialize Compel with both SDXL text encoders and tokenizers
         compel_processor = Compel(
-            tokenizer=self.pipe.tokenizer,
-            text_encoder=self.pipe.text_encoder,
-            text_encoder_2=self.pipe.text_encoder_2,  # SDXL needs both encoders
-            tokenizer_2=self.pipe.tokenizer_2
+            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],
+            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2]
         )
         
         # Build both conditioning tensors for SDXL
@@ -1066,10 +1062,8 @@ def process_compel_weights(self, prompt, weights_config=None):
         
         # Initialize Compel with both SDXL text encoders and tokenizers
         compel_processor = Compel(
-            tokenizer=self.pipe.tokenizer,
-            text_encoder=self.pipe.text_encoder,
-            text_encoder_2=self.pipe.text_encoder_2,  # SDXL needs both encoders
-            tokenizer_2=self.pipe.tokenizer_2
+            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],
+            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2]
         )
         
         # Build both conditioning tensors for SDXL
