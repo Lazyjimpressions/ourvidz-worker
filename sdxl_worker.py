@@ -417,7 +417,8 @@ class LustifySDXLWorker:
             cleaned_weights = self.clean_compel_weights(weights_config)
             
             # CRITICAL FIX: Proper prompt structure - subject first, then enhancement
-            combined_prompt = f"({prompt}:1.1), {cleaned_weights}"
+            # PATCH: Do NOT wrap the prompt in parentheses or give it a weight!
+            combined_prompt = f"{prompt}, {cleaned_weights}" if cleaned_weights else prompt
             logger.info(f"📝 Original prompt: {prompt}")
             logger.info(f"🎯 Cleaned Compel weights: {cleaned_weights}")
             logger.info(f"📝 Final combined prompt: {combined_prompt}")
