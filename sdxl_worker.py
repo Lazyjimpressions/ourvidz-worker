@@ -422,13 +422,28 @@ class LustifySDXLWorker:
             logger.info(f"📝 Original prompt: {prompt}")
             logger.info(f"🎯 Cleaned Compel weights: {cleaned_weights}")
             logger.info(f"📝 Final combined prompt: {combined_prompt}")
+            # Log token count for combined prompt
+            try:
+                token_count = len(self.pipeline.tokenizer(combined_prompt).input_ids)
+                logger.info(f"🔢 Token count (prompt + compel): {token_count}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not compute token count for combined prompt: {e}")
             
-            # Generate positive conditioning
             prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
             
             # CRITICAL FIX: Generate negative conditioning as well
             negative_prompt = ("blurry, low quality, distorted, deformed, bad anatomy, "
                              "watermark, signature, text, logo, extra limbs, missing limbs")
+            # Truncate long negatives to fit within 77 tokens
+            try:
+                neg_ids = self.pipeline.tokenizer(negative_prompt, truncation=True, max_length=77).input_ids
+                negative_prompt = self.pipeline.tokenizer.decode(neg_ids, skip_special_tokens=True)
+                logger.info(f"✂️ Trimmed negative prompt: {negative_prompt}")
+                neg_token_count = len(neg_ids)
+                logger.info(f"🔢 Negative prompt token count: {neg_token_count}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not trim or count tokens for negative prompt: {e}")
+            
             negative_prompt_embeds, negative_pooled_prompt_embeds = compel_processor(negative_prompt)
             
             logger.info(f"✅ Compel weights applied successfully with balanced prompt structure")
