@@ -150,17 +150,23 @@ The following part of your input was truncated because CLIP can only handle sequ
 ```python
 def process_compel_weights(self, prompt, weights_config=None):
     """
-    Process prompt with Compel weights (simple string concatenation)
-    CURRENT ISSUE: Creates token sequences exceeding CLIP's 77-token limit
+    Process prompt with SDXL-specific Compel library integration (Compel >=0.2.x)
+    Returns (prompt_embeds, pooled_prompt_embeds) for SDXL
     """
     if not weights_config:
         return prompt, None
-        
     try:
-        # Simple string concatenation approach (CAUSES TOKEN LIMIT ISSUES)
-        final_prompt = f"{prompt} {weights_config}"
-        logger.info(f"✅ Compel weights applied: {prompt} -> {final_prompt}")
-        return final_prompt, prompt  # Return enhanced and original
+        compel_processor = Compel(
+            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],
+            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2]
+        )
+        conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
+            f"{prompt} {weights_config}"
+        )
+        logger.info(f"✅ Compel weights applied with SDXL library integration (list API)")
+        logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
+        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
+        return (conditioning, pooled_conditioning), prompt
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
         return prompt, None  # Fallback to original prompt
@@ -695,7 +701,7 @@ if job_type.startswith("sdxl_"):
     
     # Process Compel enhancement
     if compel_enabled and compel_weights:
-        final_prompt, original_prompt = process_compel_weights(prompt, compel_weights)
+        final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
     else:
         final_prompt = prompt
     
@@ -1248,7 +1254,7 @@ curl -X POST http://localhost:8000/test-compel \
 **Successful Compel Processing:**
 ```
 🎯 Compel enhancement enabled: (masterpiece:1.3), (best quality:1.2)
-✅ Compel weights applied with SDXL library integration
+✅ Compel weights applied with SDXL library integration (list API)
 📝 Original prompt: beautiful woman
 🎯 Compel weights: (masterpiece:1.3), (best quality:1.2)
 🔧 Generated prompt_embeds: torch.Size([1, 77, 2048])
@@ -1295,7 +1301,7 @@ export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPAT
 ### **Validation Checklist**
 
 - [ ] Compel library imports successfully
-- [ ] `process_compel_weights` function updated with SDXL-specific library integration
+- [ ] `process_compel_weights` uses tokenizers=[...], text_encoders=[...] for SDXL
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types
