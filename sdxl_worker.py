@@ -396,7 +396,7 @@ class LustifySDXLWorker:
     def process_compel_weights(self, prompt, weights_config=None):
         """
         Process prompt with proper Compel library integration for SDXL
-        FIXED: Use correct API for Compel 2.x (positional args for encoders/tokenizers)
+        FIXED: Always unpack Compel output as a tuple for SDXL (requires_pooled=True)
         weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
         """
         if not weights_config:
@@ -413,22 +413,13 @@ class LustifySDXLWorker:
             logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
             combined_prompt = f"{prompt} {weights_config}"
             logger.info(f"📝 Combined prompt: {combined_prompt}")
-            conditioning = compel_processor(combined_prompt)
-            if isinstance(conditioning, tuple) and len(conditioning) == 2:
-                prompt_embeds, pooled_prompt_embeds = conditioning
-                logger.info(f"✅ Compel weights applied with proper SDXL library integration")
-                logger.info(f"📝 Original prompt: {prompt}")
-                logger.info(f"🎯 Compel weights: {weights_config}")
-                logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
-                logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
-                return conditioning, prompt  # Return the tuple as-is
-            else:
-                logger.warning(f"⚠️ Expected tuple but got single tensor: {type(conditioning)}")
-                logger.info(f"✅ Compel weights applied (single tensor)")
-                logger.info(f"📝 Original prompt: {prompt}")
-                logger.info(f"🎯 Compel weights: {weights_config}")
-                logger.info(f"🔧 Generated conditioning tensor: {conditioning.shape}")
-                return conditioning, prompt
+            prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
+            logger.info(f"✅ Compel weights applied with proper SDXL library integration")
+            logger.info(f"📝 Original prompt: {prompt}")
+            logger.info(f"🎯 Compel weights: {weights_config}")
+            logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
+            logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
+            return (prompt_embeds, pooled_prompt_embeds), prompt
         except Exception as e:
             logger.error(f"❌ Compel processing failed: {e}")
             logger.info(f"🔄 Falling back to original prompt: {prompt}")
