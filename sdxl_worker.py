@@ -396,20 +396,20 @@ class LustifySDXLWorker:
     def process_compel_weights(self, prompt, weights_config=None):
         """
         Process prompt with proper Compel library integration for SDXL.
-        Always unpack Compel output as a tuple for SDXL (requires_pooled=True).
+        FIXED: Use requires_pooled=[False, True] for Compel 2.1.1 with SDXL.
         """
         if not weights_config:
             return prompt, None
         try:
             if not self.model_loaded:
                 self.load_model()
-            logger.info(f"🔧 Initializing Compel 2.x with SDXL encoders as positional args + requires_pooled=True")
+            logger.info(f"🔧 Initializing Compel 2.1.1 with SDXL encoders - FIXED SYNTAX")
             compel_processor = Compel(
-                [self.pipeline.tokenizer, self.pipeline.tokenizer_2],
-                [self.pipeline.text_encoder, self.pipeline.text_encoder_2],
-                requires_pooled=True
+                tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
+                text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],
+                requires_pooled=[False, True]  # ✅ FIXED: List instead of boolean for Compel 2.1.1
             )
-            logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
+            logger.info(f"✅ Compel processor initialized successfully with FIXED SDXL syntax")
             combined_prompt = f"{prompt} {weights_config}"
             logger.info(f"📝 Combined prompt: {combined_prompt}")
             # Always unpack as a tuple
