@@ -1,6 +1,6 @@
-# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION + COMPEL INTEGRATION - CONSISTENT PARAMETER NAMING
+# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION + PROPER COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETER NAMING
 # NEW: Supports user-selected quantities (1, 3, or 6 images) and image-to-image generation
-# NEW: Compel integration for prompt enhancement with weighted attention
+# FIXED: Proper Compel library integration to avoid CLIP token limit violations
 # FIXED: Consistent callback parameter names (job_id, assets) for edge function compatibility
 # Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s on RTX 6000 ADA
 
@@ -66,6 +66,8 @@ import torch
 import gc
 import io
 import sys
+import compel  # ADD: Compel library for proper prompt weighting
+from compel import Compel  # ADD: Compel processor
 sys.path.append('/workspace/python_deps/lib/python3.11/site-packages')
 from pathlib import Path
 from PIL import Image
@@ -78,14 +80,14 @@ logger = logging.getLogger(__name__)
 
 class LustifySDXLWorker:
     def __init__(self):
-        """Initialize LUSTIFY SDXL Worker with flexible quantity, image-to-image generation, and Compel support"""
-        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + COMPEL VERSION - CONSISTENT PARAMETERS")
+        """Initialize LUSTIFY SDXL Worker with flexible quantity, image-to-image generation, and proper Compel library integration"""
+        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + PROPER COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETERS")
         print("⚡ RTX 6000 ADA: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: User-selected quantities (1, 3, or 6 images) for flexible UX")
         print("🖼️ NEW: Image-to-image generation with style, composition, and character reference modes")
         print("🌱 NEW: Seed control for reproducible generation and character consistency")
-        print("🎯 NEW: Compel integration for prompt enhancement with weighted attention")
+        print("🔧 FIXED: Proper Compel library integration to avoid CLIP token limit violations")
         print("🔧 FIXED: Consistent parameter naming (job_id, assets, metadata) across all callbacks")
         print("✅ API COMPLIANT: Supports metadata.reference_image_url, reference_strength, reference_type")
         
@@ -393,19 +395,39 @@ class LustifySDXLWorker:
 
     def process_compel_weights(self, prompt, weights_config=None):
         """
-        Process prompt with Compel weights (simple string concatenation)
+        Process prompt with proper Compel library integration
+        FIXES: Token limit issues by using Compel's native processing
         weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
         """
         if not weights_config:
             return prompt, None
             
         try:
-            # Simple string concatenation approach
-            final_prompt = f"{prompt} {weights_config}"
-            logger.info(f"✅ Compel weights applied: {prompt} -> {final_prompt}")
-            return final_prompt, prompt  # Return enhanced and original
+            # Ensure model is loaded before processing Compel weights
+            if not self.model_loaded:
+                self.load_model()
+            
+            # Initialize Compel with the model's tokenizer and text encoder
+            compel_processor = Compel(
+                tokenizer=self.pipeline.tokenizer,
+                text_encoder=self.pipeline.text_encoder
+            )
+            
+            # Build conditioning tensor (avoids token limit issues)
+            conditioning = compel_processor.build_conditioning_tensor(
+                f"{prompt} {weights_config}"
+            )
+            
+            logger.info(f"✅ Compel weights applied with proper library integration")
+            logger.info(f"📝 Original prompt: {prompt}")
+            logger.info(f"🎯 Compel weights: {weights_config}")
+            
+            # Return the conditioning tensor and original prompt
+            return conditioning, prompt
+            
         except Exception as e:
             logger.error(f"❌ Compel processing failed: {e}")
+            logger.info(f"🔄 Falling back to original prompt: {prompt}")
             return prompt, None  # Fallback to original prompt
 
     def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style', seed=None):
@@ -455,9 +477,8 @@ class LustifySDXLWorker:
                     # Default image-to-image
                     images = self.generate_image_to_image(prompt, reference_image, reference_strength, config, num_images, generators)
             else:
-                # Standard text-to-image generation
+                # Standard text-to-image generation with Compel support
                 generation_kwargs = {
-                    'prompt': [prompt] * num_images,  # Replicate prompt for batch
                     'height': config['height'],
                     'width': config['width'],
                     'num_inference_steps': config['num_inference_steps'],
@@ -465,6 +486,16 @@ class LustifySDXLWorker:
                     'num_images_per_prompt': 1,  # Generate 1 image per prompt in batch
                     'generator': generators  # Use configured generators with seeds
                 }
+                
+                # Handle Compel conditioning tensor vs string prompt
+                if isinstance(prompt, torch.Tensor):
+                    # Compel conditioning tensor was provided
+                    generation_kwargs['prompt_embeds'] = prompt
+                    logger.info("✅ Using Compel conditioning tensor for generation")
+                else:
+                    # String prompt (no Compel or Compel failed)
+                    generation_kwargs['prompt'] = [prompt] * num_images  # Replicate prompt for batch
+                    logger.info("✅ Using string prompt for generation (no Compel)")
                 
                 # Add negative prompt for better quality
                 generation_kwargs['negative_prompt'] = [
@@ -648,8 +679,10 @@ class LustifySDXLWorker:
                     # Continue with text-to-image generation
                     reference_image = None
             
-            # Process Compel enhancement
+            # Process Compel enhancement with proper library integration
             final_prompt = prompt
+            original_prompt = None
+            compel_success = False
             compel_metadata = {
                 "compel_enabled": compel_enabled,
                 "compel_weights": compel_weights,
@@ -660,20 +693,30 @@ class LustifySDXLWorker:
                 logger.info(f"🎯 Compel enhancement enabled: {compel_weights}")
                 
                 try:
-                    # Apply Compel weights to the prompt (simple string concatenation)
+                    # Apply Compel weights to the prompt (proper library integration)
                     final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
+                    compel_success = True
                     compel_metadata["enhancement_strategy"] = "compel"
-                    
                     logger.info(f"✅ Compel processing successful")
-                    logger.info(f"🎯 Using Compel-enhanced prompt: {final_prompt}")
                     
                 except Exception as e:
                     logger.error(f"❌ Compel processing failed: {e}")
-                    logger.info(f"🎯 Using original prompt: {prompt}")
+                    final_prompt = prompt  # Fallback to original prompt
+                    original_prompt = None
+                    compel_success = False
                     compel_metadata["enhancement_strategy"] = "fallback"
-                    final_prompt = prompt
+                    logger.info(f"🔄 Using original prompt due to Compel failure: {prompt}")
+                
+                # Log the final prompt being used
+                if isinstance(final_prompt, torch.Tensor):
+                    logger.info(f"🎯 Using Compel conditioning tensor for generation")
+                else:
+                    logger.info(f"🎯 Using Compel-enhanced prompt: {final_prompt}")
             else:
-                logger.info(f"🎯 Using standard prompt: {prompt}")
+                final_prompt = prompt
+                original_prompt = None
+                compel_success = False
+                logger.info(f"🎯 Using standard prompt (no Compel): {prompt}")
             
             # Generate batch of images with final prompt
             start_time = time.time()
@@ -708,11 +751,13 @@ class LustifySDXLWorker:
                 'generation_time': total_time,
                 'num_images': len(upload_urls),
                 'job_type': job_type,
-                'original_prompt': prompt,
-                'final_prompt': final_prompt,
+                'original_prompt': original_prompt if original_prompt else prompt,
+                'final_prompt': str(final_prompt) if isinstance(final_prompt, torch.Tensor) else final_prompt,
                 'compel_enabled': compel_enabled,
-                'compel_weights': compel_weights,
-                'enhancement_strategy': compel_metadata.get('enhancement_strategy')
+                'compel_weights': compel_weights if compel_enabled else None,
+                'compel_success': compel_success if compel_enabled else False,
+                'enhancement_strategy': compel_metadata.get('enhancement_strategy'),
+                'final_prompt_type': "conditioning_tensor" if isinstance(final_prompt, torch.Tensor) else "string"
             }
             
             # CONSISTENT: Notify completion with standardized parameter names and metadata
@@ -804,7 +849,7 @@ class LustifySDXLWorker:
         logger.info("🖼️ FLEXIBLE: User-selected quantities (1, 3, or 6 images)")
         logger.info("🖼️ IMAGE-TO-IMAGE: Style, composition, and character reference modes")
         logger.info("🌱 SEED CONTROL: Reproducible generation and character consistency")
-        logger.info("🎯 COMPEL SUPPORT: Prompt enhancement with weighted attention")
+        logger.info("🔧 FIXED: Proper Compel library integration to avoid CLIP token limit violations")
         logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message, metadata)")
         
         job_count = 0
@@ -837,25 +882,25 @@ class LustifySDXLWorker:
             logger.info("✅ SDXL Worker cleanup complete")
 
     def test_compel_integration(self):
-        """Test Compel integration with simple string concatenation"""
-        logger.info("🧪 Testing Compel integration (simple concatenation)...")
+        """Test Compel integration with proper library integration"""
+        logger.info("🧪 Testing Compel integration (proper library integration)...")
         
         # Test cases
         test_cases = [
             {
                 "prompt": "beautiful woman in garden",
-                "compel_weights": "(beautiful:1.3), (woman:1.2), (garden:1.1)",
-                "expected_result": "beautiful woman in garden (beautiful:1.3), (woman:1.2), (garden:1.1)"
+                "compel_weights": "(masterpiece:1.3), (best quality:1.2)",
+                "expected_type": "tensor"
             },
             {
                 "prompt": "portrait of a person",
-                "compel_weights": "(portrait:1.4), (person:1.1)",
-                "expected_result": "portrait of a person (portrait:1.4), (person:1.1)"
+                "compel_weights": "(perfect anatomy:1.2), (professional:1.1)",
+                "expected_type": "tensor"
             },
             {
                 "prompt": "landscape painting",
                 "compel_weights": None,
-                "expected_result": "landscape painting"
+                "expected_type": "string"
             }
         ]
         
@@ -868,15 +913,22 @@ class LustifySDXLWorker:
                 test_case['compel_weights']
             )
             
-            if enhanced_prompt == test_case['expected_result']:
-                logger.info(f"✅ Compel concatenation successful: {enhanced_prompt}")
+            # Check if we got the expected type
+            if test_case['expected_type'] == "tensor":
+                if isinstance(enhanced_prompt, torch.Tensor):
+                    logger.info(f"✅ Compel conditioning tensor successful: {enhanced_prompt.shape}")
+                else:
+                    logger.warning(f"⚠️ Expected tensor but got: {type(enhanced_prompt)}")
             else:
-                logger.warning(f"⚠️ Compel concatenation failed. Expected: {test_case['expected_result']}, Got: {enhanced_prompt}")
+                if isinstance(enhanced_prompt, str):
+                    logger.info(f"✅ String prompt successful: {enhanced_prompt}")
+                else:
+                    logger.warning(f"⚠️ Expected string but got: {type(enhanced_prompt)}")
         
         logger.info("🧪 Compel integration test completed")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + COMPEL VERSION")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + PROPER COMPEL LIBRARY INTEGRATION")
     
     # Check for test mode
     import sys
