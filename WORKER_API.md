@@ -122,106 +122,91 @@ POST /functions/v1/job-callback
 
 ### **🎯 Compel Integration (CURRENT STATUS)**
 
-#### **✅ Working Implementation**
-The SDXL worker successfully receives and processes Compel weights:
-
-```python
-# Compel usage examples
-job_data = {
-    "id": "job-123",
-    "type": "sdxl_image_high",
-    "prompt": "two teenage lovers making out on the couch",
-    "user_id": "user-123",
-    "compel_enabled": True,
-    "compel_weights": "(highly detailed:1.3), (intricate:1.2), (fine details:1.1), (masterpiece:1.2), (best quality:1.3), (professional:1.1), (perfect anatomy:1.2), (realistic:1.3), (natural proportions:1.1), (professional photography:1.2), (studio lighting:1.1), (cinematic:1.1), (high quality:1.3), (detailed:1.3), (perfect anatomy:1.3), (professional photography:1.2)",
-    "config": {
-        "num_images": 1
-    }
-}
-```
-
-#### **⚠️ Current Issue: CLIP Token Limit Exceeded**
-```
-Token indices sequence length is longer than the specified maximum sequence length for this model (132 > 77). Running this sequence through the model will result in indexing errors
-The following part of your input was truncated because CLIP can only handle sequences up to 77 tokens: ['), ( professional photography : 1. 2 ), ( studio lighting : 1. 1 ), ( cinematic : 1. 1 ), ( high quality : 1. 3 ), ( detailed : 1. 3 ), ( perfect anatomy : 1. 3 ), ( professional photography : 1. 2 )']
-```
-
-#### **Current Compel Processing**
+#### **Current Compel Processing (Compel 2.1.1+)**
 ```python
 def process_compel_weights(self, prompt, weights_config=None):
     """
-    Process prompt with SDXL-specific Compel library integration (Compel >=0.2.x)
-    Returns (prompt_embeds, pooled_prompt_embeds) for SDXL
+    Process prompt with proper Compel library integration for SDXL
+    FIXED: Use correct API for Compel 2.1.1+ with requires_pooled=True
+    weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
     """
     if not weights_config:
         return prompt, None
     try:
+        # Ensure model is loaded before processing Compel weights
+        if not self.model_loaded:
+            self.load_model()
+        logger.info(f"🔧 Initializing Compel 2.1.1+ with SDXL encoders as lists + requires_pooled=True")
         compel_processor = Compel(
-            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],
-            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2]
+            tokenizer=[self.pipe.tokenizer, self.pipe.tokenizer_2],  # List format
+            text_encoder=[self.pipe.text_encoder, self.pipe.text_encoder_2],  # List format
+            requires_pooled=True  # Essential for SDXL to get pooled embeddings
         )
-        conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
-            f"{prompt} {weights_config}"
-        )
-        logger.info(f"✅ Compel weights applied with SDXL library integration (list API)")
-        logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
-        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
-        return (conditioning, pooled_conditioning), prompt
+        logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
+        combined_prompt = f"{prompt} {weights_config}"
+        logger.info(f"📝 Combined prompt: {combined_prompt}")
+        conditioning = compel_processor(combined_prompt)
+        if isinstance(conditioning, tuple) and len(conditioning) == 2:
+            prompt_embeds, pooled_prompt_embeds = conditioning
+            logger.info(f"✅ Compel weights applied with proper SDXL library integration")
+            logger.info(f"📝 Original prompt: {prompt}")
+            logger.info(f"🎯 Compel weights: {weights_config}")
+            logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
+            logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
+            return conditioning, prompt  # Return the tuple as-is
+        else:
+            logger.warning(f"⚠️ Expected tuple but got single tensor: {type(conditioning)}")
+            logger.info(f"✅ Compel weights applied (single tensor)")
+            logger.info(f"📝 Original prompt: {prompt}")
+            logger.info(f"🎯 Compel weights: {weights_config}")
+            logger.info(f"🔧 Generated conditioning tensor: {conditioning.shape}")
+            return conditioning, prompt
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
+        logger.info(f"🔄 Falling back to original prompt: {prompt}")
         return prompt, None  # Fallback to original prompt
 ```
 
-#### **🔧 Required Fix: SDXL-Specific Compel Library Integration**
-The current implementation uses string concatenation, which causes CLIP token limit violations. The fix requires SDXL-specific Compel library integration with both `prompt_embeds` and `pooled_prompt_embeds`:
-
+#### **SDXL Generation Call**
 ```python
-# REQUIRED: SDXL-specific Compel library integration
-import compel
-from compel import Compel
-
-def process_compel_weights_sdxl(self, prompt, weights_config=None):
-    """
-    Process prompt with SDXL-specific Compel library integration
-    This generates both prompt_embeds and pooled_prompt_embeds for SDXL
-    """
-    if not weights_config:
-        return prompt, None
-        
-    try:
-        # Initialize Compel with both SDXL text encoders and tokenizers
-        compel_processor = Compel(
-            tokenizers=[self.pipe.tokenizer, self.pipe.tokenizer_2],
-            text_encoders=[self.pipe.text_encoder, self.pipe.text_encoder_2]
-        )
-        
-        # Build both conditioning tensors for SDXL
-        conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
-            f"{prompt} {weights_config}"
-        )
-        
-        logger.info(f"✅ Compel weights applied with SDXL library integration")
-        logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
-        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
-        
-        # Return both conditioning tensors and original prompt
-        return (conditioning, pooled_conditioning), prompt
-        
-    except Exception as e:
-        logger.error(f"❌ Compel processing failed: {e}")
-        return prompt, None  # Fallback to original prompt
+if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
+    prompt_embeds, pooled_prompt_embeds = final_prompt
+    result = self.pipe(
+        prompt_embeds=prompt_embeds,
+        pooled_prompt_embeds=pooled_prompt_embeds,
+        **config
+    ).images[0]
+    logger.info("✅ Generated with Compel conditioning tensors (SDXL)")
+elif isinstance(final_prompt, torch.Tensor):
+    result = self.pipe(
+        prompt_embeds=final_prompt,
+        **config
+    ).images[0]
+    logger.info("✅ Generated with single Compel conditioning tensor (legacy)")
+else:
+    result = self.pipe(
+        prompt=final_prompt,
+        **config
+    ).images[0]
+    logger.info("✅ Generated with string prompt (no Compel)")
 ```
 
-#### **🎯 Frontend Optimization Required**
-The frontend should generate more concise Compel weights to stay within token limits:
+#### **Note:**
+- This API is required for Compel 2.1.1+ and above for SDXL support.
+- Do **not** use text_encoder_2=... or tokenizer_2=... as named arguments; use lists as shown above.
+- Always set requires_pooled=True for SDXL.
+- The worker is backward compatible with legacy single-tensor Compel output for non-SDXL models.
 
-```typescript
-// CURRENT: Too many weights (132 tokens)
-"(highly detailed:1.3), (intricate:1.2), (fine details:1.1), (masterpiece:1.2), (best quality:1.3), (professional:1.1), (perfect anatomy:1.2), (realistic:1.3), (natural proportions:1.1), (professional photography:1.2), (studio lighting:1.1), (cinematic:1.1), (high quality:1.3), (detailed:1.3), (perfect anatomy:1.3), (professional photography:1.2)"
-
-// OPTIMIZED: Fewer, more impactful weights (~40 tokens)
-"(masterpiece:1.3), (best quality:1.2), (perfect anatomy:1.2), (professional:1.1)"
-```
+#### **Validation Checklist**
+- [ ] Compel library imports successfully
+- [ ] `process_compel_weights` uses tokenizer=[...], text_encoder=[...], requires_pooled=True for SDXL
+- [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
+- [ ] Error handling includes fallback to original prompt
+- [ ] Metadata includes Compel processing status and tensor types
+- [ ] No more "Token indices sequence length" warnings in logs
+- [ ] Compel weights are properly applied without token limit violations
+- [ ] Both conditioning tensors are generated and used correctly
+- [ ] Legacy single tensor fallback works for backward compatibility
 
 ### **Reference Image Support**
 ```python
@@ -1301,7 +1286,7 @@ export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPAT
 ### **Validation Checklist**
 
 - [ ] Compel library imports successfully
-- [ ] `process_compel_weights` uses tokenizers=[...], text_encoders=[...] for SDXL
+- [ ] `process_compel_weights` uses tokenizer=[...], text_encoder=[...], requires_pooled=True for SDXL
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types
