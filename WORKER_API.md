@@ -144,6 +144,7 @@ def process_compel_weights(self, prompt, weights_config=None):
         logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
         combined_prompt = f"{prompt} {weights_config}"
         logger.info(f"📝 Combined prompt: {combined_prompt}")
+        # Always unpack as a tuple for SDXL
         prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
         logger.info(f"✅ Compel weights applied with proper SDXL library integration")
         logger.info(f"📝 Original prompt: {prompt}")
@@ -162,8 +163,9 @@ def process_compel_weights(self, prompt, weights_config=None):
   ```python
   prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
   ```
-- **Do NOT check for single tensor or boolean for SDXL.**
-- If you do not unpack as a tuple, you may get `'bool' object is not iterable'` or similar errors.
+- **Do NOT check for or handle a single tensor or boolean for SDXL.**
+- **Remove any fallback logic for single tensor/boolean for SDXL.**
+- If you get `'bool' object is not iterable'`, Compel did not return a tuple—this is a sign of a misconfiguration, version mismatch, or a Compel bug.
 - This is required for SDXL with `requires_pooled=True`.
 
 #### **Summary Table: Compel 2.x SDXL API**
@@ -175,7 +177,7 @@ def process_compel_weights(self, prompt, weights_config=None):
 #### **Troubleshooting & Learnings**
 - For SDXL, always expect a tuple and unpack it directly.
 - Do not try to handle a single tensor or boolean for SDXL.
-- If you see `'bool' object is not iterable'`, you are not unpacking the tuple.
+- If you see `'bool' object is not iterable'`, you are not unpacking the tuple or Compel is misconfigured.
 - If you see `unexpected keyword argument`, you are using keyword args for encoders—switch to positional.
 - Always check your Compel version (`import compel; print(compel.__version__)`).
 - For SDXL, always use positional arguments for encoders and `requires_pooled=True`.
@@ -183,6 +185,7 @@ def process_compel_weights(self, prompt, weights_config=None):
 #### **Validation Checklist**
 - [ ] Compel library imports successfully
 - [ ] `process_compel_weights` always unpacks Compel output as a tuple for SDXL (requires_pooled=True)
+- [ ] No fallback logic for single tensor/boolean for SDXL
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types
