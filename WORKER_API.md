@@ -166,36 +166,42 @@ def process_compel_weights(self, prompt, weights_config=None):
         return prompt, None  # Fallback to original prompt
 ```
 
-#### **🔧 Required Fix: Proper Compel Library Integration**
-The current implementation uses string concatenation, which causes CLIP token limit violations. The fix requires proper Compel library integration:
+#### **🔧 Required Fix: SDXL-Specific Compel Library Integration**
+The current implementation uses string concatenation, which causes CLIP token limit violations. The fix requires SDXL-specific Compel library integration with both `prompt_embeds` and `pooled_prompt_embeds`:
 
 ```python
-# REQUIRED: Proper Compel library integration
+# REQUIRED: SDXL-specific Compel library integration
 import compel
 from compel import Compel
 
-def process_compel_weights_proper(self, prompt, weights_config=None):
+def process_compel_weights_sdxl(self, prompt, weights_config=None):
     """
-    Process prompt with proper Compel library integration
-    This avoids token limit issues by using Compel's native processing
+    Process prompt with SDXL-specific Compel library integration
+    This generates both prompt_embeds and pooled_prompt_embeds for SDXL
     """
     if not weights_config:
         return prompt, None
         
     try:
-        # Initialize Compel with the model's tokenizer and text encoder
+        # Initialize Compel with both SDXL text encoders and tokenizers
         compel_processor = Compel(
             tokenizer=self.pipe.tokenizer,
-            text_encoder=self.pipe.text_encoder
+            text_encoder=self.pipe.text_encoder,
+            text_encoder_2=self.pipe.text_encoder_2,  # SDXL needs both encoders
+            tokenizer_2=self.pipe.tokenizer_2
         )
         
-        # Build conditioning tensor (avoids token limit issues)
-        conditioning = compel_processor.build_conditioning_tensor(
+        # Build both conditioning tensors for SDXL
+        conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
             f"{prompt} {weights_config}"
         )
         
-        logger.info(f"✅ Compel weights applied with proper library integration")
-        return conditioning, prompt
+        logger.info(f"✅ Compel weights applied with SDXL library integration")
+        logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
+        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
+        
+        # Return both conditioning tensors and original prompt
+        return (conditioning, pooled_conditioning), prompt
         
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
@@ -953,26 +959,28 @@ completion_stats = {
 
 #### **Priority 1: Fix SDXL Worker Compel Integration**
 ```python
-# REQUIRED: Replace string concatenation with proper Compel library usage
-def process_compel_weights_proper(self, prompt, weights_config=None):
-    """Process prompt with proper Compel library integration"""
+# REQUIRED: Replace string concatenation with SDXL-specific Compel library usage
+def process_compel_weights_sdxl(self, prompt, weights_config=None):
+    """Process prompt with SDXL-specific Compel library integration"""
     if not weights_config:
         return prompt, None
         
     try:
-        # Initialize Compel with the model's tokenizer and text encoder
+        # Initialize Compel with both SDXL text encoders and tokenizers
         compel_processor = Compel(
             tokenizer=self.pipe.tokenizer,
-            text_encoder=self.pipe.text_encoder
+            text_encoder=self.pipe.text_encoder,
+            text_encoder_2=self.pipe.text_encoder_2,  # SDXL needs both encoders
+            tokenizer_2=self.pipe.tokenizer_2
         )
         
-        # Build conditioning tensor (avoids token limit issues)
-        conditioning = compel_processor.build_conditioning_tensor(
+        # Build both conditioning tensors for SDXL
+        conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
             f"{prompt} {weights_config}"
         )
         
-        logger.info(f"✅ Compel weights applied with proper library integration")
-        return conditioning, prompt
+        logger.info(f"✅ Compel weights applied with SDXL library integration")
+        return (conditioning, pooled_conditioning), prompt
         
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
@@ -1045,8 +1053,8 @@ def process_compel_weights(self, prompt, weights_config=None):
 ```python
 def process_compel_weights(self, prompt, weights_config=None):
     """
-    Process prompt with proper Compel library integration
-    FIXES: Token limit issues by using Compel's native processing
+    Process prompt with SDXL-specific Compel library integration
+    FIXES: Generate both prompt_embeds and pooled_prompt_embeds for SDXL
     """
     if not weights_config:
         return prompt, None
@@ -1056,23 +1064,27 @@ def process_compel_weights(self, prompt, weights_config=None):
         import compel
         from compel import Compel
         
-        # Initialize Compel with the model's tokenizer and text encoder
+        # Initialize Compel with both SDXL text encoders and tokenizers
         compel_processor = Compel(
             tokenizer=self.pipe.tokenizer,
-            text_encoder=self.pipe.text_encoder
+            text_encoder=self.pipe.text_encoder,
+            text_encoder_2=self.pipe.text_encoder_2,  # SDXL needs both encoders
+            tokenizer_2=self.pipe.tokenizer_2
         )
         
-        # Build conditioning tensor (avoids token limit issues)
-        conditioning = compel_processor.build_conditioning_tensor(
+        # Build both conditioning tensors for SDXL
+        conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
             f"{prompt} {weights_config}"
         )
         
-        logger.info(f"✅ Compel weights applied with proper library integration")
+        logger.info(f"✅ Compel weights applied with SDXL library integration")
         logger.info(f"📝 Original prompt: {prompt}")
         logger.info(f"🎯 Compel weights: {weights_config}")
+        logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
+        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
         
-        # Return the conditioning tensor and original prompt
-        return conditioning, prompt
+        # Return both conditioning tensors and original prompt
+        return (conditioning, pooled_conditioning), prompt
         
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
@@ -1098,14 +1110,23 @@ result = self.pipe(
 
 **Replace with:**
 ```python
-# Updated generation call with proper Compel handling
-if isinstance(final_prompt, torch.Tensor):
-    # Compel conditioning tensor was returned
+# Updated generation call with proper SDXL Compel handling
+if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
+    # Compel conditioning tensors were returned (prompt_embeds, pooled_prompt_embeds)
+    prompt_embeds, pooled_prompt_embeds = final_prompt
     result = self.pipe(
-        prompt_embeds=final_prompt,  # Use conditioning tensor
+        prompt_embeds=prompt_embeds,
+        pooled_prompt_embeds=pooled_prompt_embeds,  # SDXL requires this
         **config
     ).images[0]
-    logger.info("✅ Generated with Compel conditioning tensor")
+    logger.info("✅ Generated with Compel conditioning tensors (SDXL)")
+elif isinstance(final_prompt, torch.Tensor):
+    # Legacy single conditioning tensor (fallback)
+    result = self.pipe(
+        prompt_embeds=final_prompt,  # Use single conditioning tensor
+        **config
+    ).images[0]
+    logger.info("✅ Generated with single Compel conditioning tensor (legacy)")
 else:
     # Fallback to string prompt (no Compel or Compel failed)
     result = self.pipe(
@@ -1233,12 +1254,14 @@ curl -X POST http://localhost:8000/test-compel \
 **Successful Compel Processing:**
 ```
 🎯 Compel enhancement enabled: (masterpiece:1.3), (best quality:1.2)
-✅ Compel weights applied with proper library integration
+✅ Compel weights applied with SDXL library integration
 📝 Original prompt: beautiful woman
 🎯 Compel weights: (masterpiece:1.3), (best quality:1.2)
+🔧 Generated prompt_embeds: torch.Size([1, 77, 2048])
+🔧 Generated pooled_prompt_embeds: torch.Size([1, 1280])
 ✅ Compel processing successful
-🎯 Using Compel conditioning tensor for generation
-✅ Generated with Compel conditioning tensor
+🎯 Using Compel conditioning tensors for SDXL generation
+✅ Generated with Compel conditioning tensors (SDXL)
 ```
 
 **Fallback Behavior:**
@@ -1249,6 +1272,17 @@ curl -X POST http://localhost:8000/test-compel \
 🔄 Using original prompt due to Compel failure: beautiful woman
 🎯 Using standard prompt (no Compel): beautiful woman
 ✅ Generated with string prompt (no Compel)
+```
+
+**Legacy Single Tensor Fallback:**
+```
+🎯 Compel enhancement enabled: (masterpiece:1.3), (best quality:1.2)
+✅ Compel weights applied with library integration (legacy)
+📝 Original prompt: beautiful woman
+🎯 Compel weights: (masterpiece:1.3), (best quality:1.2)
+✅ Compel processing successful
+🎯 Using single Compel conditioning tensor for generation
+✅ Generated with single Compel conditioning tensor (legacy)
 ```
 
 ### **Dependencies**
@@ -1267,12 +1301,14 @@ export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPAT
 ### **Validation Checklist**
 
 - [ ] Compel library imports successfully
-- [ ] `process_compel_weights` function updated with proper library integration
-- [ ] Generation function handles both conditioning tensors and string prompts
+- [ ] `process_compel_weights` function updated with SDXL-specific library integration
+- [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
-- [ ] Metadata includes Compel processing status
+- [ ] Metadata includes Compel processing status and tensor types
 - [ ] No more "Token indices sequence length" warnings in logs
 - [ ] Compel weights are properly applied without token limit violations
+- [ ] Both conditioning tensors are generated and used correctly
+- [ ] Legacy single tensor fallback works for backward compatibility
 
 ### **Rollback Plan**
 

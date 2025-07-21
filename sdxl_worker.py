@@ -1,6 +1,6 @@
-# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION + PROPER COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETER NAMING
+# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION + SDXL COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETER NAMING
 # NEW: Supports user-selected quantities (1, 3, or 6 images) and image-to-image generation
-# FIXED: Proper Compel library integration to avoid CLIP token limit violations
+# FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds
 # FIXED: Consistent callback parameter names (job_id, assets) for edge function compatibility
 # Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s on RTX 6000 ADA
 
@@ -80,14 +80,14 @@ logger = logging.getLogger(__name__)
 
 class LustifySDXLWorker:
     def __init__(self):
-        """Initialize LUSTIFY SDXL Worker with flexible quantity, image-to-image generation, and proper Compel library integration"""
-        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + PROPER COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETERS")
+        """Initialize LUSTIFY SDXL Worker with flexible quantity, image-to-image generation, and SDXL-specific Compel library integration"""
+        print("🎨 LUSTIFY SDXL WORKER - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + SDXL COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETERS")
         print("⚡ RTX 6000 ADA: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: User-selected quantities (1, 3, or 6 images) for flexible UX")
         print("🖼️ NEW: Image-to-image generation with style, composition, and character reference modes")
         print("🌱 NEW: Seed control for reproducible generation and character consistency")
-        print("🔧 FIXED: Proper Compel library integration to avoid CLIP token limit violations")
+        print("🔧 FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds")
         print("🔧 FIXED: Consistent parameter naming (job_id, assets, metadata) across all callbacks")
         print("✅ API COMPLIANT: Supports metadata.reference_image_url, reference_strength, reference_type")
         
@@ -395,8 +395,8 @@ class LustifySDXLWorker:
 
     def process_compel_weights(self, prompt, weights_config=None):
         """
-        Process prompt with proper Compel library integration
-        FIXES: Token limit issues by using Compel's native processing
+        Process prompt with proper Compel library integration for SDXL
+        FIXES: Generate both prompt_embeds and pooled_prompt_embeds for SDXL
         weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
         """
         if not weights_config:
@@ -407,23 +407,27 @@ class LustifySDXLWorker:
             if not self.model_loaded:
                 self.load_model()
             
-            # Initialize Compel with the model's tokenizer and text encoder
+            # Initialize Compel with both SDXL text encoders and tokenizers
             compel_processor = Compel(
                 tokenizer=self.pipeline.tokenizer,
-                text_encoder=self.pipeline.text_encoder
+                text_encoder=self.pipeline.text_encoder,
+                text_encoder_2=self.pipeline.text_encoder_2,  # SDXL needs both encoders
+                tokenizer_2=self.pipeline.tokenizer_2
             )
             
-            # Build conditioning tensor (avoids token limit issues)
-            conditioning = compel_processor.build_conditioning_tensor(
+            # Build both conditioning tensors for SDXL
+            conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
                 f"{prompt} {weights_config}"
             )
             
-            logger.info(f"✅ Compel weights applied with proper library integration")
+            logger.info(f"✅ Compel weights applied with proper SDXL library integration")
             logger.info(f"📝 Original prompt: {prompt}")
             logger.info(f"🎯 Compel weights: {weights_config}")
+            logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
+            logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
             
-            # Return the conditioning tensor and original prompt
-            return conditioning, prompt
+            # Return both conditioning tensors and original prompt
+            return (conditioning, pooled_conditioning), prompt
             
         except Exception as e:
             logger.error(f"❌ Compel processing failed: {e}")
@@ -487,11 +491,17 @@ class LustifySDXLWorker:
                     'generator': generators  # Use configured generators with seeds
                 }
                 
-                # Handle Compel conditioning tensor vs string prompt
-                if isinstance(prompt, torch.Tensor):
-                    # Compel conditioning tensor was provided
+                # Handle Compel conditioning tensors vs string prompt for SDXL
+                if isinstance(prompt, tuple) and len(prompt) == 2:
+                    # Compel conditioning tensors were returned (prompt_embeds, pooled_prompt_embeds)
+                    prompt_embeds, pooled_prompt_embeds = prompt
+                    generation_kwargs['prompt_embeds'] = prompt_embeds
+                    generation_kwargs['pooled_prompt_embeds'] = pooled_prompt_embeds  # SDXL requires this
+                    logger.info("✅ Using Compel conditioning tensors for SDXL generation")
+                elif isinstance(prompt, torch.Tensor):
+                    # Legacy single conditioning tensor (fallback)
                     generation_kwargs['prompt_embeds'] = prompt
-                    logger.info("✅ Using Compel conditioning tensor for generation")
+                    logger.info("✅ Using single Compel conditioning tensor for generation (legacy)")
                 else:
                     # String prompt (no Compel or Compel failed)
                     generation_kwargs['prompt'] = [prompt] * num_images  # Replicate prompt for batch
@@ -708,8 +718,10 @@ class LustifySDXLWorker:
                     logger.info(f"🔄 Using original prompt due to Compel failure: {prompt}")
                 
                 # Log the final prompt being used
-                if isinstance(final_prompt, torch.Tensor):
-                    logger.info(f"🎯 Using Compel conditioning tensor for generation")
+                if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
+                    logger.info(f"🎯 Using Compel conditioning tensors for SDXL generation")
+                elif isinstance(final_prompt, torch.Tensor):
+                    logger.info(f"🎯 Using single Compel conditioning tensor for generation")
                 else:
                     logger.info(f"🎯 Using Compel-enhanced prompt: {final_prompt}")
             else:
@@ -752,12 +764,12 @@ class LustifySDXLWorker:
                 'num_images': len(upload_urls),
                 'job_type': job_type,
                 'original_prompt': original_prompt if original_prompt else prompt,
-                'final_prompt': str(final_prompt) if isinstance(final_prompt, torch.Tensor) else final_prompt,
+                'final_prompt': str(final_prompt) if isinstance(final_prompt, (torch.Tensor, tuple)) else final_prompt,
                 'compel_enabled': compel_enabled,
                 'compel_weights': compel_weights if compel_enabled else None,
                 'compel_success': compel_success if compel_enabled else False,
                 'enhancement_strategy': compel_metadata.get('enhancement_strategy'),
-                'final_prompt_type': "conditioning_tensor" if isinstance(final_prompt, torch.Tensor) else "string"
+                'final_prompt_type': "sdxl_conditioning_tensors" if isinstance(final_prompt, tuple) and len(final_prompt) == 2 else "conditioning_tensor" if isinstance(final_prompt, torch.Tensor) else "string"
             }
             
             # CONSISTENT: Notify completion with standardized parameter names and metadata
@@ -849,7 +861,7 @@ class LustifySDXLWorker:
         logger.info("🖼️ FLEXIBLE: User-selected quantities (1, 3, or 6 images)")
         logger.info("🖼️ IMAGE-TO-IMAGE: Style, composition, and character reference modes")
         logger.info("🌱 SEED CONTROL: Reproducible generation and character consistency")
-        logger.info("🔧 FIXED: Proper Compel library integration to avoid CLIP token limit violations")
+        logger.info("🔧 FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds")
         logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message, metadata)")
         
         job_count = 0
@@ -890,12 +902,12 @@ class LustifySDXLWorker:
             {
                 "prompt": "beautiful woman in garden",
                 "compel_weights": "(masterpiece:1.3), (best quality:1.2)",
-                "expected_type": "tensor"
+                "expected_type": "sdxl_tensors"
             },
             {
                 "prompt": "portrait of a person",
                 "compel_weights": "(perfect anatomy:1.2), (professional:1.1)",
-                "expected_type": "tensor"
+                "expected_type": "sdxl_tensors"
             },
             {
                 "prompt": "landscape painting",
@@ -914,11 +926,14 @@ class LustifySDXLWorker:
             )
             
             # Check if we got the expected type
-            if test_case['expected_type'] == "tensor":
-                if isinstance(enhanced_prompt, torch.Tensor):
-                    logger.info(f"✅ Compel conditioning tensor successful: {enhanced_prompt.shape}")
+            if test_case['expected_type'] == "sdxl_tensors":
+                if isinstance(enhanced_prompt, tuple) and len(enhanced_prompt) == 2:
+                    prompt_embeds, pooled_prompt_embeds = enhanced_prompt
+                    logger.info(f"✅ SDXL Compel conditioning tensors successful:")
+                    logger.info(f"   prompt_embeds: {prompt_embeds.shape}")
+                    logger.info(f"   pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
                 else:
-                    logger.warning(f"⚠️ Expected tensor but got: {type(enhanced_prompt)}")
+                    logger.warning(f"⚠️ Expected SDXL tensors tuple but got: {type(enhanced_prompt)}")
             else:
                 if isinstance(enhanced_prompt, str):
                     logger.info(f"✅ String prompt successful: {enhanced_prompt}")
@@ -928,7 +943,7 @@ class LustifySDXLWorker:
         logger.info("🧪 Compel integration test completed")
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + PROPER COMPEL LIBRARY INTEGRATION")
+    logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + SDXL COMPEL LIBRARY INTEGRATION")
     
     # Check for test mode
     import sys
