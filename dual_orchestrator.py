@@ -12,6 +12,18 @@ import threading
 import logging
 from pathlib import Path
 
+# CRITICAL: Set persistent PYTHONPATH for RunPod environment
+PYTHON_DEPS_PATH = '/workspace/python_deps/lib/python3.11/site-packages'
+if PYTHON_DEPS_PATH not in sys.path:
+    sys.path.insert(0, PYTHON_DEPS_PATH)
+
+# Set environment variables for worker processes
+os.environ['PYTHONPATH'] = f"{PYTHON_DEPS_PATH}:{os.environ.get('PYTHONPATH', '')}"
+os.environ['HF_HOME'] = '/workspace/models/huggingface_cache'
+
+print(f"✅ PYTHONPATH set: {os.environ['PYTHONPATH']}")
+print(f"✅ HF_HOME set: {os.environ['HF_HOME']}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
