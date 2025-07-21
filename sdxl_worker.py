@@ -395,35 +395,83 @@ class LustifySDXLWorker:
 
     def process_compel_weights(self, prompt, weights_config=None):
         """
-        Process prompt with proper Compel library integration for SDXL.
-        FIXED: Use requires_pooled=[False, True] for Compel 2.1.1 with SDXL.
+        Process prompt with proper Compel library integration for SDXL
+        FIXED: Proper prompt structure and weight balancing
         """
         if not weights_config:
             return prompt, None
         try:
             if not self.model_loaded:
                 self.load_model()
-            logger.info(f"🔧 Initializing Compel 2.1.1 with SDXL encoders - FIXED SYNTAX")
+            logger.info(f"🔧 Initializing Compel {compel.__version__} with SDXL encoders")
             compel_processor = Compel(
                 tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
                 text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],
-                requires_pooled=[False, True]  # ✅ FIXED: List instead of boolean for Compel 2.1.1
+                requires_pooled=[False, True]
             )
-            logger.info(f"✅ Compel processor initialized successfully with FIXED SDXL syntax")
-            combined_prompt = f"{prompt} {weights_config}"
-            logger.info(f"📝 Combined prompt: {combined_prompt}")
-            # Always unpack as a tuple
-            prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
-            logger.info(f"✅ Compel weights applied with proper SDXL library integration")
+            logger.info(f"✅ Compel processor initialized successfully")
+            
+            # CRITICAL FIX: Clean up duplicate weights and balance the prompt
+            cleaned_weights = self.clean_compel_weights(weights_config)
+            
+            # CRITICAL FIX: Proper prompt structure - subject first, then enhancement
+            combined_prompt = f"({prompt}:1.1), {cleaned_weights}"
             logger.info(f"📝 Original prompt: {prompt}")
-            logger.info(f"🎯 Compel weights: {weights_config}")
+            logger.info(f"🎯 Cleaned Compel weights: {cleaned_weights}")
+            logger.info(f"📝 Final combined prompt: {combined_prompt}")
+            
+            # Generate positive conditioning
+            prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
+            
+            # CRITICAL FIX: Generate negative conditioning as well
+            negative_prompt = ("blurry, low quality, distorted, deformed, bad anatomy, "
+                             "watermark, signature, text, logo, extra limbs, missing limbs")
+            negative_prompt_embeds, negative_pooled_prompt_embeds = compel_processor(negative_prompt)
+            
+            logger.info(f"✅ Compel weights applied successfully with balanced prompt structure")
             logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
             logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
-            return (prompt_embeds, pooled_prompt_embeds), prompt
+            logger.info(f"🔧 Generated negative_prompt_embeds: {negative_prompt_embeds.shape}")
+            logger.info(f"🔧 Generated negative_pooled_prompt_embeds: {negative_pooled_prompt_embeds.shape}")
+            
+            # Return both positive and negative conditioning
+            return {
+                'prompt_embeds': prompt_embeds,
+                'pooled_prompt_embeds': pooled_prompt_embeds,
+                'negative_prompt_embeds': negative_prompt_embeds,
+                'negative_pooled_prompt_embeds': negative_pooled_prompt_embeds
+            }, prompt
         except Exception as e:
             logger.error(f"❌ Compel processing failed: {e}")
             logger.info(f"🔄 Falling back to original prompt: {prompt}")
             return prompt, None  # Fallback to original prompt
+
+    def clean_compel_weights(self, weights_config):
+        """Clean and deduplicate Compel weights"""
+        if not weights_config:
+            return ""
+            
+        # Split by commas and clean each weight
+        weights = [w.strip() for w in weights_config.split(',')]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        cleaned_weights = []
+        for weight in weights:
+            if weight not in seen:
+                cleaned_weights.append(weight)
+                seen.add(weight)
+            else:
+                logger.info(f"🧹 Removed duplicate weight: {weight}")
+        
+        # Limit to reasonable number of weights (max 6 for token efficiency)
+        if len(cleaned_weights) > 6:
+            logger.info(f"🎯 Limiting weights from {len(cleaned_weights)} to 6 for token efficiency")
+            cleaned_weights = cleaned_weights[:6]
+        
+        result = ", ".join(cleaned_weights)
+        logger.info(f"🧹 Cleaned weights: {weights_config} → {result}")
+        return result
 
     def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style', seed=None):
         """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image and seed control"""
@@ -483,25 +531,32 @@ class LustifySDXLWorker:
                 }
                 
                 # Handle Compel conditioning tensors vs string prompt for SDXL
-                if isinstance(prompt, tuple) and len(prompt) == 2:
-                    # Compel conditioning tensors were returned (prompt_embeds, pooled_prompt_embeds)
-                    prompt_embeds, pooled_prompt_embeds = prompt
+                if isinstance(prompt, dict) and 'prompt_embeds' in prompt:
+                    # Compel conditioning dictionary was returned with negative embeddings
+                    prompt_embeds = prompt['prompt_embeds']
+                    pooled_prompt_embeds = prompt['pooled_prompt_embeds']
+                    negative_prompt_embeds = prompt['negative_prompt_embeds']
+                    negative_pooled_prompt_embeds = prompt['negative_pooled_prompt_embeds']
                     
                     # CRITICAL FIX: Replicate tensors for batch generation
                     if num_images > 1:
-                        prompt_embeds = prompt_embeds.repeat(num_images, 1, 1)  # [num_images, 77, 2048]
-                        pooled_prompt_embeds = pooled_prompt_embeds.repeat(num_images, 1)  # [num_images, 1280]
+                        prompt_embeds = prompt_embeds.repeat(num_images, 1, 1)
+                        pooled_prompt_embeds = pooled_prompt_embeds.repeat(num_images, 1)
+                        negative_prompt_embeds = negative_prompt_embeds.repeat(num_images, 1, 1)
+                        negative_pooled_prompt_embeds = negative_pooled_prompt_embeds.repeat(num_images, 1)
                         logger.info(f"🔧 Replicated Compel tensors for {num_images} images")
                         logger.info(f"🔧 prompt_embeds shape: {prompt_embeds.shape}")
                         logger.info(f"🔧 pooled_prompt_embeds shape: {pooled_prompt_embeds.shape}")
+                        logger.info(f"🔧 negative_prompt_embeds shape: {negative_prompt_embeds.shape}")
+                        logger.info(f"🔧 negative_pooled_prompt_embeds shape: {negative_pooled_prompt_embeds.shape}")
                     
                     generation_kwargs['prompt_embeds'] = prompt_embeds
-                    generation_kwargs['pooled_prompt_embeds'] = pooled_prompt_embeds  # SDXL requires this
+                    generation_kwargs['pooled_prompt_embeds'] = pooled_prompt_embeds
+                    generation_kwargs['negative_prompt_embeds'] = negative_prompt_embeds
+                    generation_kwargs['negative_pooled_prompt_embeds'] = negative_pooled_prompt_embeds
                     
-                    # CRITICAL FIX: Don't add negative prompt when using conditioning tensors
-                    # This prevents the string/tensor mismatch issue
-                    logger.info("✅ Using Compel conditioning tensors for SDXL generation (no negative prompt)")
-                    
+                    logger.info("✅ Using Compel conditioning tensors with negative conditioning for SDXL")
+                
                 elif isinstance(prompt, torch.Tensor):
                     # Legacy single conditioning tensor (fallback)
                     if num_images > 1:
@@ -715,7 +770,7 @@ class LustifySDXLWorker:
                 try:
                     # Apply Compel weights to the prompt (proper library integration)
                     final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
-                    if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
+                    if isinstance(final_prompt, dict) and 'prompt_embeds' in final_prompt:
                         compel_success = True
                         final_prompt_type = "conditioning_tensor"
                         logger.info(f"✅ Compel processing successful")
@@ -734,7 +789,7 @@ class LustifySDXLWorker:
                     logger.info(f"🔄 Using original prompt due to Compel failure: {prompt}")
                 
                 # Log the final prompt being used
-                if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
+                if isinstance(final_prompt, dict) and 'prompt_embeds' in final_prompt:
                     logger.info(f"🎯 Using Compel conditioning tensors for SDXL generation")
                 elif isinstance(final_prompt, torch.Tensor):
                     logger.info(f"🎯 Using single Compel conditioning tensor for generation")
@@ -748,7 +803,7 @@ class LustifySDXLWorker:
                 logger.info(f"🎯 Using standard prompt (no Compel): {prompt}")
             
             # Logging Fix: Avoid dumping tensors in logs
-            if isinstance(final_prompt, tuple):
+            if isinstance(final_prompt, dict) and 'prompt_embeds' in final_prompt:
                 logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: [Compel conditioning tensors]...")
             else:
                 logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {final_prompt[:50]}...")
@@ -787,7 +842,7 @@ class LustifySDXLWorker:
                 'num_images': len(upload_urls),
                 'job_type': job_type,
                 'original_prompt': original_prompt if original_prompt else prompt,
-                'final_prompt': '[Compel conditioning tensors]' if isinstance(final_prompt, tuple) else str(final_prompt),
+                'final_prompt': '[Compel conditioning tensors]' if isinstance(final_prompt, dict) and 'prompt_embeds' in final_prompt else str(final_prompt),
                 'compel_enabled': compel_enabled,
                 'compel_weights': compel_weights if compel_enabled else None,
                 'compel_success': compel_success if compel_enabled else False,
@@ -950,13 +1005,18 @@ class LustifySDXLWorker:
             
             # Check if we got the expected type
             if test_case['expected_type'] == "sdxl_tensors":
-                if isinstance(enhanced_prompt, tuple) and len(enhanced_prompt) == 2:
-                    prompt_embeds, pooled_prompt_embeds = enhanced_prompt
+                if isinstance(enhanced_prompt, dict) and 'prompt_embeds' in enhanced_prompt:
+                    prompt_embeds = enhanced_prompt['prompt_embeds']
+                    pooled_prompt_embeds = enhanced_prompt['pooled_prompt_embeds']
+                    negative_prompt_embeds = enhanced_prompt['negative_prompt_embeds']
+                    negative_pooled_prompt_embeds = enhanced_prompt['negative_pooled_prompt_embeds']
                     logger.info(f"✅ SDXL Compel conditioning tensors successful:")
                     logger.info(f"   prompt_embeds: {prompt_embeds.shape}")
                     logger.info(f"   pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
+                    logger.info(f"   negative_prompt_embeds: {negative_prompt_embeds.shape}")
+                    logger.info(f"   negative_pooled_prompt_embeds: {negative_pooled_prompt_embeds.shape}")
                 else:
-                    logger.warning(f"⚠️ Expected SDXL tensors tuple but got: {type(enhanced_prompt)}")
+                    logger.warning(f"⚠️ Expected SDXL tensors dict but got: {type(enhanced_prompt)}")
             else:
                 if isinstance(enhanced_prompt, str):
                     logger.info(f"✅ String prompt successful: {enhanced_prompt}")
