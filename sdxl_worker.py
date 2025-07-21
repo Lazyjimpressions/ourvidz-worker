@@ -747,6 +747,12 @@ class LustifySDXLWorker:
                 final_prompt_type = "string"
                 logger.info(f"🎯 Using standard prompt (no Compel): {prompt}")
             
+            # Logging Fix: Avoid dumping tensors in logs
+            if isinstance(final_prompt, tuple):
+                logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: [Compel conditioning tensors]...")
+            else:
+                logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {final_prompt[:50]}...")
+            
             # Generate batch of images with final prompt
             start_time = time.time()
             images, used_seed = self.generate_images_batch(
@@ -774,14 +780,14 @@ class LustifySDXLWorker:
             logger.info(f"📁 Generated {len(upload_urls)} images")
             logger.info(f"🌱 Seed used: {used_seed}")
             
-            # ✅ COMPEL SUPPORT: Prepare metadata for callback with Compel information
+            # Metadata Fix: Avoid dumping tensors in metadata
             callback_metadata = {
                 'seed': used_seed,
                 'generation_time': total_time,
                 'num_images': len(upload_urls),
                 'job_type': job_type,
                 'original_prompt': original_prompt if original_prompt else prompt,
-                'final_prompt': str(final_prompt),
+                'final_prompt': '[Compel conditioning tensors]' if isinstance(final_prompt, tuple) else str(final_prompt),
                 'compel_enabled': compel_enabled,
                 'compel_weights': compel_weights if compel_enabled else None,
                 'compel_success': compel_success if compel_enabled else False,
