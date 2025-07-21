@@ -395,9 +395,8 @@ class LustifySDXLWorker:
 
     def process_compel_weights(self, prompt, weights_config=None):
         """
-        Process prompt with proper Compel library integration for SDXL
-        FIXED: Always unpack Compel output as a tuple for SDXL (requires_pooled=True)
-        weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
+        Process prompt with proper Compel library integration for SDXL.
+        Always unpack Compel output as a tuple for SDXL (requires_pooled=True).
         """
         if not weights_config:
             return prompt, None
@@ -413,11 +412,8 @@ class LustifySDXLWorker:
             logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
             combined_prompt = f"{prompt} {weights_config}"
             logger.info(f"📝 Combined prompt: {combined_prompt}")
-            # DEBUG: Check what Compel actually returns
-            result = compel_processor(combined_prompt)
-            logger.info(f"🔍 DEBUG: Compel returned type: {type(result)}")
-            logger.info(f"🔍 DEBUG: Compel returned value: {result}")
-            prompt_embeds, pooled_prompt_embeds = result  # This will fail if not a tuple
+            # Always unpack as a tuple
+            prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
             logger.info(f"✅ Compel weights applied with proper SDXL library integration")
             logger.info(f"📝 Original prompt: {prompt}")
             logger.info(f"🎯 Compel weights: {weights_config}")
@@ -688,6 +684,7 @@ class LustifySDXLWorker:
             final_prompt = prompt
             original_prompt = None
             compel_success = False
+            final_prompt_type = "string"
             compel_metadata = {
                 "compel_enabled": compel_enabled,
                 "compel_weights": compel_weights,
@@ -700,16 +697,22 @@ class LustifySDXLWorker:
                 try:
                     # Apply Compel weights to the prompt (proper library integration)
                     final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
-                    compel_success = True
-                    compel_metadata["enhancement_strategy"] = "compel"
-                    logger.info(f"✅ Compel processing successful")
+                    if isinstance(final_prompt, tuple) and len(final_prompt) == 2:
+                        compel_success = True
+                        final_prompt_type = "conditioning_tensor"
+                        logger.info(f"✅ Compel processing successful")
+                        logger.info(f"🎯 Using Compel conditioning tensors for SDXL generation")
+                    else:
+                        compel_success = False
+                        final_prompt_type = "string"
+                        logger.info(f"⚠️ Compel did not return tensors, using string prompt")
                     
                 except Exception as e:
                     logger.error(f"❌ Compel processing failed: {e}")
                     final_prompt = prompt  # Fallback to original prompt
                     original_prompt = None
                     compel_success = False
-                    compel_metadata["enhancement_strategy"] = "fallback"
+                    final_prompt_type = "string"
                     logger.info(f"🔄 Using original prompt due to Compel failure: {prompt}")
                 
                 # Log the final prompt being used
@@ -723,6 +726,7 @@ class LustifySDXLWorker:
                 final_prompt = prompt
                 original_prompt = None
                 compel_success = False
+                final_prompt_type = "string"
                 logger.info(f"🎯 Using standard prompt (no Compel): {prompt}")
             
             # Generate batch of images with final prompt
@@ -759,12 +763,12 @@ class LustifySDXLWorker:
                 'num_images': len(upload_urls),
                 'job_type': job_type,
                 'original_prompt': original_prompt if original_prompt else prompt,
-                'final_prompt': str(final_prompt) if isinstance(final_prompt, (torch.Tensor, tuple)) else final_prompt,
+                'final_prompt': str(final_prompt),
                 'compel_enabled': compel_enabled,
                 'compel_weights': compel_weights if compel_enabled else None,
                 'compel_success': compel_success if compel_enabled else False,
-                'enhancement_strategy': compel_metadata.get('enhancement_strategy'),
-                'final_prompt_type': "sdxl_conditioning_tensors" if isinstance(final_prompt, tuple) and len(final_prompt) == 2 else "conditioning_tensor" if isinstance(final_prompt, torch.Tensor) else "string"
+                'enhancement_strategy': 'compel' if compel_success else 'fallback' if compel_enabled else 'none',
+                'final_prompt_type': final_prompt_type
             }
             
             # CONSISTENT: Notify completion with standardized parameter names and metadata
