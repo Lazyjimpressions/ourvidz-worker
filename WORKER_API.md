@@ -127,7 +127,7 @@ POST /functions/v1/job-callback
 def process_compel_weights(self, prompt, weights_config=None):
     """
     Process prompt with proper Compel library integration for SDXL
-    FIXED: Use correct API for Compel 2.x (positional args for encoders/tokenizers)
+    FIXED: Always unpack Compel output as a tuple for SDXL (requires_pooled=True)
     weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
     """
     if not weights_config:
@@ -144,22 +144,13 @@ def process_compel_weights(self, prompt, weights_config=None):
         logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
         combined_prompt = f"{prompt} {weights_config}"
         logger.info(f"📝 Combined prompt: {combined_prompt}")
-        conditioning = compel_processor(combined_prompt)
-        if isinstance(conditioning, tuple) and len(conditioning) == 2:
-            prompt_embeds, pooled_prompt_embeds = conditioning
-            logger.info(f"✅ Compel weights applied with proper SDXL library integration")
-            logger.info(f"📝 Original prompt: {prompt}")
-            logger.info(f"🎯 Compel weights: {weights_config}")
-            logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
-            logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
-            return conditioning, prompt  # Return the tuple as-is
-        else:
-            logger.warning(f"⚠️ Expected tuple but got single tensor: {type(conditioning)}")
-            logger.info(f"✅ Compel weights applied (single tensor)")
-            logger.info(f"📝 Original prompt: {prompt}")
-            logger.info(f"🎯 Compel weights: {weights_config}")
-            logger.info(f"🔧 Generated conditioning tensor: {conditioning.shape}")
-            return conditioning, prompt
+        prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
+        logger.info(f"✅ Compel weights applied with proper SDXL library integration")
+        logger.info(f"📝 Original prompt: {prompt}")
+        logger.info(f"🎯 Compel weights: {weights_config}")
+        logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
+        logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
+        return (prompt_embeds, pooled_prompt_embeds), prompt
     except Exception as e:
         logger.error(f"❌ Compel processing failed: {e}")
         logger.info(f"🔄 Falling back to original prompt: {prompt}")
@@ -167,42 +158,38 @@ def process_compel_weights(self, prompt, weights_config=None):
 ```
 
 #### **Critical Note:**
-- **For Compel 2.x SDXL support, always pass tokenizers and text_encoders as positional arguments, not keyword arguments.**
-- **Example (correct):**
+- **For SDXL with Compel 2.x, always unpack the result of `compel_processor(...)` as a tuple:**
   ```python
-  compel_processor = Compel(
-      [tokenizer1, tokenizer2],
-      [text_encoder1, text_encoder2],
-      requires_pooled=True
-  )
+  prompt_embeds, pooled_prompt_embeds = compel_processor(combined_prompt)
   ```
-- **If you use keyword arguments (e.g., tokenizers=[...]), you will get:**
-  - `Compel.__init__() got an unexpected keyword argument 'tokenizers'`
-  - Or, if you use singular names, `'bool' object is not iterable'`
-- **This is a subtle but critical API detail for Compel 2.x.**
+- **Do NOT check for single tensor or boolean for SDXL.**
+- If you do not unpack as a tuple, you may get `'bool' object is not iterable'` or similar errors.
+- This is required for SDXL with `requires_pooled=True`.
 
 #### **Summary Table: Compel 2.x SDXL API**
-| Incorrect (keyword)                | Correct (positional)           |
-|------------------------------------|-------------------------------|
-| tokenizers=[...], text_encoders=[...] | [tokenizer1, tokenizer2], [text_encoder1, text_encoder2] |
-| tokenizer=..., text_encoder=...    | (not supported for SDXL)      |
+| Symptom/Error                  | Cause                                 | Fix                                 |
+|--------------------------------|---------------------------------------|-------------------------------------|
+| `'bool' object is not iterable'` | Not unpacking Compel output as tuple  | Always unpack: `a, b = compel(...)` |
+| `unexpected keyword argument`    | Using keyword args for encoders       | Use positional args                 |
 
 #### **Troubleshooting & Learnings**
-- If you see `unexpected keyword argument 'tokenizers'`, you are using keyword arguments—**switch to positional**.
-- If you see `'bool' object is not iterable'`, you are using singular names or an old Compel version.
+- For SDXL, always expect a tuple and unpack it directly.
+- Do not try to handle a single tensor or boolean for SDXL.
+- If you see `'bool' object is not iterable'`, you are not unpacking the tuple.
+- If you see `unexpected keyword argument`, you are using keyword args for encoders—switch to positional.
 - Always check your Compel version (`import compel; print(compel.__version__)`).
 - For SDXL, always use positional arguments for encoders and `requires_pooled=True`.
 
 #### **Validation Checklist**
 - [ ] Compel library imports successfully
-- [ ] `process_compel_weights` uses positional arguments for encoders and requires_pooled=True for SDXL
+- [ ] `process_compel_weights` always unpacks Compel output as a tuple for SDXL (requires_pooled=True)
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types
-- [ ] No more "Token indices sequence length" or argument errors in logs
+- [ ] No more 'bool object is not iterable' or argument errors in logs
 - [ ] Compel weights are properly applied without token limit violations
 - [ ] Both conditioning tensors are generated and used correctly
-- [ ] Legacy single tensor fallback works for backward compatibility
+- [ ] Legacy single tensor fallback works for backward compatibility (non-SDXL)
 
 ### **Reference Image Support**
 ```python
@@ -682,9 +669,31 @@ if job_type.startswith("sdxl_"):
     
     # Process Compel enhancement
     if compel_enabled and compel_weights:
-        final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
+        logger.info(f"🎯 Compel enhancement enabled: {compel_weights}")
+        
+        try:
+            # Apply Compel weights to the prompt (proper library integration)
+            final_prompt, original_prompt = self.process_compel_weights(prompt, compel_weights)
+            compel_success = True
+            logger.info(f"✅ Compel processing successful")
+            
+        except Exception as e:
+            logger.error(f"❌ Compel processing failed: {e}")
+            final_prompt = prompt  # Fallback to original prompt
+            original_prompt = None
+            compel_success = False
+            logger.info(f"🔄 Using original prompt due to Compel failure: {prompt}")
+        
+        # Log the final prompt being used
+        if isinstance(final_prompt, torch.Tensor):
+            logger.info(f"🎯 Using Compel conditioning tensor for generation")
+        else:
+            logger.info(f"🎯 Using Compel-enhanced prompt: {final_prompt}")
     else:
         final_prompt = prompt
+        original_prompt = None
+        compel_success = False
+        logger.info(f"🎯 Using standard prompt (no Compel): {prompt}")
     
     # SDXL generation with flexible quantities
     num_images = config.get("num_images", 1)
@@ -746,8 +755,11 @@ callback_data = {
         "generation_time": generation_time,
         "num_images": len(uploaded_assets),
         "compel_enabled": compel_enabled,
-        "compel_weights": compel_weights,
-        "enhancement_strategy": enhancement_strategy
+        "compel_weights": compel_weights if compel_enabled else None,
+        "compel_success": compel_success if compel_enabled else False,
+        "enhancement_strategy": "compel" if compel_success else "fallback" if compel_enabled else "none",
+        "original_prompt": original_prompt,
+        "final_prompt_type": "conditioning_tensor" if isinstance(final_prompt, torch.Tensor) else "string"
     }
 }
 
@@ -1286,7 +1298,7 @@ export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages:$PYTHONPAT
 - [ ] Generation function handles both prompt_embeds and pooled_prompt_embeds for SDXL
 - [ ] Error handling includes fallback to original prompt
 - [ ] Metadata includes Compel processing status and tensor types
-- [ ] No more "Token indices sequence length" warnings in logs
+- [ ] No more 'bool object is not iterable' or argument errors in logs
 - [ ] Compel weights are properly applied without token limit violations
 - [ ] Both conditioning tensors are generated and used correctly
 - [ ] Legacy single tensor fallback works for backward compatibility
