@@ -403,7 +403,9 @@ class LustifySDXLWorker:
         try:
             if not self.model_loaded:
                 self.load_model()
-            logger.info(f"🔧 Initializing Compel {compel.__version__} with SDXL encoders")
+            # Use safe version logging for Compel
+            version = getattr(compel, '__version__', 'unknown')
+            logger.info(f"🔧 Initializing Compel {version} with SDXL encoders")
             compel_processor = Compel(
                 tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
                 text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],
