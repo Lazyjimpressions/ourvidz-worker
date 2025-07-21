@@ -396,37 +396,47 @@ class LustifySDXLWorker:
     def process_compel_weights(self, prompt, weights_config=None):
         """
         Process prompt with proper Compel library integration for SDXL
-        FIXES: Generate both prompt_embeds and pooled_prompt_embeds for SDXL
+        FIXED: Use correct API for Compel 2.1.1 with requires_pooled=True
         weights_config example: "(quality:1.2), (detail:1.3), (nsfw:0.8)"
         """
         if not weights_config:
             return prompt, None
-            
         try:
             # Ensure model is loaded before processing Compel weights
             if not self.model_loaded:
                 self.load_model()
-            
-            # Initialize Compel with SDXL encoders/tokenizers as lists (Compel >=0.2.x API)
+            logger.info(f"🔧 Initializing Compel 2.1.1 with SDXL encoders as lists + requires_pooled=True")
+            # FIXED: Initialize Compel with correct API for version 2.1.1
             compel_processor = Compel(
-                tokenizers=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],
-                text_encoders=[self.pipeline.text_encoder, self.pipeline.text_encoder_2]
+                tokenizer=[self.pipeline.tokenizer, self.pipeline.tokenizer_2],  # List format
+                text_encoder=[self.pipeline.text_encoder, self.pipeline.text_encoder_2],  # List format
+                requires_pooled=True  # Essential for SDXL to get pooled embeddings
             )
-            
-            # Build both conditioning tensors for SDXL
-            conditioning, pooled_conditioning = compel_processor.build_conditioning_tensor(
-                f"{prompt} {weights_config}"
-            )
-            
-            logger.info(f"✅ Compel weights applied with proper SDXL library integration (list API)")
-            logger.info(f"📝 Original prompt: {prompt}")
-            logger.info(f"🎯 Compel weights: {weights_config}")
-            logger.info(f"🔧 Generated prompt_embeds: {conditioning.shape}")
-            logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_conditioning.shape}")
-            
-            # Return both conditioning tensors and original prompt
-            return (conditioning, pooled_conditioning), prompt
-            
+            logger.info(f"✅ Compel processor initialized successfully with SDXL encoders")
+            # Build conditioning tensor with combined prompt and weights
+            combined_prompt = f"{prompt} {weights_config}"
+            logger.info(f"📝 Combined prompt: {combined_prompt}")
+            # Generate conditioning tensors (returns tuple for SDXL when requires_pooled=True)
+            conditioning = compel_processor(combined_prompt)
+            # Check if we got tuple (prompt_embeds, pooled_prompt_embeds) or single tensor
+            if isinstance(conditioning, tuple) and len(conditioning) == 2:
+                prompt_embeds, pooled_prompt_embeds = conditioning
+                logger.info(f"✅ Compel weights applied with proper SDXL library integration")
+                logger.info(f"📝 Original prompt: {prompt}")
+                logger.info(f"🎯 Compel weights: {weights_config}")
+                logger.info(f"🔧 Generated prompt_embeds: {prompt_embeds.shape}")
+                logger.info(f"🔧 Generated pooled_prompt_embeds: {pooled_prompt_embeds.shape}")
+                # Return both conditioning tensors and original prompt
+                return conditioning, prompt  # Return the tuple as-is
+            else:
+                # Single tensor returned (shouldn't happen with requires_pooled=True, but handle it)
+                logger.warning(f"⚠️ Expected tuple but got single tensor: {type(conditioning)}")
+                logger.info(f"✅ Compel weights applied (single tensor)")
+                logger.info(f"📝 Original prompt: {prompt}")
+                logger.info(f"🎯 Compel weights: {weights_config}")
+                logger.info(f"🔧 Generated conditioning tensor: {conditioning.shape}")
+                # Return single tensor and original prompt
+                return conditioning, prompt
         except Exception as e:
             logger.error(f"❌ Compel processing failed: {e}")
             logger.info(f"🔄 Falling back to original prompt: {prompt}")
