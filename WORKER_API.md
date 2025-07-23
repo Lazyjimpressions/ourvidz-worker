@@ -61,7 +61,10 @@ All workers use standardized callback parameters and comprehensive metadata mana
   "metadata": {
     "start_reference_url": "string",
     "end_reference_url": "string",
-    "reference_strength": 0.1-1.0
+    "reference_strength": 0.1-1.0,
+    "enhancement_type": "base" | "chat" | "instruct_chat",
+    "session_id": "string",
+    "conversation_context": "string"
   }
 }
 ```
@@ -88,7 +91,12 @@ POST /functions/v1/job-callback
     "num_images": 3,
     "compel_enabled": true,
     "compel_weights": "(beautiful:1.3), (woman:1.2)",
-    "enhancement_strategy": "compel" | "fallback" | "none"
+    "enhancement_strategy": "compel" | "fallback" | "none",
+    "enhancement_type": "base" | "chat" | "instruct_chat",
+    "enhancement_success": true,
+    "enhancement_time": 2.5,
+    "original_prompt": "string",
+    "enhanced_prompt": "string"
   }
 }
 ```
@@ -238,7 +246,9 @@ if reference_image_url:
 - **Reference Support**: Image-to-image for video start/end frames
 - **Seed Control**: Reproducible generation (no negative prompts)
 - **Path Consistency**: Fixed video path handling
-- **🤖 Qwen 7B Enhancement**: AI-powered prompt enhancement
+- **🤖 Qwen 7B Enhancement**: AI-powered prompt enhancement with multiple strategies
+- **💬 Chat-Based Enhancement**: Conversational prompt enhancement with context memory
+- **🔄 Robust Fallbacks**: Automatic fallback to base model if chat enhancement fails
 
 ### **Video Generation with Reference Frames (WAN 1.3B Model)**
 
@@ -311,8 +321,8 @@ else:
     print(f"🎬 Using T2V task for standard video generation")
 ```
 
-### **🤖 Qwen 7B Prompt Enhancement**
-The WAN worker includes AI-powered prompt enhancement using Qwen 7B model:
+### **🤖 Qwen 7B Prompt Enhancement (Enhanced with Chat Support)**
+The WAN worker includes AI-powered prompt enhancement using Qwen 7B models with multiple enhancement strategies:
 
 ```python
 def enhance_prompt_with_timeout(self, original_prompt):
@@ -399,6 +409,161 @@ Enhanced detailed prompt:"""
     finally:
         self.unload_qwen_model()
 ```
+
+#### **🤖 Chat-Based Prompt Enhancement (NEW)**
+The WAN worker now supports conversational prompt enhancement using the Qwen 2.5-7B Instruct model:
+
+```python
+def enhance_prompt_with_chat(self, original_prompt, session_id=None, conversation_context=None):
+    """Enhanced prompt generation using Instruct model with conversation memory"""
+    enhancement_start = time.time()
+    print(f"💬 Enhancing prompt with Instruct model: {original_prompt[:50]}...")
+    
+    try:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(self.enhancement_timeout)
+        
+        if not self.load_qwen_instruct_model():
+            print("⚠️ Instruct model not available, falling back to Base model")
+            return self.enhance_prompt_with_timeout(original_prompt)
+        
+        # Build conversation for instruct model
+        system_prompt = """You are an expert AI prompt engineer specializing in cinematic and adult content generation.
+
+Your role is to transform simple prompts into detailed, cinematic descriptions while maintaining anatomical accuracy and realism for adult content.
+
+Focus on:
+- High-quality visual details and realistic proportions
+- Cinematic lighting and professional photography style  
+- Specific poses, expressions, and scene composition
+- Technical quality like 4K resolution and smooth motion
+
+Always respond with enhanced prompts that are detailed, specific, and optimized for AI generation."""
+
+        # Format conversation for Instruct model
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Please enhance this prompt for AI video generation: {original_prompt}"}
+        ]
+        
+        if conversation_context:
+            messages.insert(1, {"role": "user", "content": f"Context: {conversation_context}"})
+        
+        # Apply chat template for Instruct model
+        formatted_prompt = self.qwen_instruct_tokenizer.apply_chat_template(
+            messages, 
+            tokenize=False, 
+            add_generation_prompt=True
+        )
+        
+        inputs = self.qwen_instruct_tokenizer(
+            formatted_prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=2048
+        ).to(self.qwen_instruct_model.device)
+        
+        with torch.no_grad():
+            outputs = self.qwen_instruct_model.generate(
+                **inputs,
+                max_new_tokens=512,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                eos_token_id=self.qwen_instruct_tokenizer.eos_token_id
+            )
+        
+        # Decode only the new tokens
+        enhanced_text = self.qwen_instruct_tokenizer.decode(
+            outputs[0][inputs['input_ids'].shape[1]:], 
+            skip_special_tokens=True
+        ).strip()
+        
+        signal.alarm(0)
+        
+        if enhanced_text:
+            enhancement_time = time.time() - enhancement_start
+            print(f"✅ Instruct Enhancement: {enhanced_text[:100]}...")
+            print(f"✅ Prompt enhanced with Instruct model in {enhancement_time:.1f}s")
+            return enhanced_text
+        else:
+            print("⚠️ Instruct enhancement empty, falling back to Base")
+            return self.enhance_prompt_with_timeout(original_prompt)
+            
+    except TimeoutException:
+        signal.alarm(0)
+        print(f"⚠️ Instruct enhancement timed out, falling back to Base")
+        return self.enhance_prompt_with_timeout(original_prompt)
+    except Exception as e:
+        signal.alarm(0)
+        print(f"❌ Instruct enhancement failed: {e}, falling back to Base")
+        return self.enhance_prompt_with_timeout(original_prompt)
+    finally:
+        self.unload_qwen_instruct_model()
+```
+
+#### **🎯 Enhancement Type Selection**
+The WAN worker supports three enhancement strategies controlled via metadata:
+
+```python
+def enhance_prompt(self, original_prompt, enhancement_type="instruct", session_id=None, conversation_context=None):
+    """Enhanced prompt with retry logic and model selection"""
+    print(f"🤖 Starting enhancement for: {original_prompt[:50]}... (type: {enhancement_type})")
+    
+    for attempt in range(self.max_enhancement_attempts):
+        try:
+            print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
+            
+            # Choose enhancement method based on type
+            if enhancement_type == "chat" or enhancement_type == "instruct_chat":
+                enhanced = self.enhance_prompt_with_chat(original_prompt, session_id, conversation_context)
+            else:
+                # Use existing Base model enhancement (preserves current functionality)
+                enhanced = self.enhance_prompt_with_timeout(original_prompt)
+            
+            if enhanced and enhanced.strip() != original_prompt.strip():
+                print(f"✅ Enhancement successful on attempt {attempt + 1}")
+                return enhanced
+            else:
+                print(f"⚠️ Enhancement attempt {attempt + 1} returned original prompt")
+                if attempt < self.max_enhancement_attempts - 1:
+                    time.sleep(5)
+                
+        except Exception as e:
+            print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
+            if attempt < self.max_enhancement_attempts - 1:
+                time.sleep(5)
+    
+    print("⚠️ All enhancement attempts failed, using original prompt")
+    return original_prompt
+```
+
+#### **📋 Enhancement Types**
+| Enhancement Type | Model Used | Features | Use Case |
+|------------------|------------|----------|----------|
+| `base` | Qwen 2.5-7B Base | NSFW-optimized, single-shot | Standard enhancement |
+| `chat` | Qwen 2.5-7B Instruct | Conversational, context-aware | Interactive sessions |
+| `instruct_chat` | Qwen 2.5-7B Instruct | Conversational, context-aware | Interactive sessions (alias) |
+
+#### **💬 Conversation Context Support**
+The chat-based enhancement supports conversation memory for coherent multi-turn interactions:
+
+```json
+{
+  "metadata": {
+    "enhancement_type": "chat",
+    "session_id": "user_session_123",
+    "conversation_context": "Previous prompt: 'beautiful woman in garden' → Enhanced: 'stunning woman with flowing hair in sunlit garden'"
+  }
+}
+```
+
+#### **🔄 Fallback Strategy**
+The enhancement system includes robust fallback mechanisms:
+1. **Primary**: Attempt chat-based enhancement with Instruct model
+2. **Secondary**: Fallback to base model enhancement if Instruct fails
+3. **Final**: Use original prompt if all enhancement attempts fail
+4. **Timeout Protection**: 120-second timeout for model loading and generation
 
 ---
 
@@ -902,17 +1067,19 @@ completion_stats = {
 
 ### **Major Enhancements**
 1. **🎯 Compel Integration**: SDXL worker now supports Compel prompt enhancement with weighted attention
-2. **🤖 Qwen 7B Enhancement**: WAN worker includes AI-powered prompt enhancement
-3. **🎭 Dual Orchestrator**: Centralized management of both workers with monitoring and restart capabilities
-4. **Standardized Callback Parameters**: Consistent `job_id`, `assets` array across all workers
-5. **Enhanced Negative Prompts**: Intelligent generation for SDXL with multi-party scene detection
-6. **Seed Support**: User-controlled seeds for reproducible generation
-7. **Flexible SDXL Quantities**: User-selectable 1, 3, or 6 images per batch
-8. **Reference Image Support**: Optional image-to-image with type and strength control
-9. **Video Reference Frame Support**: I2V-style generation with start reference frame for WAN 1.3B model
-10. **Comprehensive Error Handling**: Enhanced debugging and error tracking
-11. **Metadata Consistency**: Improved data flow and storage
-12. **Path Consistency Fix**: Fixed video path handling for WAN workers
+2. **🤖 Qwen 7B Enhancement**: WAN worker includes AI-powered prompt enhancement with multiple strategies
+3. **💬 Chat-Based Enhancement**: WAN worker now supports conversational prompt enhancement with Qwen 2.5-7B Instruct model
+4. **🎭 Dual Orchestrator**: Centralized management of both workers with monitoring and restart capabilities
+5. **Standardized Callback Parameters**: Consistent `job_id`, `assets` array across all workers
+6. **Enhanced Negative Prompts**: Intelligent generation for SDXL with multi-party scene detection
+7. **Seed Support**: User-controlled seeds for reproducible generation
+8. **Flexible SDXL Quantities**: User-selectable 1, 3, or 6 images per batch
+9. **Reference Image Support**: Optional image-to-image with type and strength control
+10. **Video Reference Frame Support**: I2V-style generation with start reference frame for WAN 1.3B model
+11. **Comprehensive Error Handling**: Enhanced debugging and error tracking
+12. **Metadata Consistency**: Improved data flow and storage
+13. **Path Consistency Fix**: Fixed video path handling for WAN workers
+14. **🔄 Robust Fallback System**: Automatic fallback from chat enhancement to base enhancement to original prompt
 
 ### **Performance Improvements**
 - Optimized batch processing for multi-image SDXL jobs
@@ -920,6 +1087,8 @@ completion_stats = {
 - Improved Redis queue management
 - Better resource utilization tracking
 - AI-powered prompt enhancement for higher quality output
+- Conversational prompt enhancement with context memory for improved coherence
+- Intelligent model loading/unloading for optimal memory management
 
 ### **Developer Experience**
 - Enhanced API documentation and examples
@@ -934,6 +1103,8 @@ completion_stats = {
 - Single-reference workflows continue to work
 - Non-reference generation unchanged
 - Compel integration is optional and backward compatible
+- Chat enhancement is optional and falls back to base enhancement if not specified
+- Original prompt enhancement behavior preserved when `enhancement_type` is not provided
 
 ---
 
