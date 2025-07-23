@@ -1369,6 +1369,159 @@ class EnhancedWanWorker:
             print("✅ Qwen 2.5-7B unloaded")
             self.log_gpu_memory()
 
+    def load_qwen_instruct_model(self):
+        """Load Qwen 2.5-7B Instruct model for chat/conversational enhancement"""
+        if hasattr(self, 'qwen_instruct_model') and self.qwen_instruct_model is not None:
+            return True
+            
+        # Use the verified Instruct model path from workspace analysis
+        instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
+        
+        if not os.path.exists(instruct_model_path):
+            print(f"⚠️ Qwen Instruct model not found at {instruct_model_path}")
+            return False
+            
+        try:
+            print("💬 Loading Qwen 2.5-7B Instruct model for chat enhancement...")
+            enhancement_start = time.time()
+            
+            # Set timeout for model loading
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(120)  # 2 minute timeout for model loading
+            
+            print(f"🔄 Loading Qwen Instruct model from {instruct_model_path}")
+            
+            # Load chat model components
+            self.qwen_instruct_tokenizer = AutoTokenizer.from_pretrained(
+                instruct_model_path,
+                trust_remote_code=True,
+                local_files_only=True  # Use local model only
+            )
+            
+            self.qwen_instruct_model = AutoModelForCausalLM.from_pretrained(
+                instruct_model_path,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+                trust_remote_code=True,
+                local_files_only=True  # Use local model only
+            )
+            
+            signal.alarm(0)
+            
+            load_time = time.time() - enhancement_start
+            print(f"✅ Qwen Instruct model loaded successfully in {load_time:.1f}s")
+            print(f"✅ Model type: INSTRUCT (conversational)")
+            self.log_gpu_memory()
+            return True
+            
+        except TimeoutException:
+            signal.alarm(0)
+            print(f"❌ Qwen Instruct model loading timed out after 120s")
+            return False
+        except Exception as e:
+            signal.alarm(0)
+            print(f"❌ Failed to load Qwen Instruct model: {e}")
+            return False
+
+    def unload_qwen_instruct_model(self):
+        """Free Qwen Instruct memory"""
+        if hasattr(self, 'qwen_instruct_model') and self.qwen_instruct_model is not None:
+            print("🗑️ Unloading Qwen Instruct model...")
+            del self.qwen_instruct_model
+            del self.qwen_instruct_tokenizer
+            self.qwen_instruct_model = None
+            self.qwen_instruct_tokenizer = None
+            torch.cuda.empty_cache()
+            print("✅ Qwen Instruct model unloaded")
+            self.log_gpu_memory()
+
+    def enhance_prompt_with_chat(self, original_prompt, session_id=None, conversation_context=None):
+        """Enhanced prompt generation using Instruct model with conversation memory"""
+        enhancement_start = time.time()
+        print(f"💬 Enhancing prompt with Instruct model: {original_prompt[:50]}...")
+        
+        try:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(self.enhancement_timeout)
+            
+            if not self.load_qwen_instruct_model():
+                print("⚠️ Instruct model not available, falling back to Base model")
+                return self.enhance_prompt_with_timeout(original_prompt)
+            
+            # Build conversation for instruct model
+            system_prompt = """You are an expert AI prompt engineer specializing in cinematic and adult content generation.
+
+Your role is to transform simple prompts into detailed, cinematic descriptions while maintaining anatomical accuracy and realism for adult content.
+
+Focus on:
+- High-quality visual details and realistic proportions
+- Cinematic lighting and professional photography style  
+- Specific poses, expressions, and scene composition
+- Technical quality like 4K resolution and smooth motion
+
+Always respond with enhanced prompts that are detailed, specific, and optimized for AI generation."""
+
+            # Format conversation for Instruct model
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Please enhance this prompt for AI video generation: {original_prompt}"}
+            ]
+            
+            if conversation_context:
+                messages.insert(1, {"role": "user", "content": f"Context: {conversation_context}"})
+            
+            # Apply chat template for Instruct model
+            formatted_prompt = self.qwen_instruct_tokenizer.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=True
+            )
+            
+            inputs = self.qwen_instruct_tokenizer(
+                formatted_prompt,
+                return_tensors="pt",
+                truncation=True,
+                max_length=2048
+            ).to(self.qwen_instruct_model.device)
+            
+            with torch.no_grad():
+                outputs = self.qwen_instruct_model.generate(
+                    **inputs,
+                    max_new_tokens=512,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                    eos_token_id=self.qwen_instruct_tokenizer.eos_token_id
+                )
+            
+            # Decode only the new tokens
+            enhanced_text = self.qwen_instruct_tokenizer.decode(
+                outputs[0][inputs['input_ids'].shape[1]:], 
+                skip_special_tokens=True
+            ).strip()
+            
+            signal.alarm(0)
+            
+            if enhanced_text:
+                enhancement_time = time.time() - enhancement_start
+                print(f"✅ Instruct Enhancement: {enhanced_text[:100]}...")
+                print(f"✅ Prompt enhanced with Instruct model in {enhancement_time:.1f}s")
+                return enhanced_text
+            else:
+                print("⚠️ Instruct enhancement empty, falling back to Base")
+                return self.enhance_prompt_with_timeout(original_prompt)
+                
+        except TimeoutException:
+            signal.alarm(0)
+            print(f"⚠️ Instruct enhancement timed out, falling back to Base")
+            return self.enhance_prompt_with_timeout(original_prompt)
+        except Exception as e:
+            signal.alarm(0)
+            print(f"❌ Instruct enhancement failed: {e}, falling back to Base")
+            return self.enhance_prompt_with_timeout(original_prompt)
+        finally:
+            self.unload_qwen_instruct_model()
+
     def enhance_prompt_with_timeout(self, original_prompt):
         """Enhanced NSFW-optimized prompt generation with Base model - no chat template needed"""
         enhancement_start = time.time()
@@ -1453,14 +1606,20 @@ Enhanced detailed prompt:"""
         finally:
             self.unload_qwen_model()
 
-    def enhance_prompt(self, original_prompt):
-        """Enhanced prompt with retry logic and graceful fallback"""
-        print(f"🤖 Starting enhancement for: {original_prompt[:50]}...")
+    def enhance_prompt(self, original_prompt, enhancement_type="instruct", session_id=None, conversation_context=None):
+        """Enhanced prompt with retry logic and model selection"""
+        print(f"🤖 Starting enhancement for: {original_prompt[:50]}... (type: {enhancement_type})")
         
         for attempt in range(self.max_enhancement_attempts):
             try:
                 print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
-                enhanced = self.enhance_prompt_with_timeout(original_prompt)
+                
+                # Choose enhancement method based on type
+                if enhancement_type == "chat" or enhancement_type == "instruct_chat":
+                    enhanced = self.enhance_prompt_with_chat(original_prompt, session_id, conversation_context)
+                else:
+                    # Use existing Base model enhancement (preserves current functionality)
+                    enhanced = self.enhance_prompt_with_timeout(original_prompt)
                 
                 if enhanced and enhanced.strip() != original_prompt.strip():
                     print(f"✅ Enhancement successful on attempt {attempt + 1}")
@@ -1920,13 +2079,25 @@ Enhanced detailed prompt:"""
                 duration = final_config['frame_num'] / effective_fps
                 print(f"⏱️ Expected duration: {duration:.1f} seconds (confirmed 16.67fps effective rate)")
             
-            # Handle prompt enhancement
+            # Handle prompt enhancement with chat support
             if final_config['enhance_prompt']:
-                print("🤖 Starting prompt enhancement with timeout protection...")
-                enhanced_prompt = self.enhance_prompt(original_prompt)
+                print("🤖 Starting prompt enhancement with chat support...")
+                
+                # Check if chat enhancement was requested in metadata
+                enhancement_type = metadata.get('enhancement_type', 'base')
+                session_id = metadata.get('session_id')
+                conversation_context = metadata.get('conversation_context')
+                
+                enhanced_prompt = self.enhance_prompt(
+                    original_prompt, 
+                    enhancement_type=enhancement_type,
+                    session_id=session_id,
+                    conversation_context=conversation_context
+                )
                 actual_prompt = enhanced_prompt
+                
                 if enhanced_prompt != original_prompt:
-                    print(f"✅ Prompt successfully enhanced")
+                    print(f"✅ Prompt successfully enhanced ({enhancement_type})")
                     print(f"📝 Length: {len(original_prompt)} → {len(enhanced_prompt)} chars")
                 else:
                     print(f"⚠️ Using original prompt (enhancement failed or timed out)")
