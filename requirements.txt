@@ -33,6 +33,9 @@ typing-extensions==4.12.2
 imageio==2.36.0
 imageio-ffmpeg==0.5.1
 
+# Flask for frontend enhancement API
+flask==3.0.2
+
 # WAN 2.1 Dependencies - REQUIRED
 easydict==1.13
 av==12.3.0

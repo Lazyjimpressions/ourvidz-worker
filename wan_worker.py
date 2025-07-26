@@ -17,9 +17,18 @@ import mimetypes
 import fcntl
 import glob
 import io
+import threading
 from pathlib import Path
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# Flask imports for frontend enhancement API
+try:
+    from flask import Flask, request, jsonify
+    FLASK_AVAILABLE = True
+except ImportError:
+    print("⚠️ Flask not available - frontend enhancement API will be disabled")
+    FLASK_AVAILABLE = False
 
 class TimeoutException(Exception):
     """Custom exception for timeouts"""
@@ -2396,10 +2405,163 @@ if __name__ == "__main__":
     print("🖼️ REFERENCE: All 5 reference modes (none, single, start, end, both)")
     
     try:
+        # Initialize worker
         worker = EnhancedWanWorker()
+        
+        # Make worker available globally for Flask endpoint
+        globals()['worker_instance'] = worker
+        
+        # Start Flask server in background thread if available
+        if FLASK_AVAILABLE:
+            flask_thread = threading.Thread(target=run_flask_server, daemon=True)
+            flask_thread.start()
+            print("✅ Flask server started on port 7860")
+            
+            # Give Flask a moment to start
+            time.sleep(2)
+        else:
+            print("⚠️ Flask server not started - Flask not available")
+        
+        # Start main worker loop
+        print("🎬 Starting WAN worker main loop...")
         worker.run_with_enhanced_diagnostics()
+        
+    except KeyboardInterrupt:
+        print("🛑 Worker stopped by user")
     except Exception as e:
         print(f"❌ Worker startup failed: {e}")
+        import traceback
+        traceback.print_exc()
         exit(1)
     finally:
         print("👋 Enhanced WAN 1.3B Worker shutdown complete")
+
+# Flask server for frontend enhancement API
+if FLASK_AVAILABLE:
+    # Initialize Flask app
+    app = Flask(__name__)
+
+    @app.route('/enhance', methods=['POST'])
+    def enhance_endpoint():
+        """Frontend enhancement endpoint using real Qwen Base model"""
+        try:
+            # API Key Authentication
+            auth_header = request.headers.get('Authorization')
+            expected_key = os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')
+            
+            if not auth_header or not auth_header.startswith('Bearer '):
+                return jsonify({
+                    'success': False,
+                    'error': 'Missing or invalid Authorization header'
+                }), 401
+            
+            provided_key = auth_header.replace('Bearer ', '')
+            if provided_key != expected_key:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid API key'
+                }), 401
+            
+            # Validate request
+            data = request.json
+            if not data or 'prompt' not in data:
+                return jsonify({
+                    'success': False,
+                    'error': 'prompt is required'
+                }), 400
+            
+            original_prompt = data.get('prompt', '')
+            model = data.get('model', 'qwen_base')
+            enhance_type = data.get('enhance_type', 'natural_language')
+            
+            if not original_prompt.strip():
+                return jsonify({
+                    'success': False,
+                    'error': 'prompt cannot be empty'
+                }), 400
+            
+            print(f"🎯 Frontend enhancement request: {original_prompt[:50]}...")
+            start_time = time.time()
+            
+            # Use existing Qwen Base enhancement with frontend timeout
+            if model == 'qwen_base':
+                # Get worker instance (assuming it's available globally)
+                worker = globals().get('worker_instance')
+                if not worker:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Worker not initialized'
+                    }), 500
+                
+                # Temporarily adjust timeout for frontend responsiveness
+                original_timeout = worker.enhancement_timeout
+                worker.enhancement_timeout = 25  # Frontend-optimized timeout
+                
+                try:
+                    enhanced_prompt = worker.enhance_prompt_with_timeout(original_prompt)
+                    processing_time = time.time() - start_time
+                    
+                    print(f"✅ Frontend enhancement completed in {processing_time:.1f}s")
+                    
+                    return jsonify({
+                        'success': True,
+                        'enhanced_prompt': enhanced_prompt,
+                        'original_prompt': original_prompt,
+                        'enhancement_source': 'qwen_base',
+                        'processing_time': processing_time,
+                        'model': model
+                    })
+                    
+                except Exception as e:
+                    print(f"❌ Qwen enhancement failed: {e}")
+                    return jsonify({
+                        'success': False,
+                        'error': f'Enhancement failed: {str(e)}',
+                        'enhanced_prompt': original_prompt  # Fallback
+                    }), 500
+                finally:
+                    # Restore original timeout
+                    worker.enhancement_timeout = original_timeout
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Unsupported model: {model}'
+                }), 400
+                
+        except Exception as e:
+            print(f"❌ Frontend enhancement endpoint error: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'enhanced_prompt': data.get('prompt', '') if data else ''
+            }), 500
+
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        """Health check endpoint"""
+        worker = globals().get('worker_instance')
+        return jsonify({
+            'status': 'healthy',
+            'qwen_loaded': worker and hasattr(worker, 'qwen_model') and worker.qwen_model is not None,
+            'timestamp': time.time(),
+            'worker_ready': worker is not None
+        })
+
+    def run_flask_server():
+        """Run Flask server in a separate thread"""
+        try:
+            print("🌐 Starting Flask server for frontend enhancement on port 7860...")
+            print("🌐 Public endpoint: https://ghy077o4okmjzi-7860.proxy.runpod.net/")
+            app.run(host='0.0.0.0', port=7860, debug=False, threaded=True, use_reloader=False)
+        except Exception as e:
+            print(f"❌ Flask server failed to start: {e}")
+else:
+    # Placeholder functions when Flask is not available
+    def run_flask_server():
+        print("⚠️ Flask server not started - Flask not available")
+    
+    def enhance_endpoint():
+        pass
+    
+    def health_check():
+        pass

@@ -1,6 +1,6 @@
 # OurVidz Worker API Reference
 
-**Last Updated:** July 20, 2025 at 11:45 PM CST  
+**Last Updated:** July 23, 2025 at 6:45 PM CST  
 **Status:** ✅ Production Ready - All 10 Job Types Operational + Compel Integration + Multi-Reference System Live  
 **System:** Dual Worker (SDXL + WAN) on RTX 6000 ADA (48GB VRAM)
 
@@ -252,8 +252,19 @@ if reference_image_url:
 
 ### **Video Generation with Reference Frames (WAN 1.3B Model)**
 
+#### **Current Implementation (Updated)**
+The WAN 1.3B model uses the `t2v-1.3B` task for all video generation, including reference frames:
+
+- **Standard Video**: `t2v-1.3B` task (no reference frames)
+- **Single Reference**: `t2v-1.3B` task with `--image` parameter
+- **Start Frame**: `t2v-1.3B` task with `--first_frame` parameter  
+- **End Frame**: `t2v-1.3B` task with `--last_frame` parameter
+- **Both Frames**: `t2v-1.3B` task with `--first_frame` and `--last_frame` parameters
+
+**Note**: The `flf2v-14B` task is not currently used in the implementation.
+
 #### **Reference Strength Control Implementation**
-The WAN 1.3B model uses `--first_frame` parameter for reference frames, with reference strength control through guidance scale adjustment:
+The WAN 1.3B model uses reference frame parameters with reference strength control through guidance scale adjustment:
 
 ```python
 def adjust_guidance_for_reference_strength(self, base_guide_scale, reference_strength):
@@ -309,16 +320,29 @@ base_guide_scale = config.get('sample_guide_scale', 6.5)
 adjusted_guide_scale = adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
 config['sample_guide_scale'] = adjusted_guide_scale
 
-# Determine task type based on reference availability (1.3B Model)
-if start_reference_url:
-    # Use T2V task with --first_frame parameter for start reference
-    task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with start frame reference
+# Determine reference frame mode and task type (1.3B Model)
+if single_reference_url and not start_reference_url and not end_reference_url:
+    # Single reference frame mode (I2V-style)
+    task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --image parameter
+    print(f"🎬 Using T2V task with single reference frame (1.3B model)")
+elif start_reference_url and end_reference_url:
+    # Both frames mode (start + end)
+    task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --first_frame + --last_frame
+    print(f"🎬 Using T2V task with both reference frames (1.3B model)")
+elif start_reference_url and not end_reference_url:
+    # Start frame only mode
+    task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --first_frame parameter
     print(f"🎬 Using T2V task with start frame reference (1.3B model)")
-    print(f"🎯 Reference strength: {reference_strength} → Guidance scale: {adjusted_guide_scale}")
+elif end_reference_url and not start_reference_url:
+    # End frame only mode
+    task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --last_frame parameter
+    print(f"🎬 Using T2V task with end frame reference (1.3B model)")
 else:
-    # Use T2V task for standard video generation
+    # Standard generation (no reference frames)
     task_type = "t2v-1.3B"  # ✅ CORRECT: Text-to-Video standard
     print(f"🎬 Using T2V task for standard video generation")
+
+print(f"🎯 Reference strength: {reference_strength} → Guidance scale: {adjusted_guide_scale}")
 ```
 
 ### **🤖 Qwen 7B Prompt Enhancement (Enhanced with Chat Support)**
@@ -558,6 +582,31 @@ The chat-based enhancement supports conversation memory for coherent multi-turn 
 }
 ```
 
+#### **📋 Chat Enhancement Metadata Parameters**
+
+**Required for Chat Enhancement:**
+- `enhancement_type`: `"chat"` or `"instruct_chat"` (enables conversational enhancement)
+- `session_id`: Unique identifier for the user session (enables conversation memory)
+
+**Optional for Enhanced Context:**
+- `conversation_context`: Previous conversation history or context (improves coherence)
+
+**Example Usage:**
+```json
+{
+  "metadata": {
+    "enhancement_type": "chat",
+    "session_id": "user_123_session_456",
+    "conversation_context": "User requested: 'woman in red dress' → Enhanced to: 'elegant woman in flowing red silk dress'"
+  }
+}
+```
+
+**Fallback Behavior:**
+- If `enhancement_type` is not specified: Uses `"base"` enhancement
+- If `session_id` is missing: Chat enhancement falls back to base enhancement
+- If `conversation_context` is missing: Uses only current prompt for enhancement
+
 #### **🔄 Fallback Strategy**
 The enhancement system includes robust fallback mechanisms:
 1. **Primary**: Attempt chat-based enhancement with Instruct model
@@ -578,6 +627,122 @@ The Dual Worker Orchestrator manages both SDXL and WAN workers concurrently, pro
 - **Resource Monitoring**: Tracks GPU memory and worker performance
 - **Graceful Validation**: Validates environment before starting workers
 - **Status Monitoring**: Real-time worker status and job tracking
+
+### **Orchestrator API Endpoints**
+
+#### **Worker Status Monitoring**
+```http
+GET /worker/status
+```
+
+**Response:**
+```json
+{
+  "status": "running",
+  "workers": {
+    "sdxl": {
+      "status": "active",
+      "uptime": 3600,
+      "jobs_processed": 25,
+      "last_job_time": "2025-07-23T18:30:00Z",
+      "memory_usage": "12.5GB",
+      "error_count": 0
+    },
+    "wan": {
+      "status": "active", 
+      "uptime": 3600,
+      "jobs_processed": 15,
+      "last_job_time": "2025-07-23T18:25:00Z",
+      "memory_usage": "28.3GB",
+      "error_count": 0
+    }
+  },
+  "system": {
+    "gpu_memory_total": "48GB",
+    "gpu_memory_used": "40.8GB",
+    "gpu_utilization": "85%",
+    "active_jobs": 3
+  }
+}
+```
+
+#### **Worker Restart**
+```http
+POST /worker/restart/{worker_id}
+```
+
+**Parameters:**
+- `worker_id`: `sdxl` | `wan`
+
+**Response:**
+```json
+{
+  "status": "restarting",
+  "worker_id": "sdxl",
+  "restart_time": "2025-07-23T18:35:00Z",
+  "estimated_startup_time": "30s"
+}
+```
+
+#### **Resource Monitoring**
+```http
+GET /worker/resources
+```
+
+**Response:**
+```json
+{
+  "gpu": {
+    "name": "RTX 6000 ADA",
+    "memory_total": "48GB",
+    "memory_used": "40.8GB",
+    "memory_free": "7.2GB",
+    "utilization": "85%",
+    "temperature": "72°C"
+  },
+  "workers": {
+    "sdxl": {
+      "memory_allocated": "12.5GB",
+      "model_loaded": true,
+      "queue_size": 2
+    },
+    "wan": {
+      "memory_allocated": "28.3GB", 
+      "model_loaded": true,
+      "queue_size": 1
+    }
+  },
+  "queues": {
+    "sdxl_queue": 2,
+    "wan_queue": 1
+  }
+}
+```
+
+#### **Environment Validation**
+```http
+GET /worker/validate
+```
+
+**Response:**
+```json
+{
+  "status": "valid",
+  "checks": {
+    "environment_variables": true,
+    "model_paths": true,
+    "gpu_availability": true,
+    "python_dependencies": true,
+    "worker_scripts": true
+  },
+  "details": {
+    "pytorch_version": "2.4.1+cu124",
+    "cuda_version": "12.4",
+    "gpu_memory": "48GB",
+    "missing_dependencies": []
+  }
+}
+```
 
 ### **Worker Configurations**
 ```python
@@ -788,6 +953,177 @@ def status_monitor(self):
 
 ---
 
+## **🌐 Frontend Enhancement API**
+
+### **Overview**
+The WAN worker includes a Flask-based API for real-time prompt enhancement using the Qwen 7B model. This allows frontend applications to enhance prompts before submitting them to the main worker queue.
+
+### **Enhancement Endpoint**
+```http
+POST https://ghy077o4okmjzi-7860.proxy.runpod.net/enhance
+```
+
+### **Request Format**
+```json
+{
+  "prompt": "beautiful woman in garden",
+  "model": "qwen_base",
+  "enhance_type": "natural_language"
+}
+```
+
+### **Headers**
+```http
+Authorization: Bearer your_api_key_here
+Content-Type: application/json
+```
+
+### **Response Format**
+```json
+{
+  "success": true,
+  "enhanced_prompt": "stunning woman with flowing hair in sunlit garden, cinematic lighting, 4K quality",
+  "original_prompt": "beautiful woman in garden",
+  "enhancement_source": "qwen_base",
+  "processing_time": 2.5,
+  "model": "qwen_base"
+}
+```
+
+### **Error Response**
+```json
+{
+  "success": false,
+  "error": "Enhancement failed: Model not available",
+  "enhanced_prompt": "beautiful woman in garden"
+}
+```
+
+### **Health Check Endpoint**
+```http
+GET https://ghy077o4okmjzi-7860.proxy.runpod.net/health
+```
+
+### **Health Response**
+```json
+{
+  "status": "healthy",
+  "qwen_loaded": true,
+  "timestamp": 1732320000.0,
+  "worker_ready": true
+}
+```
+
+### **Environment Variables**
+```bash
+# API Key for frontend enhancement (optional, defaults to 'default_key_123')
+WAN_WORKER_API_KEY=your_secure_api_key_here
+```
+
+### **Usage Example**
+```python
+import requests
+
+# Enhance a prompt
+response = requests.post(
+    'https://ghy077o4okmjzi-7860.proxy.runpod.net/enhance',
+    headers={
+        'Authorization': 'Bearer your_api_key_here',
+        'Content-Type': 'application/json'
+    },
+    json={
+        'prompt': 'beautiful woman in garden',
+        'model': 'qwen_base'
+    }
+)
+
+if response.status_code == 200:
+    result = response.json()
+    enhanced_prompt = result['enhanced_prompt']
+    print(f"Enhanced: {enhanced_prompt}")
+else:
+    print(f"Error: {response.json()['error']}")
+```
+
+---
+
+## **🔧 Environment Requirements**
+
+### **System Requirements**
+- **GPU**: NVIDIA RTX 6000 ADA (48GB VRAM) or equivalent
+- **RAM**: 64GB+ system memory
+- **Storage**: 500GB+ SSD for models and temporary files
+- **OS**: Linux (Ubuntu 20.04+ recommended)
+
+### **Required Environment Variables**
+```bash
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+
+# Redis Configuration (Upstash)
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-redis-token
+
+# Optional: Custom paths
+PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages
+HF_HOME=/workspace/models/huggingface_cache
+```
+
+### **Model Paths**
+```bash
+# WAN 1.3B Model
+/workspace/models/wan2.1-t2v-1.3b
+
+# SDXL Model
+/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors
+
+# Qwen Models
+/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796
+/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct
+
+# WAN Code
+/workspace/Wan2.1
+```
+
+### **Python Dependencies**
+```bash
+# Core Dependencies
+torch==2.4.1+cu124
+transformers>=4.36.0
+diffusers>=0.24.0
+accelerate>=0.25.0
+
+# WAN Dependencies
+wan>=2.1.0
+xfuser>=0.1.0
+
+# SDXL Dependencies
+compel==0.1.8
+pyparsing==3.0.9
+
+# Utility Dependencies
+Pillow>=10.0.0
+requests>=2.31.0
+redis>=5.0.0
+```
+
+### **Environment Validation**
+The system automatically validates the environment before starting workers:
+
+```python
+# Validation checks performed
+- PyTorch version (2.4.1+cu124 required)
+- CUDA version (12.4 required)
+- GPU availability and memory
+- Model file existence
+- Python package availability
+- Environment variable configuration
+- Worker script accessibility
+```
+
+---
+
 ## **🔄 Job Processing Flow**
 
 ### **1. Job Retrieval**
@@ -886,14 +1222,27 @@ else:
         start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
         end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
         
-        if start_reference_url or end_reference_url:
-            # Use T2V task with --first_frame and/or --last_frame parameters (1.3B Model)
-            task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with frame references
-            result = generate_t2v_video_with_references(prompt, start_reference_url, end_reference_url, config.get('frame_num', 83), task_type)
+        # Determine reference frame mode and route to appropriate generation function
+        if single_reference_url and not start_reference_url and not end_reference_url:
+            # Single reference frame mode (I2V-style)
+            task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --image parameter
+            result = generate_video_with_single_reference(prompt, single_reference_url, config.get('frame_num', 83), task_type)
+        elif start_reference_url and end_reference_url:
+            # Both frames mode (start + end)
+            task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --first_frame + --last_frame
+            result = generate_video_with_both_frames(prompt, start_reference_url, end_reference_url, config.get('frame_num', 83), task_type)
+        elif start_reference_url and not end_reference_url:
+            # Start frame only mode
+            task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --first_frame parameter
+            result = generate_video_with_start_frame(prompt, start_reference_url, config.get('frame_num', 83), task_type)
+        elif end_reference_url and not start_reference_url:
+            # End frame only mode
+            task_type = "t2v-1.3B"  # ✅ CORRECT: T2V with --last_frame parameter
+            result = generate_video_with_end_frame(prompt, end_reference_url, config.get('frame_num', 83), task_type)
         else:
-            # Use T2V task for standard video generation
+            # Standard generation (no reference frames)
             task_type = "t2v-1.3B"  # ✅ CORRECT: Text-to-Video standard
-            result = generate_t2v_video(prompt, config.get('frame_num', 83), task_type)
+            result = generate_standard_video(prompt, config.get('frame_num', 83), task_type)
     else:
         # Standard image generation
         result = generate_wan_content(prompt, config)
@@ -1063,7 +1412,7 @@ completion_stats = {
 
 ---
 
-## **🚀 Recent Updates (July 20, 2025)**
+## **🚀 Recent Updates (July 23, 2025)**
 
 ### **Major Enhancements**
 1. **🎯 Compel Integration**: SDXL worker now supports Compel prompt enhancement with weighted attention
@@ -1080,6 +1429,17 @@ completion_stats = {
 12. **Metadata Consistency**: Improved data flow and storage
 13. **Path Consistency Fix**: Fixed video path handling for WAN workers
 14. **🔄 Robust Fallback System**: Automatic fallback from chat enhancement to base enhancement to original prompt
+
+### **Latest Documentation Updates (July 23, 2025)**
+1. **🔧 Environment Requirements**: Added comprehensive system requirements, environment variables, and model paths
+2. **🎭 Dual Orchestrator API**: Added complete API endpoints for worker monitoring, restart, and resource management
+3. **💬 Chat Enhancement Documentation**: Enhanced documentation for chat-based prompt enhancement with session management
+4. **🎬 WAN 1.3B Task Clarification**: Updated to reflect current implementation using only `t2v-1.3B` task
+5. **📋 Reference Frame Modes**: Clarified all 5 reference frame modes and their parameter usage
+6. **🔍 Environment Validation**: Added detailed validation requirements and error handling
+7. **📊 Resource Monitoring**: Added comprehensive resource monitoring and status tracking
+8. **🛠️ Python Dependencies**: Added complete dependency list with version requirements
+9. **🌐 Frontend Enhancement API**: Added Flask-based API for real-time prompt enhancement with Qwen 7B model
 
 ### **Performance Improvements**
 - Optimized batch processing for multi-image SDXL jobs
