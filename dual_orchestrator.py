@@ -145,7 +145,8 @@ class DualWorkerOrchestrator:
             'SUPABASE_URL', 
             'SUPABASE_SERVICE_KEY', 
             'UPSTASH_REDIS_REST_URL', 
-            'UPSTASH_REDIS_REST_TOKEN'
+            'UPSTASH_REDIS_REST_TOKEN',
+            'WAN_WORKER_API_KEY'  # ✅ ADDED: Required for /enhance endpoint
         ]
         missing_vars = [var for var in required_vars if not os.getenv(var)]
         if missing_vars:

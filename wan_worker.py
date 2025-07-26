@@ -2700,11 +2700,13 @@ if FLASK_AVAILABLE:
     @app.route('/debug/env', methods=['GET'])
     def debug_env():
         """Debug endpoint to check environment variables"""
+        wan_key = os.environ.get('WAN_WORKER_API_KEY')
         return jsonify({
-            'wan_worker_api_key_set': bool(os.environ.get('WAN_WORKER_API_KEY')),
-            'wan_worker_api_key_value': os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'NOT SET',
-            'expected_key': os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'default_key_123',
-            'full_api_key': os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')  # TEMPORARY: Show full key for testing
+            'wan_worker_api_key_set': bool(wan_key),
+            'wan_worker_api_key_value': wan_key[:10] + '...' if wan_key else 'NOT SET',
+            'expected_key': wan_key[:10] + '...' if wan_key else 'default_key_123',
+            'full_api_key': wan_key if wan_key else 'NOT SET',  # TEMPORARY: Show full key for testing
+            'all_env_vars': {k: v for k, v in os.environ.items() if 'KEY' in k or 'URL' in k or 'TOKEN' in k}  # Show relevant env vars
         })
 
     def run_flask_server():
@@ -2747,6 +2749,15 @@ if __name__ == "__main__":
         'UPSTASH_REDIS_REST_TOKEN',
         'WAN_WORKER_API_KEY'  # ✅ ADDED: Required for /enhance endpoint
     ]
+    
+    # Debug: Check environment variables before validation
+    print("🔍 Environment variable check:")
+    for var in required_vars:
+        value = os.getenv(var)
+        if value:
+            print(f"  ✅ {var}: {'*' * min(len(value), 10)}... (length: {len(value)})")
+        else:
+            print(f"  ❌ {var}: NOT SET")
     
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
