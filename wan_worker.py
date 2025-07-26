@@ -1,9 +1,10 @@
-# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES + REFERENCE STRENGTH
-# FIXES: Correct task names for 1.3B model, proper I2V support for reference frames
+# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES + AUTO-REGISTRATION
+# FIXES: Correct task names for 1.3B model, proper I2V support for reference frames, auto URL registration
 # MAJOR FIX: Use correct 1.3B tasks (t2v-1.3B, i2v not flf2v)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
 # REFERENCE STRENGTH FIX: Adjust sample_guide_scale based on reference strength
-# Date: July 19, 2025
+# AUTO-REGISTRATION FIX: Detect RunPod URL and register with Supabase automatically
+# Date: July 26, 2025
 
 import os
 import json

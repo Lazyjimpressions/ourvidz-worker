@@ -25,6 +25,27 @@ else
     echo "🎯 Chat Integration: ⚠️ PARTIAL"
 fi
 
+echo "=== AUTO-REGISTRATION: Checking RunPod environment ==="
+if [ -n "$RUNPOD_POD_ID" ]; then
+    detected_url="https://${RUNPOD_POD_ID}-7860.proxy.runpod.net"
+    echo "✅ RunPod Pod ID detected: $RUNPOD_POD_ID"
+    echo "🌐 Worker URL will be: $detected_url"
+    echo "🔧 Auto-registration will be handled by WAN worker after Flask startup"
+else
+    echo "⚠️ RUNPOD_POD_ID not found - will try hostname fallback"
+    hostname=$(hostname)
+    echo "🔍 Hostname: $hostname"
+    if [[ "$hostname" =~ ^[a-z0-9]+-[a-z0-9]+ ]]; then
+        pod_id=$(echo "$hostname" | cut -d'-' -f1)
+        detected_url="https://${pod_id}-7860.proxy.runpod.net"
+        echo "✅ Pod ID from hostname: $pod_id"
+        echo "🌐 Worker URL will be: $detected_url"
+    else
+        echo "⚠️ Could not detect Pod ID from hostname"
+        echo "🔧 Auto-registration may not work - manual registration may be needed"
+    fi
+fi
+
 echo "=== Setting environment ==="
 export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages
 export HF_HOME=/workspace/models/huggingface_cache
@@ -51,4 +72,14 @@ except ImportError as e:
 EOF
 
 echo "=== Starting dual workers (auto-registration handled by WAN worker) ==="
+echo "🌐 Auto-registration sequence:"
+echo "  1. Orchestrator starts both workers"
+echo "  2. WAN worker starts Flask server on port 7860"
+echo "  3. WAN worker detects RunPod URL using RUNPOD_POD_ID"
+echo "  4. WAN worker validates URL health"
+echo "  5. WAN worker registers URL with Supabase"
+echo "  6. WAN worker starts periodic health monitoring"
+echo "  7. Edge functions can now find worker automatically"
+echo ""
+
 exec python -u dual_orchestrator.py
