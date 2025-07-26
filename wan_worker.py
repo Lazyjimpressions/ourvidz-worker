@@ -1742,22 +1742,22 @@ Always respond with enhanced prompts that are detailed, specific, and optimized 
             self.unload_qwen_instruct_model()
 
     def _enhance_with_qwen_internal(self, enhancement_prompt, inputs):
-        """Internal method for Qwen enhancement - used with timeout wrapper"""
+        """Internal method for Qwen enhancement - optimized generation parameters"""
         print(f"🧠 Generating enhancement with Qwen 2.5-7B...")
         
-        # Generate with specific parameters optimized for enhancement
+        # Generate with optimized parameters for speed and quality
         with torch.no_grad():
             output = self.qwen_model.generate(
                 **inputs,
-                max_new_tokens=200,  # Reasonable limit for prompt enhancement
+                max_new_tokens=150,     # ✅ REDUCED: Faster generation
                 do_sample=True,
-                temperature=0.7,    # Balanced creativity
-                top_p=0.9,         # Good diversity
-                top_k=40,          # Prevent repetition
+                temperature=0.7,       # Balanced creativity
+                top_p=0.9,            # Good diversity
+                top_k=40,             # Prevent repetition
                 repetition_penalty=1.1,
                 pad_token_id=self.qwen_tokenizer.eos_token_id,
                 eos_token_id=self.qwen_tokenizer.eos_token_id,
-                early_stopping=True
+                early_stopping=True    # ✅ ADDED: Stop early when appropriate
             )
         
         # Decode and clean up the response
@@ -1770,18 +1770,23 @@ Always respond with enhanced prompts that are detailed, specific, and optimized 
         return enhanced
 
     def enhance_prompt_with_timeout(self, original_prompt):
-        """Enhanced NSFW-optimized prompt generation with Base model - thread-safe timeouts"""
+        """Enhanced NSFW-optimized prompt generation with Base model - optimized timeouts"""
         enhancement_start = time.time()
         print(f"🤖 Enhancing NSFW prompt with Base model ({self.enhancement_timeout}s timeout): {original_prompt[:50]}...")
         
         try:
+            # Step 1: Load model (separate timeout, keep loaded)
+            model_load_start = time.time()
             self.load_qwen_model()
             
             if self.qwen_model is None:
                 print("⚠️ Qwen base model not available, using original prompt")
                 return original_prompt
             
-            # NSFW-optimized base model prompting - enhanced for adult content quality
+            model_load_time = time.time() - model_load_start
+            print(f"🤖 Model ready in {model_load_time:.1f}s")
+            
+            # Step 2: Prepare enhancement prompt
             enhancement_prompt = f"""Create a detailed, cinematic prompt for AI video generation optimized for adult content. Focus on:
 
 VISUAL DETAILS: High-quality anatomical accuracy, realistic proportions, natural skin textures, detailed facial features, expressive eyes, natural hair flow, realistic body language.
@@ -1801,21 +1806,32 @@ Original request: {original_prompt}
 Enhanced prompt:"""
 
             print(f"📝 Tokenizing enhancement prompt...")
+            tokenize_start = time.time()
             inputs = self.qwen_tokenizer(enhancement_prompt, return_tensors="pt", truncate=True, max_length=1024)
             
             # Move inputs to the same device as the model
             if hasattr(self.qwen_model, 'device'):
                 inputs = {k: v.to(self.qwen_model.device) for k, v in inputs.items()}
             
-            # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
+            tokenize_time = time.time() - tokenize_start
+            print(f"📝 Tokenization completed in {tokenize_time:.1f}s")
+            
+            # Step 3: Generate with shorter timeout (model already loaded)
+            generation_timeout = max(15, self.enhancement_timeout - model_load_time - tokenize_time - 5)  # Reserve 5s for cleanup
+            print(f"🧠 Starting generation with {generation_timeout:.1f}s timeout...")
+            
+            generation_start = time.time()
             enhanced = run_with_timeout(
                 self._enhance_with_qwen_internal, 
-                self.enhancement_timeout, 
+                generation_timeout,  # Dynamic timeout based on time remaining
                 enhancement_prompt, 
                 inputs
             )
             
-            # Clean up and validate result
+            generation_time = time.time() - generation_start
+            print(f"🧠 Generation completed in {generation_time:.1f}s")
+            
+            # Step 4: Process result
             if enhanced and len(enhanced.strip()) > 10:
                 enhanced = enhanced.strip()
                 
@@ -1823,22 +1839,30 @@ Enhanced prompt:"""
                 if enhanced.lower().startswith("enhanced prompt:"):
                     enhanced = enhanced[16:].strip()
                 
-                generation_time = time.time() - enhancement_start
-                print(f"✅ Qwen enhancement completed in {generation_time:.1f}s")
+                total_time = time.time() - enhancement_start
+                print(f"✅ Qwen enhancement completed in {total_time:.1f}s")
                 print(f"📝 Enhanced from {len(original_prompt)} to {len(enhanced)} characters")
+                print(f"🔍 Enhancement preview: {enhanced[:100]}...")
+                
+                # ✅ KEY FIX: Don't unload model immediately - keep for future requests
+                print("🤖 Keeping model loaded for future requests")
                 return enhanced
             else:
                 print("⚠️ Qwen returned empty/invalid enhancement, using original")
                 return original_prompt
                 
         except TimeoutException:
-            print(f"⏰ Qwen enhancement timed out after {self.enhancement_timeout}s, using original prompt")
+            remaining_time = self.enhancement_timeout - (time.time() - enhancement_start)
+            print(f"⏰ Qwen enhancement timed out with {remaining_time:.1f}s remaining, using original prompt")
             return original_prompt
         except Exception as e:
             print(f"❌ Qwen enhancement failed: {e}")
+            import traceback
+            traceback.print_exc()
             return original_prompt
-        finally:
-            self.unload_qwen_model()
+        # ✅ KEY FIX: Don't unload model in finally block - keep loaded
+        # finally:
+        #     self.unload_qwen_model()
 
     def enhance_prompt(self, original_prompt, enhancement_type="instruct", session_id=None, conversation_context=None):
         """Enhanced prompt with retry logic and model selection"""
@@ -2661,9 +2685,8 @@ if FLASK_AVAILABLE:
             print(f"🎯 Frontend enhancement request: {original_prompt[:50]}...")
             start_time = time.time()
             
-            # Use existing Qwen Base enhancement with frontend timeout
+            # Use existing Qwen Base enhancement with optimized timeout
             if model == 'qwen_base':
-                # Get worker instance (assuming it's available globally)
                 worker = globals().get('worker_instance')
                 if not worker:
                     return jsonify({
@@ -2671,15 +2694,27 @@ if FLASK_AVAILABLE:
                         'error': 'Worker not initialized'
                     }), 500
                 
-                # Temporarily adjust timeout for frontend responsiveness
+                # ✅ OPTIMIZED: Increase timeout for first-time model loading
                 original_timeout = worker.enhancement_timeout
-                worker.enhancement_timeout = 25  # Frontend-optimized timeout
+                
+                # Check if model is already loaded
+                if hasattr(worker, 'qwen_model') and worker.qwen_model is not None:
+                    # Model already loaded - use shorter timeout
+                    worker.enhancement_timeout = 30
+                    print("🚀 Model already loaded, using 30s timeout")
+                else:
+                    # Model needs loading - use longer timeout  
+                    worker.enhancement_timeout = 90  # Allow time for model loading
+                    print("⏳ Model needs loading, using 90s timeout")
                 
                 try:
                     enhanced_prompt = worker.enhance_prompt_with_timeout(original_prompt)
                     processing_time = time.time() - start_time
                     
                     print(f"✅ Frontend enhancement completed in {processing_time:.1f}s")
+                    
+                    # Check if enhancement actually happened
+                    enhancement_applied = enhanced_prompt != original_prompt
                     
                     return jsonify({
                         'success': True,
@@ -2688,7 +2723,9 @@ if FLASK_AVAILABLE:
                         'enhancement_source': 'qwen_base',
                         'processing_time': processing_time,
                         'model': model,
-                        'thread_safe': True  # ✅ NEW: Indicate thread-safe processing
+                        'thread_safe': True,
+                        'enhancement_applied': enhancement_applied,  # ✅ NEW: Track if enhancement worked
+                        'model_was_loaded': hasattr(worker, 'qwen_model') and worker.qwen_model is not None
                     })
                     
                 except Exception as e:
