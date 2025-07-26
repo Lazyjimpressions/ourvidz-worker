@@ -101,10 +101,14 @@ def auto_register_worker_url():
             print("⚠️ Could not detect RunPod URL - skipping auto-registration")
             return False
         
-        # Validate the URL works before registering
-        if not validate_worker_url(detected_url):
-            print("⚠️ Detected URL not responding - skipping registration")
-            return False
+        # ✅ IMPROVED: Skip URL validation during initial registration
+        # Flask might not be fully ready yet, so we'll register the URL anyway
+        # The periodic health monitoring will validate it later
+        print(f"🌐 Detected URL: {detected_url}")
+        
+        # Debug: Check environment variables
+        print(f"🔍 SUPABASE_URL: {os.environ.get('SUPABASE_URL', 'NOT SET')}")
+        print(f"🔍 SUPABASE_SERVICE_KEY: {'SET' if os.environ.get('SUPABASE_SERVICE_KEY') else 'NOT SET'}")
         
         # Register with Supabase via update-worker-url edge function
         registration_data = {
@@ -116,9 +120,13 @@ def auto_register_worker_url():
         }
         
         print(f"📝 Registering with Supabase: {detected_url}")
+        print(f"📄 Registration data: {registration_data}")
+        
+        edge_function_url = f"{os.environ['SUPABASE_URL']}/functions/v1/update-worker-url"
+        print(f"🌐 Edge function URL: {edge_function_url}")
         
         response = requests.post(
-            f"{os.environ['SUPABASE_URL']}/functions/v1/update-worker-url",
+            edge_function_url,
             headers={
                 "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
                 "Content-Type": "application/json"
@@ -127,53 +135,103 @@ def auto_register_worker_url():
             timeout=15
         )
         
-        if response.status_code == 200:
+        print(f"📄 Response status: {response.status_code}")
+        print(f"📄 Response headers: {dict(response.headers)}")
+        
+        try:
             result = response.json()
+            print(f"📄 Response JSON: {result}")
+        except:
+            print(f"📄 Response text: {response.text}")
+            result = {}
+        
+        if response.status_code == 200:
             if result.get('success'):
                 print(f"✅ Worker URL auto-registered successfully!")
-                print(f"✅ Edge functions will now use: {detected_url}")
+                print(f"🎯 Registration confirmed: {detected_url}")
                 return True
             else:
-                print(f"❌ Registration failed: {result.get('error')}")
-                return False
+                print(f"❌ Registration failed: {result.get('message', 'Unknown error')}")
+                # Try fallback registration method
+                return fallback_registration(detected_url)
         else:
-            print(f"❌ Registration request failed: {response.status_code}")
-            print(f"❌ Response: {response.text}")
-            return False
+            print(f"❌ Registration HTTP error: {response.status_code}")
+            print(f"📄 Response: {response.text}")
+            # Try fallback registration method
+            return fallback_registration(detected_url)
             
     except Exception as e:
         print(f"❌ Auto-registration error: {e}")
         return False
 
-def start_periodic_health_monitoring():
-    """Start background thread for periodic health checks and re-registration"""
-    import threading
-    import time
-    
-    def monitoring_loop():
-        interval = 300  # 5 minutes
+def fallback_registration(detected_url):
+    """Fallback registration method using direct Supabase REST API"""
+    try:
+        print("🔄 Attempting fallback registration via REST API...")
         
+        # Try to update system_config table directly
+        response = requests.patch(
+            f"{os.environ['SUPABASE_URL']}/rest/v1/system_config",
+            json={
+                "key": "worker_url",
+                "value": detected_url,
+                "updated_at": datetime.now().isoformat()
+            },
+            headers={
+                "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            },
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201, 204]:
+            print(f"✅ Fallback registration successful: {detected_url}")
+            return True
+        else:
+            print(f"❌ Fallback registration failed: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Fallback registration error: {e}")
+        return False
+
+def start_periodic_health_monitoring():
+    """Start periodic health monitoring and URL validation"""
+    def health_monitor():
         while True:
             try:
-                time.sleep(interval)
-                print("🔄 Periodic worker health check...")
+                time.sleep(300)  # Check every 5 minutes
                 
-                # Re-register to keep the URL fresh
-                success = auto_register_worker_url()
-                if success:
-                    print("💓 Health check passed - registration updated")
+                detected_url = detect_runpod_url()
+                if detected_url and validate_worker_url(detected_url):
+                    # Send health ping to keep registration active
+                    requests.patch(
+                        f"{os.environ['SUPABASE_URL']}/rest/v1/system_config",
+                        json={
+                            "config": {
+                                "last_health_check": datetime.now().isoformat(),
+                                "worker_status": "active"
+                            }
+                        },
+                        headers={
+                            "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
+                            "Content-Type": "application/json"
+                        },
+                        timeout=10
+                    )
+                    print("💚 Health monitoring ping sent")
                 else:
-                    print("⚠️ Health check failed - registration may be stale")
+                    print("⚠️ Health check failed - attempting re-registration")
+                    auto_register_worker_url()
                     
             except Exception as e:
                 print(f"❌ Health monitoring error: {e}")
-                # Reduce frequency on errors
-                time.sleep(60)
     
-    # Start monitoring thread
-    monitoring_thread = threading.Thread(target=monitoring_loop, daemon=True)
-    monitoring_thread.start()
-    print(f"💓 Health monitoring started (every 5 minutes)")
+    # Start health monitoring in background thread
+    monitor_thread = threading.Thread(target=health_monitor, daemon=True)
+    monitor_thread.start()
+    print("✅ Periodic health monitoring started")
 
 class EnhancedWanWorker:
     def __init__(self):
@@ -2622,7 +2680,14 @@ if FLASK_AVAILABLE:
         """Run Flask server in a separate thread"""
         try:
             print("🌐 Starting Flask server for frontend enhancement on port 7860...")
-            print("🌐 Public endpoint: https://ghy077o4okmjzi-7860.proxy.runpod.net/")
+            
+            # ✅ FIXED: Use dynamic URL detection instead of hard-coded URL
+            detected_url = detect_runpod_url()
+            if detected_url:
+                print(f"🌐 Public endpoint: {detected_url}/")
+            else:
+                print("🌐 Public endpoint: [URL detection pending]")
+            
             app.run(host='0.0.0.0', port=7860, debug=False, threaded=True, use_reloader=False)
         except Exception as e:
             print(f"❌ Flask server failed to start: {e}")

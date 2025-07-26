@@ -769,7 +769,7 @@ POST {SUPABASE_URL}/functions/v1/update-worker-url
 **Request Payload:**
 ```json
 {
-  "worker_url": "https://ghy077o4okmjzi-7860.proxy.runpod.net",
+          "worker_url": "https://[POD_ID]-7860.proxy.runpod.net",
   "auto_registered": true,
   "registration_method": "wan_worker_self_registration",
   "detection_method": "RUNPOD_POD_ID",
@@ -1049,7 +1049,7 @@ The WAN worker includes a Flask-based API for real-time prompt enhancement using
 
 ### **Enhancement Endpoint**
 ```http
-POST https://ghy077o4okmjzi-7860.proxy.runpod.net/enhance
+POST https://[POD_ID]-7860.proxy.runpod.net/enhance
 ```
 
 ### **Request Format**
@@ -1090,7 +1090,7 @@ Content-Type: application/json
 
 ### **Health Check Endpoint**
 ```http
-GET https://ghy077o4okmjzi-7860.proxy.runpod.net/health
+GET https://[POD_ID]-7860.proxy.runpod.net/health
 ```
 
 ### **Health Response**
@@ -1115,7 +1115,7 @@ import requests
 
 # Enhance a prompt
 response = requests.post(
-    'https://ghy077o4okmjzi-7860.proxy.runpod.net/enhance',
+    'https://[POD_ID]-7860.proxy.runpod.net/enhance',
     headers={
         'Authorization': 'Bearer your_api_key_here',
         'Content-Type': 'application/json'
