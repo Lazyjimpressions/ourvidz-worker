@@ -1,6 +1,6 @@
 # OurVidz Worker API Reference
 
-**Last Updated:** July 23, 2025 at 7:15 PM CST  
+**Last Updated:** July 23, 2025 at 7:30 PM CST  
 **Status:** ✅ Production Ready - All 10 Job Types Operational + Compel Integration + Multi-Reference System Live  
 **System:** Dual Worker (SDXL + WAN) on RTX 6000 ADA (48GB VRAM)
 
@@ -723,19 +723,27 @@ GET /worker/resources
 
 #### **🌐 Automatic URL Registration**
 
-The Dual Orchestrator includes automatic RunPod URL detection, validation, and Supabase registration functionality that runs at startup and continues monitoring throughout operation.
+The WAN Worker includes automatic RunPod URL detection, validation, and Supabase registration functionality that runs after the Flask server is ready and continues monitoring throughout operation.
 
 ##### **Startup Registration Process**
-1. **URL Detection**: Uses `RUNPOD_POD_ID` environment variable to construct RunPod proxy URL
-2. **Health Validation**: Tests the worker's `/health` endpoint to ensure it's operational
-3. **Supabase Registration**: Calls the `update-worker-url` edge function to register the URL
-4. **Periodic Monitoring**: Starts background thread for continuous health checks and re-registration
+1. **Flask Server Startup**: WAN worker starts Flask server on port 7860
+2. **URL Detection**: Uses `RUNPOD_POD_ID` environment variable to construct RunPod proxy URL
+3. **Health Validation**: Tests the worker's `/health` endpoint to ensure it's operational
+4. **Supabase Registration**: Calls the `update-worker-url` edge function to register the URL
+5. **Periodic Monitoring**: Starts background thread for continuous health checks and re-registration
 
 ##### **URL Detection**
 ```python
-# Automatic RunPod URL construction
+# Method 1: Official RUNPOD_POD_ID (most reliable)
 pod_id = os.environ.get('RUNPOD_POD_ID')
-runpod_url = f"https://{pod_id}-7860.proxy.runpod.net/"
+if pod_id:
+    url = f"https://{pod_id}-7860.proxy.runpod.net"
+
+# Method 2: Fallback to hostname parsing
+hostname = socket.gethostname()
+if 'runpod' in hostname.lower() or len(hostname) > 8:
+    pod_id = hostname.split('-')[0] if '-' in hostname else hostname
+    url = f"https://{pod_id}-7860.proxy.runpod.net"
 ```
 
 ##### **Health Validation**
@@ -761,9 +769,11 @@ POST {SUPABASE_URL}/functions/v1/update-worker-url
 **Request Payload:**
 ```json
 {
-  "worker_url": "https://ghy077o4okmjzi-7860.proxy.runpod.net/",
-  "timestamp": "2025-07-23T18:30:00Z",
-  "status": "active"
+  "worker_url": "https://ghy077o4okmjzi-7860.proxy.runpod.net",
+  "auto_registered": true,
+  "registration_method": "wan_worker_self_registration",
+  "detection_method": "RUNPOD_POD_ID",
+  "timestamp": "2025-07-23T18:30:00Z"
 }
 ```
 
@@ -796,6 +806,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
 - **Health Validation Failure**: Skips registration until worker is healthy
 - **Registration Failure**: Logs error and retries in next monitoring cycle
 - **Missing Credentials**: Logs error and disables registration functionality
+- **Shutdown Deactivation**: Attempts to deactivate worker URL on graceful shutdown
 
 #### **Environment Validation**
 ```http
@@ -1518,7 +1529,7 @@ completion_stats = {
 7. **📊 Resource Monitoring**: Added comprehensive resource monitoring and status tracking
 8. **🛠️ Python Dependencies**: Added complete dependency list with version requirements
 9. **🌐 Frontend Enhancement API**: Added Flask-based API for real-time prompt enhancement with Qwen 7B model
-10. **🌐 Automatic URL Registration**: Added automatic RunPod URL detection, validation, and Supabase registration functionality
+10. **🌐 Automatic URL Registration**: Moved from Dual Orchestrator to WAN Worker for better integration with Flask server
 
 ### **Performance Improvements**
 - Optimized batch processing for multi-image SDXL jobs

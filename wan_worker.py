@@ -30,6 +30,10 @@ except ImportError:
     print("⚠️ Flask not available - frontend enhancement API will be disabled")
     FLASK_AVAILABLE = False
 
+# Auto-registration imports
+import socket
+from datetime import datetime
+
 class TimeoutException(Exception):
     """Custom exception for timeouts"""
     pass
@@ -37,6 +41,138 @@ class TimeoutException(Exception):
 def timeout_handler(signum, frame):
     """Signal handler for timeouts"""
     raise TimeoutException("Operation timed out")
+
+def detect_runpod_url():
+    """Detect current RunPod URL using official environment variables"""
+    try:
+        # Method 1: Official RUNPOD_POD_ID (most reliable)
+        pod_id = os.environ.get('RUNPOD_POD_ID')
+        if pod_id:
+            url = f"https://{pod_id}-7860.proxy.runpod.net"
+            print(f"✅ URL from RUNPOD_POD_ID: {url}")
+            return url
+        
+        # Method 2: Fallback to hostname parsing
+        hostname = socket.gethostname()
+        print(f"🔍 Hostname fallback: {hostname}")
+        
+        if 'runpod' in hostname.lower() or len(hostname) > 8:
+            # Extract first part as pod ID
+            pod_id = hostname.split('-')[0] if '-' in hostname else hostname
+            url = f"https://{pod_id}-7860.proxy.runpod.net"
+            print(f"✅ URL from hostname: {url}")
+            return url
+        
+        print("❌ Could not detect RunPod URL")
+        return None
+        
+    except Exception as e:
+        print(f"❌ URL detection error: {e}")
+        return None
+
+def validate_worker_url(url):
+    """Test if the detected URL actually works"""
+    try:
+        print(f"🔍 Validating worker URL: {url}")
+        
+        # Test health endpoint with timeout
+        response = requests.get(f"{url}/health", timeout=10)
+        
+        if response.status_code == 200:
+            print(f"✅ Worker URL validated: {url}")
+            return True
+        else:
+            print(f"❌ Worker not responding: {response.status_code}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ URL validation failed: {e}")
+        return False
+
+def auto_register_worker_url():
+    """Auto-register worker URL with Supabase after Flask is ready"""
+    try:
+        print("🌐 Starting worker URL auto-registration...")
+        
+        # Detect current URL using RunPod environment variables
+        detected_url = detect_runpod_url()
+        if not detected_url:
+            print("⚠️ Could not detect RunPod URL - skipping auto-registration")
+            return False
+        
+        # Validate the URL works before registering
+        if not validate_worker_url(detected_url):
+            print("⚠️ Detected URL not responding - skipping registration")
+            return False
+        
+        # Register with Supabase via update-worker-url edge function
+        registration_data = {
+            "worker_url": detected_url,
+            "auto_registered": True,
+            "registration_method": "wan_worker_self_registration",
+            "detection_method": "RUNPOD_POD_ID",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        print(f"📝 Registering with Supabase: {detected_url}")
+        
+        response = requests.post(
+            f"{os.environ['SUPABASE_URL']}/functions/v1/update-worker-url",
+            headers={
+                "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
+                "Content-Type": "application/json"
+            },
+            json=registration_data,
+            timeout=15
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                print(f"✅ Worker URL auto-registered successfully!")
+                print(f"✅ Edge functions will now use: {detected_url}")
+                return True
+            else:
+                print(f"❌ Registration failed: {result.get('error')}")
+                return False
+        else:
+            print(f"❌ Registration request failed: {response.status_code}")
+            print(f"❌ Response: {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Auto-registration error: {e}")
+        return False
+
+def start_periodic_health_monitoring():
+    """Start background thread for periodic health checks and re-registration"""
+    import threading
+    import time
+    
+    def monitoring_loop():
+        interval = 300  # 5 minutes
+        
+        while True:
+            try:
+                time.sleep(interval)
+                print("🔄 Periodic worker health check...")
+                
+                # Re-register to keep the URL fresh
+                success = auto_register_worker_url()
+                if success:
+                    print("💓 Health check passed - registration updated")
+                else:
+                    print("⚠️ Health check failed - registration may be stale")
+                    
+            except Exception as e:
+                print(f"❌ Health monitoring error: {e}")
+                # Reduce frequency on errors
+                time.sleep(60)
+    
+    # Start monitoring thread
+    monitoring_thread = threading.Thread(target=monitoring_loop, daemon=True)
+    monitoring_thread.start()
+    print(f"💓 Health monitoring started (every 5 minutes)")
 
 class EnhancedWanWorker:
     def __init__(self):
@@ -2547,8 +2683,24 @@ if __name__ == "__main__":
             flask_thread.start()
             print("✅ Flask server started on port 7860")
             
-            # Give Flask a moment to start
-            time.sleep(2)
+            # ✅ NEW: Wait for Flask to be ready, then auto-register
+            print("⏳ Waiting for Flask server to be ready...")
+            time.sleep(8)  # Give Flask time to fully start
+            
+            print("🌐 Attempting worker URL auto-registration...")
+            registration_success = auto_register_worker_url()
+            
+            if registration_success:
+                print("✅ Worker URL auto-registration successful")
+                # Start periodic monitoring to keep registration fresh
+                start_periodic_health_monitoring()
+                print("🎯 System ready - edge functions can now find this worker automatically")
+            else:
+                print("⚠️ Auto-registration failed")
+                print("💡 Admin can manually update URL at admin panel if needed")
+                print("🔄 Will retry in periodic monitoring...")
+                # Still start monitoring for retry attempts
+                start_periodic_health_monitoring()
         else:
             print("⚠️ Flask server not started - Flask not available")
         
@@ -2558,6 +2710,27 @@ if __name__ == "__main__":
         
     except KeyboardInterrupt:
         print("🛑 Worker stopped by user")
+        
+        # ✅ NEW: Deactivate URL registration on shutdown
+        try:
+            detected_url = detect_runpod_url()
+            if detected_url:
+                requests.patch(
+                    f"{os.environ['SUPABASE_URL']}/rest/v1/system_config",
+                    json={
+                        "key": "worker_settings", 
+                        "value": {"worker_status": "inactive", "last_updated": datetime.now().isoformat()}
+                    },
+                    headers={
+                        "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=5
+                )
+                print("✅ Worker URL deactivated on shutdown")
+        except:
+            pass
+            
     except Exception as e:
         print(f"❌ Worker startup failed: {e}")
         import traceback
