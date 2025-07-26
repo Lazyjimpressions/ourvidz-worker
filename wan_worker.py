@@ -1807,7 +1807,7 @@ Enhanced prompt:"""
 
             print(f"📝 Tokenizing enhancement prompt...")
             tokenize_start = time.time()
-            inputs = self.qwen_tokenizer(enhancement_prompt, return_tensors="pt", truncate=True, max_length=1024)
+            inputs = self.qwen_tokenizer(enhancement_prompt, return_tensors="pt", truncation=True, max_length=1024)
             
             # Move inputs to the same device as the model
             if hasattr(self.qwen_model, 'device'):
