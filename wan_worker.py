@@ -2370,72 +2370,6 @@ Enhanced detailed prompt:"""
                 print(f"⏳ Waiting {sleep_time}s before retry...")
                 time.sleep(sleep_time)
 
-if __name__ == "__main__":
-    # Environment variable validation
-    required_vars = [
-        'SUPABASE_URL',
-        'SUPABASE_SERVICE_KEY', 
-        'UPSTASH_REDIS_REST_URL',
-        'UPSTASH_REDIS_REST_TOKEN'
-    ]
-    
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    if missing_vars:
-        print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
-        exit(1)
-    
-    # Verify critical paths
-    model_path = "/workspace/models/wan2.1-t2v-1.3b"
-    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
-    wan_code_path = "/workspace/Wan2.1"
-    
-    if not os.path.exists(model_path):
-        print(f"❌ WAN model not found: {model_path}")
-        exit(1)
-        
-    if not os.path.exists(qwen_path):
-        print(f"⚠️ Qwen Base model not found: {qwen_path} (enhancement will be disabled)")
-        
-    if not os.path.exists(wan_code_path):
-        print(f"❌ WAN code not found: {wan_code_path}")
-        exit(1)
-    
-    print("✅ All paths validated for 1.3B model")
-    print("🔧 FIXED: Using t2v-1.3B task for WAN 1.3B model")
-    print("🖼️ REFERENCE: All 5 reference modes (none, single, start, end, both)")
-    
-    try:
-        # Initialize worker
-        worker = EnhancedWanWorker()
-        
-        # Make worker available globally for Flask endpoint
-        globals()['worker_instance'] = worker
-        
-        # Start Flask server in background thread if available
-        if FLASK_AVAILABLE:
-            flask_thread = threading.Thread(target=run_flask_server, daemon=True)
-            flask_thread.start()
-            print("✅ Flask server started on port 7860")
-            
-            # Give Flask a moment to start
-            time.sleep(2)
-        else:
-            print("⚠️ Flask server not started - Flask not available")
-        
-        # Start main worker loop
-        print("🎬 Starting WAN worker main loop...")
-        worker.run_with_enhanced_diagnostics()
-        
-    except KeyboardInterrupt:
-        print("🛑 Worker stopped by user")
-    except Exception as e:
-        print(f"❌ Worker startup failed: {e}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
-    finally:
-        print("👋 Enhanced WAN 1.3B Worker shutdown complete")
-
 # Flask server for frontend enhancement API
 if FLASK_AVAILABLE:
     # Initialize Flask app
@@ -2565,3 +2499,69 @@ else:
     
     def health_check():
         pass
+
+if __name__ == "__main__":
+    # Environment variable validation
+    required_vars = [
+        'SUPABASE_URL',
+        'SUPABASE_SERVICE_KEY', 
+        'UPSTASH_REDIS_REST_URL',
+        'UPSTASH_REDIS_REST_TOKEN'
+    ]
+    
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        print(f"❌ Missing environment variables: {', '.join(missing_vars)}")
+        exit(1)
+    
+    # Verify critical paths
+    model_path = "/workspace/models/wan2.1-t2v-1.3b"
+    qwen_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
+    wan_code_path = "/workspace/Wan2.1"
+    
+    if not os.path.exists(model_path):
+        print(f"❌ WAN model not found: {model_path}")
+        exit(1)
+        
+    if not os.path.exists(qwen_path):
+        print(f"⚠️ Qwen Base model not found: {qwen_path} (enhancement will be disabled)")
+        
+    if not os.path.exists(wan_code_path):
+        print(f"❌ WAN code not found: {wan_code_path}")
+        exit(1)
+    
+    print("✅ All paths validated for 1.3B model")
+    print("🔧 FIXED: Using t2v-1.3B task for WAN 1.3B model")
+    print("🖼️ REFERENCE: All 5 reference modes (none, single, start, end, both)")
+    
+    try:
+        # Initialize worker
+        worker = EnhancedWanWorker()
+        
+        # Make worker available globally for Flask endpoint
+        globals()['worker_instance'] = worker
+        
+        # Start Flask server in background thread if available
+        if FLASK_AVAILABLE:
+            flask_thread = threading.Thread(target=run_flask_server, daemon=True)
+            flask_thread.start()
+            print("✅ Flask server started on port 7860")
+            
+            # Give Flask a moment to start
+            time.sleep(2)
+        else:
+            print("⚠️ Flask server not started - Flask not available")
+        
+        # Start main worker loop
+        print("🎬 Starting WAN worker main loop...")
+        worker.run_with_enhanced_diagnostics()
+        
+    except KeyboardInterrupt:
+        print("🛑 Worker stopped by user")
+    except Exception as e:
+        print(f"❌ Worker startup failed: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
+    finally:
+        print("👋 Enhanced WAN 1.3B Worker shutdown complete")
