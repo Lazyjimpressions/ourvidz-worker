@@ -50,25 +50,5 @@ except ImportError as e:
     exit(1)
 EOF
 
-echo "=== Verifying worker URL auto-registration capability ==="
-python << 'EOF'
-import os
-import sys
-sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
-
-required_vars = ['RUNPOD_POD_ID', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY']
-missing_vars = [var for var in required_vars if not os.environ.get(var)]
-
-if missing_vars:
-    print(f"⚠️ Missing variables for auto-registration: {', '.join(missing_vars)}")
-    print("⚠️ Worker will start but auto-registration may fail")
-else:
-    pod_id = os.environ.get('RUNPOD_POD_ID')
-    expected_url = f"https://{pod_id}-7860.proxy.runpod.net"
-    print("✅ Auto-registration ready")
-    print(f"✅ Expected worker URL: {expected_url}")
-    print("✅ Worker will auto-register with Supabase on startup")
-EOF
-
-echo "=== Starting dual workers with auto-registration ==="
+echo "=== Starting dual workers (auto-registration handled by WAN worker) ==="
 exec python -u dual_orchestrator.py
