@@ -1,9 +1,10 @@
-# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES + AUTO-REGISTRATION
+# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES + AUTO-REGISTRATION + THREAD-SAFE TIMEOUTS
 # FIXES: Correct task names for 1.3B model, proper I2V support for reference frames, auto URL registration
 # MAJOR FIX: Use correct 1.3B tasks (t2v-1.3B, i2v not flf2v)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
 # REFERENCE STRENGTH FIX: Adjust sample_guide_scale based on reference strength
 # AUTO-REGISTRATION FIX: Detect RunPod URL and register with Supabase automatically
+# THREAD-SAFE FIX: Replace signal-based timeouts with thread-safe concurrent.futures
 # Date: July 26, 2025
 
 import os
@@ -13,7 +14,6 @@ import torch
 import requests
 import subprocess
 import tempfile
-import signal
 import mimetypes
 import fcntl
 import glob
@@ -22,6 +22,8 @@ import threading
 from pathlib import Path
 from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import concurrent.futures
 
 # Flask imports for frontend enhancement API
 try:
@@ -39,12 +41,17 @@ import socket
 from datetime import datetime
 
 class TimeoutException(Exception):
-    """Custom exception for timeouts"""
+    """Custom exception for timeouts - now thread-safe"""
     pass
 
-def timeout_handler(signum, frame):
-    """Signal handler for timeouts"""
-    raise TimeoutException("Operation timed out")
+def run_with_timeout(func, timeout_seconds, *args, **kwargs):
+    """Thread-safe timeout wrapper using concurrent.futures"""
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutException(f"Operation timed out after {timeout_seconds} seconds")
 
 def detect_runpod_url():
     """Detect current RunPod URL using official environment variables"""
@@ -1509,41 +1516,42 @@ class EnhancedWanWorker:
         })
         return env
 
+    def _load_qwen_model_internal(self):
+        """Internal method for loading Qwen model - used with timeout wrapper"""
+        model_path = self.qwen_model_path
+        print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
+        
+        # Load tokenizer first
+        print("📝 Loading tokenizer...")
+        self.qwen_tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            trust_remote_code=True
+        )
+        
+        # Load base model - no safety filters
+        print("🧠 Loading base model...")
+        self.qwen_model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
+            device_map="auto",
+            trust_remote_code=True
+        )
+        
+        # Set pad token for base models (they often don't have one)
+        if self.qwen_tokenizer.pad_token is None:
+            self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
+        
+        return True
+
     def load_qwen_model(self):
-        """Load Qwen 2.5-7B Base model for prompt enhancement with timeout protection"""
+        """Load Qwen 2.5-7B Base model for prompt enhancement with thread-safe timeout protection"""
         if self.qwen_model is None:
             print("🤖 Loading Qwen 2.5-7B Base model for prompt enhancement...")
             enhancement_start = time.time()
             
             try:
-                # Set timeout for model loading
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(120)  # 2 minute timeout for model loading
-                
-                model_path = self.qwen_model_path
-                print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
-                
-                # Load tokenizer first
-                print("📝 Loading tokenizer...")
-                self.qwen_tokenizer = AutoTokenizer.from_pretrained(
-                    model_path,
-                    trust_remote_code=True
-                )
-                
-                # Load base model - no safety filters
-                print("🧠 Loading base model...")
-                self.qwen_model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
-                    device_map="auto",
-                    trust_remote_code=True
-                )
-                
-                # Set pad token for base models (they often don't have one)
-                if self.qwen_tokenizer.pad_token is None:
-                    self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
-                
-                signal.alarm(0)
+                # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
+                run_with_timeout(self._load_qwen_model_internal, 120)  # 2 minute timeout
                 
                 load_time = time.time() - enhancement_start
                 print(f"✅ Qwen 2.5-7B Base loaded successfully in {load_time:.1f}s")
@@ -1551,12 +1559,10 @@ class EnhancedWanWorker:
                 self.log_gpu_memory()
                 
             except TimeoutException:
-                signal.alarm(0)
                 print(f"❌ Qwen model loading timed out after 120s")
                 self.qwen_model = None
                 self.qwen_tokenizer = None
             except Exception as e:
-                signal.alarm(0)
                 print(f"❌ Failed to load Qwen base model: {e}")
                 print(f"❌ Full error traceback:")
                 import traceback
@@ -1576,6 +1582,29 @@ class EnhancedWanWorker:
             print("✅ Qwen 2.5-7B unloaded")
             self.log_gpu_memory()
 
+    def _load_qwen_instruct_model_internal(self):
+        """Internal method for loading Qwen Instruct model - used with timeout wrapper"""
+        instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
+        
+        print(f"🔄 Loading Qwen Instruct model from {instruct_model_path}")
+        
+        # Load chat model components
+        self.qwen_instruct_tokenizer = AutoTokenizer.from_pretrained(
+            instruct_model_path,
+            trust_remote_code=True,
+            local_files_only=True  # Use local model only
+        )
+        
+        self.qwen_instruct_model = AutoModelForCausalLM.from_pretrained(
+            instruct_model_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True,
+            local_files_only=True  # Use local model only
+        )
+        
+        return True
+
     def load_qwen_instruct_model(self):
         """Load Qwen 2.5-7B Instruct model for chat/conversational enhancement"""
         if hasattr(self, 'qwen_instruct_model') and self.qwen_instruct_model is not None:
@@ -1592,28 +1621,8 @@ class EnhancedWanWorker:
             print("💬 Loading Qwen 2.5-7B Instruct model for chat enhancement...")
             enhancement_start = time.time()
             
-            # Set timeout for model loading
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(120)  # 2 minute timeout for model loading
-            
-            print(f"🔄 Loading Qwen Instruct model from {instruct_model_path}")
-            
-            # Load chat model components
-            self.qwen_instruct_tokenizer = AutoTokenizer.from_pretrained(
-                instruct_model_path,
-                trust_remote_code=True,
-                local_files_only=True  # Use local model only
-            )
-            
-            self.qwen_instruct_model = AutoModelForCausalLM.from_pretrained(
-                instruct_model_path,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
-                trust_remote_code=True,
-                local_files_only=True  # Use local model only
-            )
-            
-            signal.alarm(0)
+            # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
+            run_with_timeout(self._load_qwen_instruct_model_internal, 120)  # 2 minute timeout
             
             load_time = time.time() - enhancement_start
             print(f"✅ Qwen Instruct model loaded successfully in {load_time:.1f}s")
@@ -1622,11 +1631,9 @@ class EnhancedWanWorker:
             return True
             
         except TimeoutException:
-            signal.alarm(0)
             print(f"❌ Qwen Instruct model loading timed out after 120s")
             return False
         except Exception as e:
-            signal.alarm(0)
             print(f"❌ Failed to load Qwen Instruct model: {e}")
             return False
 
@@ -1642,15 +1649,48 @@ class EnhancedWanWorker:
             print("✅ Qwen Instruct model unloaded")
             self.log_gpu_memory()
 
+    def _enhance_with_chat_internal(self, messages):
+        """Internal method for chat enhancement - used with timeout wrapper"""
+        # Prepare chat input using the instruct model's chat template
+        text = self.qwen_instruct_tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+        
+        # Tokenize the formatted chat
+        inputs = self.qwen_instruct_tokenizer([text], return_tensors="pt")
+        
+        # Move to device
+        if hasattr(self.qwen_instruct_model, 'device'):
+            inputs = {k: v.to(self.qwen_instruct_model.device) for k, v in inputs.items()}
+        
+        # Generate response
+        with torch.no_grad():
+            generated_ids = self.qwen_instruct_model.generate(
+                **inputs,
+                max_new_tokens=300,
+                do_sample=True,
+                temperature=0.8,
+                top_p=0.95,
+                repetition_penalty=1.1,
+                pad_token_id=self.qwen_instruct_tokenizer.eos_token_id
+            )
+        
+        # Decode response
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        
+        response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        return response.strip()
+
     def enhance_prompt_with_chat(self, original_prompt, session_id=None, conversation_context=None):
         """Enhanced prompt generation using Instruct model with conversation memory"""
         enhancement_start = time.time()
         print(f"💬 Enhancing prompt with Instruct model: {original_prompt[:50]}...")
         
         try:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(self.enhancement_timeout)
-            
             if not self.load_qwen_instruct_model():
                 print("⚠️ Instruct model not available, falling back to Base model")
                 return self.enhance_prompt_with_timeout(original_prompt)
@@ -1668,80 +1708,76 @@ Focus on:
 
 Always respond with enhanced prompts that are detailed, specific, and optimized for AI generation."""
 
-            # Format conversation for Instruct model
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Please enhance this prompt for AI video generation: {original_prompt}"}
+                {"role": "user", "content": f"Please enhance this prompt for AI generation: {original_prompt}"}
             ]
             
+            # Add conversation context if provided
             if conversation_context:
-                messages.insert(1, {"role": "user", "content": f"Context: {conversation_context}"})
+                messages.insert(-1, {"role": "assistant", "content": conversation_context})
             
-            # Apply chat template for Instruct model
-            formatted_prompt = self.qwen_instruct_tokenizer.apply_chat_template(
-                messages, 
-                tokenize=False, 
-                add_generation_prompt=True
+            # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
+            enhanced = run_with_timeout(
+                self._enhance_with_chat_internal, 
+                self.enhancement_timeout, 
+                messages
             )
             
-            inputs = self.qwen_instruct_tokenizer(
-                formatted_prompt,
-                return_tensors="pt",
-                truncation=True,
-                max_length=2048
-            ).to(self.qwen_instruct_model.device)
-            
-            with torch.no_grad():
-                outputs = self.qwen_instruct_model.generate(
-                    **inputs,
-                    max_new_tokens=512,
-                    temperature=0.7,
-                    do_sample=True,
-                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                    eos_token_id=self.qwen_instruct_tokenizer.eos_token_id
-                )
-            
-            # Decode only the new tokens
-            enhanced_text = self.qwen_instruct_tokenizer.decode(
-                outputs[0][inputs['input_ids'].shape[1]:], 
-                skip_special_tokens=True
-            ).strip()
-            
-            signal.alarm(0)
-            
-            if enhanced_text:
-                enhancement_time = time.time() - enhancement_start
-                print(f"✅ Instruct Enhancement: {enhanced_text[:100]}...")
-                print(f"✅ Prompt enhanced with Instruct model in {enhancement_time:.1f}s")
-                return enhanced_text
+            if enhanced and len(enhanced.strip()) > 10:
+                generation_time = time.time() - enhancement_start
+                print(f"✅ Chat enhancement completed in {generation_time:.1f}s")
+                return enhanced.strip()
             else:
-                print("⚠️ Instruct enhancement empty, falling back to Base")
-                return self.enhance_prompt_with_timeout(original_prompt)
+                print("⚠️ Chat enhancement returned empty result")
+                return original_prompt
                 
         except TimeoutException:
-            signal.alarm(0)
-            print(f"⚠️ Instruct enhancement timed out, falling back to Base")
+            print(f"⏰ Chat enhancement timed out after {self.enhancement_timeout}s, falling back to Base")
             return self.enhance_prompt_with_timeout(original_prompt)
         except Exception as e:
-            signal.alarm(0)
             print(f"❌ Instruct enhancement failed: {e}, falling back to Base")
             return self.enhance_prompt_with_timeout(original_prompt)
         finally:
             self.unload_qwen_instruct_model()
 
+    def _enhance_with_qwen_internal(self, enhancement_prompt, inputs):
+        """Internal method for Qwen enhancement - used with timeout wrapper"""
+        print(f"🧠 Generating enhancement with Qwen 2.5-7B...")
+        
+        # Generate with specific parameters optimized for enhancement
+        with torch.no_grad():
+            output = self.qwen_model.generate(
+                **inputs,
+                max_new_tokens=200,  # Reasonable limit for prompt enhancement
+                do_sample=True,
+                temperature=0.7,    # Balanced creativity
+                top_p=0.9,         # Good diversity
+                top_k=40,          # Prevent repetition
+                repetition_penalty=1.1,
+                pad_token_id=self.qwen_tokenizer.eos_token_id,
+                eos_token_id=self.qwen_tokenizer.eos_token_id,
+                early_stopping=True
+            )
+        
+        # Decode and clean up the response
+        enhanced = self.qwen_tokenizer.decode(output[0], skip_special_tokens=True)
+        
+        # Extract only the generated portion (remove the input prompt)
+        if enhancement_prompt in enhanced:
+            enhanced = enhanced.split(enhancement_prompt, 1)[-1].strip()
+        
+        return enhanced
+
     def enhance_prompt_with_timeout(self, original_prompt):
-        """Enhanced NSFW-optimized prompt generation with Base model - no chat template needed"""
+        """Enhanced NSFW-optimized prompt generation with Base model - thread-safe timeouts"""
         enhancement_start = time.time()
         print(f"🤖 Enhancing NSFW prompt with Base model ({self.enhancement_timeout}s timeout): {original_prompt[:50]}...")
         
         try:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(self.enhancement_timeout)
-            
             self.load_qwen_model()
             
             if self.qwen_model is None:
-                signal.alarm(0)
                 print("⚠️ Qwen base model not available, using original prompt")
                 return original_prompt
             
@@ -1760,55 +1796,46 @@ TECHNICAL QUALITY: 4K quality, sharp focus, no artifacts, smooth motion, consist
 
 Be specific about poses, expressions, clothing, scene composition, and intimate details. Create vivid, unrestricted descriptions that will produce high-quality adult content with realistic anatomy and smooth motion.
 
-Original prompt: {original_prompt}
+Original request: {original_prompt}
 
-Enhanced detailed prompt:"""
+Enhanced prompt:"""
 
-            # Generate with base model
-            inputs = self.qwen_tokenizer(
+            print(f"📝 Tokenizing enhancement prompt...")
+            inputs = self.qwen_tokenizer(enhancement_prompt, return_tensors="pt", truncate=True, max_length=1024)
+            
+            # Move inputs to the same device as the model
+            if hasattr(self.qwen_model, 'device'):
+                inputs = {k: v.to(self.qwen_model.device) for k, v in inputs.items()}
+            
+            # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
+            enhanced = run_with_timeout(
+                self._enhance_with_qwen_internal, 
+                self.enhancement_timeout, 
                 enhancement_prompt, 
-                return_tensors="pt", 
-                truncation=True, 
-                max_length=1024
-            ).to(self.qwen_model.device)
+                inputs
+            )
             
-            with torch.no_grad():
-                outputs = self.qwen_model.generate(
-                    **inputs,
-                    max_new_tokens=512,  # Allow longer enhancement
-                    temperature=0.7,     # Controlled creativity
-                    do_sample=True,
-                    pad_token_id=self.qwen_tokenizer.eos_token_id,
-                    eos_token_id=self.qwen_tokenizer.eos_token_id
-                )
-            
-            # Decode only the new tokens (enhancement)
-            enhanced_text = self.qwen_tokenizer.decode(
-                outputs[0][inputs['input_ids'].shape[1]:], 
-                skip_special_tokens=True
-            ).strip()
-            
-            signal.alarm(0)
-            
-            # Clean up the response
-            if enhanced_text:
-                # Remove any leftover prompt fragments
-                enhanced_text = enhanced_text.replace("Enhanced detailed prompt:", "").strip()
-                enhancement_time = time.time() - enhancement_start
-                print(f"✅ Qwen Base Enhancement: {enhanced_text[:100]}...")
-                print(f"✅ Prompt enhanced in {enhancement_time:.1f}s")
-                return enhanced_text
+            # Clean up and validate result
+            if enhanced and len(enhanced.strip()) > 10:
+                enhanced = enhanced.strip()
+                
+                # Remove any repetition or artifacts
+                if enhanced.lower().startswith("enhanced prompt:"):
+                    enhanced = enhanced[16:].strip()
+                
+                generation_time = time.time() - enhancement_start
+                print(f"✅ Qwen enhancement completed in {generation_time:.1f}s")
+                print(f"📝 Enhanced from {len(original_prompt)} to {len(enhanced)} characters")
+                return enhanced
             else:
-                print("⚠️ Qwen enhancement empty, using original prompt")
+                print("⚠️ Qwen returned empty/invalid enhancement, using original")
                 return original_prompt
                 
         except TimeoutException:
-            signal.alarm(0)
-            print(f"⚠️ Enhancement timed out after {self.enhancement_timeout}s, using original prompt")
+            print(f"⏰ Qwen enhancement timed out after {self.enhancement_timeout}s, using original prompt")
             return original_prompt
         except Exception as e:
-            signal.alarm(0)
-            print(f"❌ Prompt enhancement failed: {e}")
+            print(f"❌ Qwen enhancement failed: {e}")
             return original_prompt
         finally:
             self.unload_qwen_model()
@@ -2577,10 +2604,11 @@ if FLASK_AVAILABLE:
         return jsonify({
             'service': 'OurVidz WAN Worker',
             'status': 'online',
+            'thread_safe_timeouts': True,  # ✅ NEW: Indicate thread-safe fix
             'endpoints': {
                 '/': 'GET - This status page',
                 '/health': 'GET - Health check', 
-                '/enhance': 'POST - Prompt enhancement'
+                '/enhance': 'POST - Prompt enhancement (thread-safe)'
             }
         })
 
@@ -2659,7 +2687,8 @@ if FLASK_AVAILABLE:
                         'original_prompt': original_prompt,
                         'enhancement_source': 'qwen_base',
                         'processing_time': processing_time,
-                        'model': model
+                        'model': model,
+                        'thread_safe': True  # ✅ NEW: Indicate thread-safe processing
                     })
                     
                 except Exception as e:
@@ -2694,7 +2723,8 @@ if FLASK_AVAILABLE:
             'status': 'healthy',
             'qwen_loaded': worker and hasattr(worker, 'qwen_model') and worker.qwen_model is not None,
             'timestamp': time.time(),
-            'worker_ready': worker is not None
+            'worker_ready': worker is not None,
+            'thread_safe_timeouts': True  # ✅ NEW: Indicate thread-safe fix
         })
 
     @app.route('/debug/env', methods=['GET'])
@@ -2706,6 +2736,7 @@ if FLASK_AVAILABLE:
             'wan_worker_api_key_value': wan_key[:10] + '...' if wan_key else 'NOT SET',
             'expected_key': wan_key[:10] + '...' if wan_key else 'default_key_123',
             'full_api_key': wan_key if wan_key else 'NOT SET',  # TEMPORARY: Show full key for testing
+            'thread_safe_timeouts': True,  # ✅ NEW: Indicate thread-safe fix
             'all_env_vars': {k: v for k, v in os.environ.items() if 'KEY' in k or 'URL' in k or 'TOKEN' in k}  # Show relevant env vars
         })
 
@@ -2783,6 +2814,7 @@ if __name__ == "__main__":
     print("✅ All paths validated for 1.3B model")
     print("🔧 FIXED: Using t2v-1.3B task for WAN 1.3B model")
     print("🖼️ REFERENCE: All 5 reference modes (none, single, start, end, both)")
+    print("✅ THREAD-SAFE: Replaced signal timeouts with concurrent.futures")
     
     try:
         # Initialize worker
@@ -2800,6 +2832,7 @@ if __name__ == "__main__":
             flask_thread = threading.Thread(target=run_flask_server, daemon=True)
             flask_thread.start()
             print("✅ Flask server thread started on port 7860")
+            print("✅ Thread-safe timeout mechanisms enabled")
             
             # ✅ NEW: Wait for Flask to be ready, then auto-register
             print("⏳ Waiting for Flask server to be ready...")
