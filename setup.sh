@@ -1,149 +1,74 @@
 #!/bin/bash
-# setup.sh - Conservative Version Setup for Stability
 set -e
-
-echo "🚀 OURVIDZ DUAL WORKER SETUP"
-echo "🔥 RTX 6000 ADA - Conservative Version Strategy"
-
-# Check current PyTorch version
-CURRENT_TORCH=$(python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "none")
-echo "Current PyTorch: $CURRENT_TORCH"
-
-# Clean conflicting packages if wrong version
-if [[ "$CURRENT_TORCH" != "2.4.1+cu124" && "$CURRENT_TORCH" != "none" ]]; then
-    echo "🧹 Cleaning conflicting versions..."
-    pip uninstall -y torch torchvision torchaudio diffusers xformers transformers accelerate flash-attn || true
-    pip cache purge || true
-fi
-
-# Install base PyTorch first (this is the foundation)
-if [[ "$CURRENT_TORCH" == "2.4.1+cu124" ]]; then
-    echo "✅ PyTorch 2.4.1+cu124 already installed, skipping"
-else
-    echo "📦 Installing PyTorch 2.4.1+cu124..."
-    pip install torch==2.4.1+cu124 torchvision==0.19.1+cu124 torchaudio==2.4.1+cu124 \
-        --index-url https://download.pytorch.org/whl/cu124 --no-deps
-fi
-
-echo "📚 Installing core support libraries first..."
-pip install numpy==1.26.4 pillow==10.4.0 requests==2.32.3 --no-deps
-
-# Install diffusers ecosystem with known stable versions
-echo "🎨 Installing diffusers ecosystem (stable versions)..."
-pip install diffusers==0.29.2 transformers==4.42.4 \
-    safetensors==0.4.3 huggingface-hub==0.23.4 --no-deps
-
-# Install accelerate separately
-echo "⚡ Installing accelerate..."
-pip install accelerate==0.32.1 --no-deps
-
-# Try xformers (if it fails, continue without it)
-echo "🔧 Installing xformers (may fail, will continue)..."
-pip install xformers==0.0.27.post2 --no-deps || echo "⚠️ xformers failed, continuing without it"
-
-# Skip flash attention for now to avoid conflicts
-echo "⚠️ Skipping flash attention to avoid conflicts"
-
-echo "📚 Installing remaining support libraries..."
-pip install opencv-python==4.10.0.84 scipy==1.13.1 --no-deps
-
-pip install tokenizers==0.19.1 sentencepiece==0.2.0 tqdm==4.66.5 \
-    pydantic==2.8.2 einops==0.8.0 psutil==6.0.0 --no-deps
-
-pip install imageio==2.34.2 imageio-ffmpeg==0.5.1 \
-    click==8.1.7 omegaconf==2.3.0 --no-deps
-
-echo "⏳ Waiting for installations to settle..."
-sleep 5
-
-# Setup Wan 2.1
-echo "🎥 Setting up Wan 2.1..."
-cd /workspace
-if [ ! -d "Wan2.1" ]; then
-    git clone https://github.com/Wan-Video/Wan2.1.git
-fi
-cd Wan2.1
-pip install -e . --no-deps --no-build-isolation
-
-# Download SDXL model if needed
-echo "🎨 Checking SDXL model..."
-SDXL_MODEL="/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
-if [ ! -f "$SDXL_MODEL" ]; then
-    echo "📥 Downloading LUSTIFY SDXL (6.9GB)..."
-    mkdir -p /workspace/models/sdxl-lustify
-    cd /workspace/models/sdxl-lustify
-    wget -c -O lustifySDXLNSFWSFW_v20.safetensors \
-        "https://huggingface.co/John6666/lustify-sdxl-nsfw-checkpoint-olt-one-last-time-sdxl/resolve/main/lustifySDXLNSFWSFW_v20.safetensors"
-fi
-
-echo "🔧 Validating setup..."
 cd /workspace/ourvidz-worker
 
-# Comprehensive validation with retries
-echo "🔍 Final dependency check..."
+echo "=== SAFETY: Verifying stable environment ==="
 python -c "
-import sys
-missing = []
-
-try:
-    import torch
-    print(f'✅ PyTorch: {torch.__version__}')
-except ImportError:
-    missing.append('torch')
-
-try:
-    import diffusers
-    print(f'✅ Diffusers: {diffusers.__version__}')
-except ImportError:
-    missing.append('diffusers')
-
-try:
-    import transformers
-    print(f'✅ Transformers: {transformers.__version__}')
-except ImportError:
-    missing.append('transformers')
-
-try:
-    import requests
-    print(f'✅ Requests: Available')
-except ImportError:
-    missing.append('requests')
-
-try:
-    from PIL import Image
-    print(f'✅ Pillow: Available')
-except ImportError:
-    missing.append('pillow')
-
-if torch.cuda.is_available():
-    print(f'✅ GPU: {torch.cuda.get_device_name(0)}')
-    print(f'✅ VRAM: {torch.cuda.get_device_properties(0).total_memory/(1024**3):.1f}GB')
-else:
-    missing.append('cuda')
-
-try:
-    import xformers
-    print(f'✅ xformers: {xformers.__version__}')
-except:
-    print('⚠️ xformers: Not available (optional)')
-
-try:
-    import accelerate
-    print(f'✅ accelerate: {accelerate.__version__}')
-except:
-    print('⚠️ accelerate: Not available (optional)')
-
-if missing:
-    print(f'❌ Missing critical dependencies: {missing}')
-    sys.exit(1)
-else:
-    print('🎉 All critical dependencies available!')
+import torch
+print(f'PyTorch: {torch.__version__} | CUDA: {torch.version.cuda}')
+if not torch.__version__.startswith('2.4.1') or torch.version.cuda != '12.4':
+    print('❌ Version mismatch - ABORT!')
+    exit(1)
+print('✅ Versions confirmed stable')
 "
 
-if [ $? -ne 0 ]; then
-    echo "❌ Dependency validation failed - cannot start workers"
-    exit 1
+echo "=== CHAT: Checking dual model status ==="
+base_ready=false
+instruct_ready=false
+[ -d "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B" ] && base_ready=true && echo "✅ Base model ready"
+[ -d "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct" ] && instruct_ready=true && echo "✅ Instruct model ready"
+
+if [ "$base_ready" = true ] && [ "$instruct_ready" = true ]; then
+    ln -sf models--Qwen--Qwen2.5-7B-Instruct /workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Chat 2>/dev/null || true
+    echo "🎯 Chat Integration: ✅ FULLY READY"
+else
+    echo "🎯 Chat Integration: ⚠️ PARTIAL"
 fi
 
-echo "🚀 All dependencies validated - starting dual orchestrator..."
+echo "=== Setting environment ==="
+export PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages
+export HF_HOME=/workspace/models/huggingface_cache
+export HUGGINGFACE_HUB_CACHE=/workspace/models/huggingface_cache/hub
+export TRANSFORMERS_CACHE=/workspace/models/huggingface_cache/hub
+
+echo "=== Verifying dependencies ==="
+python << 'EOF'
+import sys
+sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
+try:
+    import transformers, torch, diffusers, compel
+    print("Dependencies OK: transformers " + transformers.__version__)
+    
+    import os
+    base_ok = os.path.exists("/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B")
+    inst_ok = os.path.exists("/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct")
+    status = "READY" if base_ok and inst_ok else "PARTIAL"
+    print("Chat: " + status)
+    
+except ImportError as e:
+    print("Missing dependency: " + str(e))
+    exit(1)
+EOF
+
+echo "=== Verifying worker URL auto-registration capability ==="
+python << 'EOF'
+import os
+import sys
+sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
+
+required_vars = ['RUNPOD_POD_ID', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY']
+missing_vars = [var for var in required_vars if not os.environ.get(var)]
+
+if missing_vars:
+    print(f"⚠️ Missing variables for auto-registration: {', '.join(missing_vars)}")
+    print("⚠️ Worker will start but auto-registration may fail")
+else:
+    pod_id = os.environ.get('RUNPOD_POD_ID')
+    expected_url = f"https://{pod_id}-7860.proxy.runpod.net"
+    print("✅ Auto-registration ready")
+    print(f"✅ Expected worker URL: {expected_url}")
+    print("✅ Worker will auto-register with Supabase on startup")
+EOF
+
+echo "=== Starting dual workers with auto-registration ==="
 exec python -u dual_orchestrator.py
