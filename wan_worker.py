@@ -27,9 +27,12 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 try:
     from flask import Flask, request, jsonify
     FLASK_AVAILABLE = True
+    # Create Flask app at module level
+    app = Flask(__name__)
 except ImportError:
     print("⚠️ Flask not available - frontend enhancement API will be disabled")
     FLASK_AVAILABLE = False
+    app = None
 
 # Auto-registration imports
 import socket
@@ -2567,8 +2570,6 @@ Enhanced detailed prompt:"""
 
 # Flask server for frontend enhancement API
 if FLASK_AVAILABLE:
-    # Initialize Flask app
-    app = Flask(__name__)
 
     @app.route('/', methods=['GET'])
     def root():
@@ -2702,13 +2703,16 @@ if FLASK_AVAILABLE:
         return jsonify({
             'wan_worker_api_key_set': bool(os.environ.get('WAN_WORKER_API_KEY')),
             'wan_worker_api_key_value': os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'NOT SET',
-            'expected_key': os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'default_key_123'
+            'expected_key': os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'default_key_123',
+            'full_api_key': os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')  # TEMPORARY: Show full key for testing
         })
 
     def run_flask_server():
         """Run Flask server in a separate thread"""
         try:
             print("🌐 Starting Flask server for frontend enhancement on port 7860...")
+            print(f"🔧 Flask app object: {app}")
+            print(f"🔧 Flask routes: {[rule.rule for rule in app.url_map.iter_rules()]}")
             
             # ✅ FIXED: Use dynamic URL detection instead of hard-coded URL
             detected_url = detect_runpod_url()
@@ -2717,9 +2721,12 @@ if FLASK_AVAILABLE:
             else:
                 print("🌐 Public endpoint: [URL detection pending]")
             
+            print("🚀 Flask server starting on 0.0.0.0:7860...")
             app.run(host='0.0.0.0', port=7860, debug=False, threaded=True, use_reloader=False)
         except Exception as e:
             print(f"❌ Flask server failed to start: {e}")
+            import traceback
+            traceback.print_exc()
 else:
     # Placeholder functions when Flask is not available
     def run_flask_server():
@@ -2775,9 +2782,13 @@ if __name__ == "__main__":
         
         # Start Flask server in background thread if available
         if FLASK_AVAILABLE:
+            print(f"🔧 FLASK_AVAILABLE: {FLASK_AVAILABLE}")
+            print(f"🔧 Flask app object: {app}")
+            print(f"🔧 run_flask_server function: {run_flask_server}")
+            
             flask_thread = threading.Thread(target=run_flask_server, daemon=True)
             flask_thread.start()
-            print("✅ Flask server started on port 7860")
+            print("✅ Flask server thread started on port 7860")
             
             # ✅ NEW: Wait for Flask to be ready, then auto-register
             print("⏳ Waiting for Flask server to be ready...")
