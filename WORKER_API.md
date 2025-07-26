@@ -1,6 +1,6 @@
 # OurVidz Worker API Reference
 
-**Last Updated:** July 23, 2025 at 6:45 PM CST  
+**Last Updated:** July 23, 2025 at 7:15 PM CST  
 **Status:** ✅ Production Ready - All 10 Job Types Operational + Compel Integration + Multi-Reference System Live  
 **System:** Dual Worker (SDXL + WAN) on RTX 6000 ADA (48GB VRAM)
 
@@ -627,6 +627,8 @@ The Dual Worker Orchestrator manages both SDXL and WAN workers concurrently, pro
 - **Resource Monitoring**: Tracks GPU memory and worker performance
 - **Graceful Validation**: Validates environment before starting workers
 - **Status Monitoring**: Real-time worker status and job tracking
+- **🌐 Automatic URL Registration**: Automatically detects RunPod URL, validates worker health, and registers with Supabase
+- **🔄 Periodic Health Monitoring**: Continuous health checks and URL re-registration every 5 minutes
 
 ### **Orchestrator API Endpoints**
 
@@ -718,6 +720,82 @@ GET /worker/resources
   }
 }
 ```
+
+#### **🌐 Automatic URL Registration**
+
+The Dual Orchestrator includes automatic RunPod URL detection, validation, and Supabase registration functionality that runs at startup and continues monitoring throughout operation.
+
+##### **Startup Registration Process**
+1. **URL Detection**: Uses `RUNPOD_POD_ID` environment variable to construct RunPod proxy URL
+2. **Health Validation**: Tests the worker's `/health` endpoint to ensure it's operational
+3. **Supabase Registration**: Calls the `update-worker-url` edge function to register the URL
+4. **Periodic Monitoring**: Starts background thread for continuous health checks and re-registration
+
+##### **URL Detection**
+```python
+# Automatic RunPod URL construction
+pod_id = os.environ.get('RUNPOD_POD_ID')
+runpod_url = f"https://{pod_id}-7860.proxy.runpod.net/"
+```
+
+##### **Health Validation**
+```http
+GET {runpod_url}/health
+```
+
+**Expected Response:**
+```json
+{
+  "status": "healthy",
+  "qwen_loaded": true,
+  "timestamp": 1732320000.0,
+  "worker_ready": true
+}
+```
+
+##### **Supabase Registration**
+```http
+POST {SUPABASE_URL}/functions/v1/update-worker-url
+```
+
+**Request Payload:**
+```json
+{
+  "worker_url": "https://ghy077o4okmjzi-7860.proxy.runpod.net/",
+  "timestamp": "2025-07-23T18:30:00Z",
+  "status": "active"
+}
+```
+
+**Headers:**
+```http
+Authorization: Bearer {SUPABASE_SERVICE_KEY}
+Content-Type: application/json
+```
+
+##### **Periodic Health Monitoring**
+- **Frequency**: Every 5 minutes
+- **Actions**:
+  - Detect current RunPod URL
+  - Validate worker health endpoint
+  - Re-register URL with Supabase if healthy
+  - Log health status and registration results
+
+##### **Environment Variables Required**
+```bash
+# RunPod environment
+RUNPOD_POD_ID=ghy077o4okmjzi
+
+# Supabase credentials
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your_service_key_here
+```
+
+##### **Error Handling**
+- **URL Detection Failure**: Logs warning and continues without registration
+- **Health Validation Failure**: Skips registration until worker is healthy
+- **Registration Failure**: Logs error and retries in next monitoring cycle
+- **Missing Credentials**: Logs error and disables registration functionality
 
 #### **Environment Validation**
 ```http
@@ -1440,6 +1518,7 @@ completion_stats = {
 7. **📊 Resource Monitoring**: Added comprehensive resource monitoring and status tracking
 8. **🛠️ Python Dependencies**: Added complete dependency list with version requirements
 9. **🌐 Frontend Enhancement API**: Added Flask-based API for real-time prompt enhancement with Qwen 7B model
+10. **🌐 Automatic URL Registration**: Added automatic RunPod URL detection, validation, and Supabase registration functionality
 
 ### **Performance Improvements**
 - Optimized batch processing for multi-image SDXL jobs

@@ -10,7 +10,9 @@ import signal
 import subprocess
 import threading
 import logging
+import requests
 from pathlib import Path
+from datetime import datetime
 
 # CRITICAL: Set persistent PYTHONPATH for RunPod environment
 PYTHON_DEPS_PATH = '/workspace/python_deps/lib/python3.11/site-packages'
@@ -27,6 +29,135 @@ print(f"✅ HF_HOME set: {os.environ['HF_HOME']}")
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def detect_runpod_url():
+    """Detect current RunPod URL using official environment variables"""
+    try:
+        # Get RunPod Pod ID from environment
+        pod_id = os.environ.get('RUNPOD_POD_ID')
+        if not pod_id:
+            logger.warning("⚠️ RUNPOD_POD_ID not found in environment")
+            return None
+        
+        # Construct RunPod proxy URL
+        runpod_url = f"https://{pod_id}-7860.proxy.runpod.net/"
+        logger.info(f"🌐 Detected RunPod URL: {runpod_url}")
+        return runpod_url
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to detect RunPod URL: {e}")
+        return None
+
+def validate_worker_url(url):
+    """Test if the detected URL actually works"""
+    try:
+        logger.info(f"🔍 Validating worker URL: {url}")
+        
+        # Test health endpoint
+        health_url = f"{url.rstrip('/')}/health"
+        response = requests.get(health_url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            logger.info(f"✅ Worker URL validation successful: {data}")
+            return True
+        else:
+            logger.warning(f"⚠️ Worker URL validation failed: HTTP {response.status_code}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"⚠️ Worker URL validation failed: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Worker URL validation error: {e}")
+        return False
+
+def auto_register_worker_url():
+    """Auto-register worker URL with Supabase on startup"""
+    try:
+        # Detect RunPod URL
+        runpod_url = detect_runpod_url()
+        if not runpod_url:
+            logger.warning("⚠️ Could not detect RunPod URL for registration")
+            return False
+        
+        # Validate URL works
+        if not validate_worker_url(runpod_url):
+            logger.warning("⚠️ Worker URL validation failed, skipping registration")
+            return False
+        
+        # Get Supabase credentials
+        supabase_url = os.environ.get('SUPABASE_URL')
+        supabase_key = os.environ.get('SUPABASE_SERVICE_KEY')
+        
+        if not supabase_url or not supabase_key:
+            logger.error("❌ Missing Supabase credentials for URL registration")
+            return False
+        
+        # Call Supabase edge function to register URL
+        registration_url = f"{supabase_url}/functions/v1/update-worker-url"
+        
+        payload = {
+            "worker_url": runpod_url,
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "active"
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"🌐 Registering worker URL with Supabase: {runpod_url}")
+        response = requests.post(registration_url, json=payload, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            logger.info("✅ Worker URL registration successful")
+            return True
+        else:
+            logger.error(f"❌ Worker URL registration failed: HTTP {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Worker URL registration error: {e}")
+        return False
+
+def start_periodic_health_monitoring():
+    """Start background thread for periodic health checks and re-registration"""
+    def health_monitor_loop():
+        logger.info("🔄 Starting periodic health monitoring...")
+        
+        while True:
+            try:
+                time.sleep(300)  # Check every 5 minutes
+                
+                # Detect current URL
+                runpod_url = detect_runpod_url()
+                if not runpod_url:
+                    logger.warning("⚠️ Could not detect RunPod URL for health check")
+                    continue
+                
+                # Validate URL
+                if validate_worker_url(runpod_url):
+                    logger.info("✅ Worker health check passed")
+                    
+                    # Re-register URL to keep it fresh
+                    if auto_register_worker_url():
+                        logger.info("✅ Worker URL re-registration successful")
+                    else:
+                        logger.warning("⚠️ Worker URL re-registration failed")
+                else:
+                    logger.warning("⚠️ Worker health check failed")
+                    
+            except Exception as e:
+                logger.error(f"❌ Health monitoring error: {e}")
+                time.sleep(60)  # Wait before retry
+    
+    # Start monitoring thread
+    monitor_thread = threading.Thread(target=health_monitor_loop, daemon=True)
+    monitor_thread.start()
+    logger.info("✅ Periodic health monitoring started")
 
 class DualWorkerOrchestrator:
     def __init__(self):
@@ -480,6 +611,24 @@ if __name__ == "__main__":
     logger.info("🚀 Starting OurVidz Dual Worker System - CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V VERSION")
     
     try:
+        # ✅ AUTO-REGISTER WORKER URL
+        logger.info("🌐 Attempting worker URL auto-registration...")
+        registration_success = auto_register_worker_url()
+        
+        if registration_success:
+            logger.info("✅ Worker URL auto-registration successful")
+            
+            # Start periodic monitoring to keep registration fresh
+            start_periodic_health_monitoring()
+            
+            logger.info("🎯 System ready - edge functions can now find this worker automatically")
+        else:
+            logger.info("⚠️ Auto-registration failed")
+            logger.info("💡 Admin can manually update URL at admin panel if needed")
+            logger.info("🔄 Will retry registration in background...")
+        
+        # Continue with existing worker startup...
+        logger.info("🔧 Starting worker processes...")
         orchestrator = DualWorkerOrchestrator()
         success = orchestrator.run()
         sys.exit(0 if success else 1)
