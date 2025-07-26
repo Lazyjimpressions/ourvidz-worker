@@ -2570,6 +2570,19 @@ if FLASK_AVAILABLE:
     # Initialize Flask app
     app = Flask(__name__)
 
+    @app.route('/', methods=['GET'])
+    def root():
+        """Root endpoint for basic connectivity testing"""
+        return jsonify({
+            'service': 'OurVidz WAN Worker',
+            'status': 'online',
+            'endpoints': {
+                '/': 'GET - This status page',
+                '/health': 'GET - Health check', 
+                '/enhance': 'POST - Prompt enhancement'
+            }
+        })
+
     @app.route('/enhance', methods=['POST'])
     def enhance_endpoint():
         """Frontend enhancement endpoint using real Qwen Base model"""
