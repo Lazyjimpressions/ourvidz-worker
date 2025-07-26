@@ -2578,6 +2578,11 @@ if FLASK_AVAILABLE:
             auth_header = request.headers.get('Authorization')
             expected_key = os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')
             
+            # 🔍 DEBUG: Log what's happening with the API key
+            print(f"🔍 DEBUG: WAN_WORKER_API_KEY env var exists: {bool(os.environ.get('WAN_WORKER_API_KEY'))}")
+            print(f"🔍 DEBUG: WAN_WORKER_API_KEY value: '{os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')}'")
+            print(f"🔍 DEBUG: Expected key being used: '{expected_key}'")
+            
             if not auth_header or not auth_header.startswith('Bearer '):
                 return jsonify({
                     'success': False,
@@ -2585,6 +2590,8 @@ if FLASK_AVAILABLE:
                 }), 401
             
             provided_key = auth_header.replace('Bearer ', '')
+            print(f"🔍 DEBUG: Provided key: '{provided_key}'")
+            
             if provided_key != expected_key:
                 return jsonify({
                     'success': False,
@@ -2674,6 +2681,15 @@ if FLASK_AVAILABLE:
             'qwen_loaded': worker and hasattr(worker, 'qwen_model') and worker.qwen_model is not None,
             'timestamp': time.time(),
             'worker_ready': worker is not None
+        })
+
+    @app.route('/debug/env', methods=['GET'])
+    def debug_env():
+        """Debug endpoint to check environment variables"""
+        return jsonify({
+            'wan_worker_api_key_set': bool(os.environ.get('WAN_WORKER_API_KEY')),
+            'wan_worker_api_key_value': os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'NOT SET',
+            'expected_key': os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')[:10] + '...' if os.environ.get('WAN_WORKER_API_KEY') else 'default_key_123'
         })
 
     def run_flask_server():
