@@ -2,6 +2,13 @@
 """
 OurVidz Memory Manager - Smart VRAM allocation for triple worker system
 Handles: SDXL (always loaded) + Chat (when possible) + WAN (on demand)
+
+ENHANCED FEATURES:
+- Memory pressure detection (critical/high/medium/low)
+- Emergency memory management with intelligent fallback
+- Force unload capabilities for critical situations
+- Predictive loading based on usage patterns
+- Comprehensive emergency status reporting
 """
 
 import requests
@@ -177,9 +184,154 @@ class MemoryManager:
         else:
             logger.info("ℹ️ Chat worker already loaded or insufficient memory")
 
+    def get_memory_pressure_level(self) -> str:
+        """Detect memory pressure level"""
+        total_used, _ = self.get_total_memory_usage()
+        available = self.usable_vram - total_used
+        
+        if available < 5:
+            return "critical"  # <5GB available
+        elif available < 10:
+            return "high"      # 5-10GB available
+        elif available < 15:
+            return "medium"    # 10-15GB available
+        else:
+            return "low"       # >15GB available
+
+    def force_unload_all_except(self, target: str, reason: str = "emergency") -> bool:
+        """Emergency VRAM clearing - use sparingly"""
+        logger.warning(f"🚨 EMERGENCY: Force unloading all workers except {target} - Reason: {reason}")
+        
+        results = {}
+        for worker in ['sdxl', 'chat', 'wan']:
+            if worker != target:
+                logger.warning(f"🗑️ Force unloading {worker}...")
+                results[worker] = self.unload_worker(worker)
+        
+        # Verify we freed enough memory
+        time.sleep(2)  # Allow unloading to complete
+        if self.can_load_worker(target):
+            logger.info(f"✅ Emergency unload successful, {target} can now load")
+            return True
+        else:
+            logger.error(f"❌ Emergency unload failed, {target} still cannot load")
+            return False
+
+    def should_preload_chat(self) -> bool:
+        """Decide if chat should be preloaded based on usage patterns"""
+        # Check memory pressure
+        pressure = self.get_memory_pressure_level()
+        if pressure in ["critical", "high"]:
+            return False
+        
+        # Check if WAN job is queued (would need to implement queue checking)
+        # For now, assume no WAN job is queued if we're considering preloading
+        wan_job_queued = False  # TODO: Implement queue checking
+        
+        # Check if chat was used recently (would need to track this)
+        # For now, assume it was used recently
+        chat_used_recently = True  # TODO: Implement usage tracking
+        
+        should_preload = (
+            pressure in ["low", "medium"] and
+            not wan_job_queued and
+            chat_used_recently
+        )
+        
+        logger.info(f"🔍 Should preload chat? Pressure: {pressure}, WAN queued: {wan_job_queued}, Used recently: {chat_used_recently} → {'✅' if should_preload else '❌'}")
+        return should_preload
+
+    def get_emergency_memory_status(self) -> Dict:
+        """Get detailed memory status for emergency situations"""
+        total_used, worker_status = self.get_total_memory_usage()
+        pressure = self.get_memory_pressure_level()
+        
+        return {
+            'memory_pressure': pressure,
+            'total_used_gb': total_used,
+            'available_gb': self.usable_vram - total_used,
+            'worker_status': worker_status,
+            'can_load_wan': self.can_load_worker('wan'),
+            'can_load_chat': self.can_load_worker('chat'),
+            'emergency_actions_available': {
+                'force_unload_chat': worker_status.get('chat', False),
+                'force_unload_sdxl': worker_status.get('sdxl', False),
+                'force_unload_all_except_wan': pressure in ["critical", "high"],
+                'force_unload_all_except_chat': pressure in ["critical", "high"]
+            }
+        }
+
+    def handle_emergency_memory_request(self, target_worker: str, reason: str = "emergency") -> Dict:
+        """Handle emergency memory requests with intelligent fallback"""
+        logger.warning(f"🚨 EMERGENCY MEMORY REQUEST: Need to load {target_worker} - Reason: {reason}")
+        
+        # Get current status
+        status = self.get_emergency_memory_status()
+        
+        # If we can already load the target, no emergency needed
+        if status[f'can_load_{target_worker}']:
+            logger.info(f"✅ {target_worker} can be loaded without emergency measures")
+            return {
+                'success': True,
+                'action_taken': 'none',
+                'reason': 'sufficient_memory_available',
+                'status': status
+            }
+        
+        # Determine best emergency action based on memory pressure
+        pressure = status['memory_pressure']
+        
+        if pressure == "critical":
+            # Critical pressure - use nuclear option
+            logger.warning("🚨 CRITICAL MEMORY PRESSURE - Using nuclear unload option")
+            success = self.force_unload_all_except(target_worker, f"critical_pressure_{reason}")
+            return {
+                'success': success,
+                'action_taken': 'force_unload_all_except',
+                'target_worker': target_worker,
+                'reason': f'critical_pressure_{reason}',
+                'status': self.get_emergency_memory_status()
+            }
+        
+        elif pressure == "high":
+            # High pressure - try selective unloading first
+            logger.warning("⚠️ HIGH MEMORY PRESSURE - Attempting selective unloading")
+            
+            # Try unloading chat first (if not the target)
+            if target_worker != 'chat' and status['worker_status'].get('chat', False):
+                logger.info("🔄 Attempting to unload chat worker first...")
+                if self.unload_worker('chat') and self.can_load_worker(target_worker):
+                    return {
+                        'success': True,
+                        'action_taken': 'unload_chat',
+                        'reason': f'high_pressure_{reason}',
+                        'status': self.get_emergency_memory_status()
+                    }
+            
+            # If selective unloading didn't work, use nuclear option
+            success = self.force_unload_all_except(target_worker, f"high_pressure_{reason}")
+            return {
+                'success': success,
+                'action_taken': 'force_unload_all_except',
+                'target_worker': target_worker,
+                'reason': f'high_pressure_{reason}',
+                'status': self.get_emergency_memory_status()
+            }
+        
+        else:
+            # Medium/low pressure - should be able to handle normally
+            logger.info(f"ℹ️ Memory pressure is {pressure} - should be manageable")
+            return {
+                'success': False,
+                'action_taken': 'none',
+                'reason': f'unexpected_pressure_{pressure}',
+                'status': status
+            }
+
     def get_memory_report(self) -> Dict:
         """Get comprehensive memory report"""
         total_used, worker_status = self.get_total_memory_usage()
+        pressure = self.get_memory_pressure_level()
         
         return {
             'total_vram': self.total_vram,
@@ -187,11 +339,17 @@ class MemoryManager:
             'safety_buffer': self.safety_buffer,
             'current_usage': total_used,
             'available': self.usable_vram - total_used,
+            'memory_pressure': pressure,
             'worker_status': worker_status,
             'worker_memory_requirements': self.worker_memory,
             'can_load': {
                 worker: self.can_load_worker(worker) 
                 for worker in ['sdxl', 'chat', 'wan']
+            },
+            'emergency_actions': {
+                'force_unload_all_except_wan': pressure in ["critical", "high"],
+                'force_unload_all_except_chat': pressure in ["critical", "high"],
+                'should_preload_chat': self.should_preload_chat()
             }
         }
 
@@ -201,3 +359,31 @@ memory_manager = MemoryManager()
 def get_memory_manager() -> MemoryManager:
     """Get the global memory manager instance"""
     return memory_manager
+
+def emergency_memory_operation(operation: str, target_worker: str = None, reason: str = "emergency") -> Dict:
+    """Emergency memory operation interface for edge functions"""
+    mm = get_memory_manager()
+    
+    if operation == "status":
+        return mm.get_emergency_memory_status()
+    
+    elif operation == "force_unload_all_except":
+        if not target_worker:
+            return {'error': 'target_worker required for force_unload_all_except'}
+        return {
+            'success': mm.force_unload_all_except(target_worker, reason),
+            'operation': operation,
+            'target_worker': target_worker,
+            'reason': reason
+        }
+    
+    elif operation == "handle_emergency_request":
+        if not target_worker:
+            return {'error': 'target_worker required for handle_emergency_request'}
+        return mm.handle_emergency_memory_request(target_worker, reason)
+    
+    elif operation == "memory_report":
+        return mm.get_memory_report()
+    
+    else:
+        return {'error': f'Unknown operation: {operation}'}
