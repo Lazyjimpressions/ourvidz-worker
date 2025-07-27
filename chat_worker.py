@@ -20,6 +20,8 @@ import torch
 import psutil
 import signal
 import threading
+import requests
+from datetime import datetime
 from flask import Flask, request, jsonify
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import logging
@@ -446,6 +448,72 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
             except Exception as e:
                 return jsonify({'error': f'Failed to get model info: {str(e)}'}), 500
 
+def auto_register_chat_worker():
+    """Auto-register chat worker URL with Supabase"""
+    try:
+        print("🌐 Starting Chat Worker auto-registration...")
+        
+        # Detect RunPod URL
+        pod_id = os.getenv('RUNPOD_POD_ID')
+        if not pod_id:
+            print("⚠️ RUNPOD_POD_ID not found - skipping auto-registration")
+            return False
+        
+        worker_url = f"https://{pod_id}-7861.proxy.runpod.net"
+        print(f"🔍 Detected Chat Worker URL: {worker_url}")
+        
+        # Validate environment variables
+        supabase_url = os.getenv('SUPABASE_URL')
+        service_key = os.getenv('SUPABASE_SERVICE_KEY')
+        
+        if not supabase_url or not service_key:
+            print("❌ Missing Supabase credentials")
+            return False
+        
+        # Registration data
+        registration_data = {
+            "worker_url": worker_url,
+            "auto_registered": True,
+            "registration_method": "chat_worker_self_registration",
+            "detection_method": "RUNPOD_POD_ID",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        print(f"📝 Registering Chat Worker with Supabase...")
+        
+        # Call register-chat-worker edge function
+        edge_function_url = f"{supabase_url}/functions/v1/register-chat-worker"
+        
+        response = requests.post(
+            edge_function_url,
+            headers={
+                "Authorization": f"Bearer {service_key}",
+                "Content-Type": "application/json"
+            },
+            json=registration_data,
+            timeout=15
+        )
+        
+        print(f"📄 Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                print(f"✅ Chat Worker auto-registered successfully!")
+                print(f"🎯 URL: {worker_url}")
+                return True
+            else:
+                print(f"❌ Registration failed: {result.get('error', 'Unknown error')}")
+        else:
+            print(f"❌ HTTP error: {response.status_code}")
+            print(f"Response: {response.text}")
+        
+        return False
+        
+    except Exception as e:
+        print(f"❌ Auto-registration error: {e}")
+        return False
+
     def start_server(self):
         """Start the Flask server"""
         try:
@@ -473,4 +541,26 @@ if __name__ == "__main__":
     
     # Start chat worker
     worker = ChatWorker()
-    worker.start_server()
+    
+    # Start Flask server in a separate thread to allow auto-registration
+    import threading
+    
+    def start_server_thread():
+        worker.start_server()
+    
+    server_thread = threading.Thread(target=start_server_thread, daemon=True)
+    server_thread.start()
+    
+    # Wait a moment for server to be ready
+    time.sleep(3)
+    
+    # Auto-register with Supabase
+    auto_register_chat_worker()
+    
+    # Keep main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("🛑 Shutting down Chat Worker...")
+        sys.exit(0)
