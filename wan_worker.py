@@ -1,10 +1,11 @@
-# wan_worker.py - CRITICAL FIX for WAN 1.3B Model + REFERENCE FRAMES + AUTO-REGISTRATION + THREAD-SAFE TIMEOUTS
+# wan_worker.py - CLEANUP VERSION (WAN 1.3B + QWEN BASE ONLY)
 # FIXES: Correct task names for 1.3B model, proper I2V support for reference frames, auto URL registration
 # MAJOR FIX: Use correct 1.3B tasks (t2v-1.3B, i2v not flf2v)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
 # REFERENCE STRENGTH FIX: Adjust sample_guide_scale based on reference strength
 # AUTO-REGISTRATION FIX: Detect RunPod URL and register with Supabase automatically
 # THREAD-SAFE FIX: Replace signal-based timeouts with thread-safe concurrent.futures
+# CLEANUP: Removed Qwen Instruct model code - WAN worker focuses on video generation + Base model enhancement only
 # Date: July 26, 2025
 
 import os
@@ -383,15 +384,16 @@ class EnhancedWanWorker:
             }
         }
         
-        print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + REFERENCE FRAMES + REFERENCE STRENGTH")
+        print("🎬 Enhanced OurVidz WAN Worker - 1.3B MODEL + QWEN BASE ONLY")
         print("🔧 CRITICAL FIX: Using correct t2v-1.3B task for WAN 1.3B model")
         print("🔧 REFERENCE SUPPORT: All 5 reference modes (none, single, start, end, both)")
         print("🔧 REFERENCE STRENGTH: Adjust guidance scale based on reference strength (0.1-1.0)")
         print("🔧 PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function")
+        print("🔧 CLEANUP: Removed Qwen Instruct model - Base model enhancement only")
         print(f"📋 Supporting ALL 8 job types with 1.3B tasks: {list(self.job_configs.keys())}")
         print(f"📁 WAN 1.3B Model Path: {self.model_path}")
         print(f"🤖 Qwen Base Model Path: {self.qwen_model_path}")
-        print("📊 Status: Fixed for 1.3B model + Reference Frames + Reference Strength ✅")
+        print("📊 Status: Fixed for 1.3B model + Reference Frames + Base model enhancement ✅")
         self.log_gpu_memory()
 
     def adjust_guidance_for_reference_strength(self, base_guide_scale, reference_strength):
@@ -1582,164 +1584,15 @@ class EnhancedWanWorker:
             print("✅ Qwen 2.5-7B unloaded")
             self.log_gpu_memory()
 
-    def _load_qwen_instruct_model_internal(self):
-        """Internal method for loading Qwen Instruct model - used with timeout wrapper"""
-        instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
-        
-        print(f"🔄 Loading Qwen Instruct model from {instruct_model_path}")
-        
-        # Load chat model components
-        self.qwen_instruct_tokenizer = AutoTokenizer.from_pretrained(
-            instruct_model_path,
-            trust_remote_code=True,
-            local_files_only=True  # Use local model only
-        )
-        
-        self.qwen_instruct_model = AutoModelForCausalLM.from_pretrained(
-            instruct_model_path,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True,
-            local_files_only=True  # Use local model only
-        )
-        
-        return True
 
-    def load_qwen_instruct_model(self):
-        """Load Qwen 2.5-7B Instruct model for chat/conversational enhancement"""
-        if hasattr(self, 'qwen_instruct_model') and self.qwen_instruct_model is not None:
-            return True
-            
-        # Use the verified Instruct model path from workspace analysis
-        instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
-        
-        if not os.path.exists(instruct_model_path):
-            print(f"⚠️ Qwen Instruct model not found at {instruct_model_path}")
-            return False
-            
-        try:
-            print("💬 Loading Qwen 2.5-7B Instruct model for chat enhancement...")
-            enhancement_start = time.time()
-            
-            # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
-            run_with_timeout(self._load_qwen_instruct_model_internal, 120)  # 2 minute timeout
-            
-            load_time = time.time() - enhancement_start
-            print(f"✅ Qwen Instruct model loaded successfully in {load_time:.1f}s")
-            print(f"✅ Model type: INSTRUCT (conversational)")
-            self.log_gpu_memory()
-            return True
-            
-        except TimeoutException:
-            print(f"❌ Qwen Instruct model loading timed out after 120s")
-            return False
-        except Exception as e:
-            print(f"❌ Failed to load Qwen Instruct model: {e}")
-            return False
 
-    def unload_qwen_instruct_model(self):
-        """Free Qwen Instruct memory"""
-        if hasattr(self, 'qwen_instruct_model') and self.qwen_instruct_model is not None:
-            print("🗑️ Unloading Qwen Instruct model...")
-            del self.qwen_instruct_model
-            del self.qwen_instruct_tokenizer
-            self.qwen_instruct_model = None
-            self.qwen_instruct_tokenizer = None
-            torch.cuda.empty_cache()
-            print("✅ Qwen Instruct model unloaded")
-            self.log_gpu_memory()
 
-    def _enhance_with_chat_internal(self, messages):
-        """Internal method for chat enhancement - used with timeout wrapper"""
-        # Prepare chat input using the instruct model's chat template
-        text = self.qwen_instruct_tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-        
-        # Tokenize the formatted chat
-        inputs = self.qwen_instruct_tokenizer([text], return_tensors="pt")
-        
-        # Move to device
-        if hasattr(self.qwen_instruct_model, 'device'):
-            inputs = {k: v.to(self.qwen_instruct_model.device) for k, v in inputs.items()}
-        
-        # Generate response
-        with torch.no_grad():
-            generated_ids = self.qwen_instruct_model.generate(
-                **inputs,
-                max_new_tokens=300,
-                do_sample=True,
-                temperature=0.8,
-                top_p=0.95,
-                repetition_penalty=1.1,
-                pad_token_id=self.qwen_instruct_tokenizer.eos_token_id
-            )
-        
-        # Decode response
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
-        ]
-        
-        response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return response.strip()
 
-    def enhance_prompt_with_chat(self, original_prompt, session_id=None, conversation_context=None):
-        """Enhanced prompt generation using Instruct model with conversation memory"""
-        enhancement_start = time.time()
-        print(f"💬 Enhancing prompt with Instruct model: {original_prompt[:50]}...")
-        
-        try:
-            if not self.load_qwen_instruct_model():
-                print("⚠️ Instruct model not available, falling back to Base model")
-                return self.enhance_prompt_with_timeout(original_prompt)
-            
-            # Build conversation for instruct model
-            system_prompt = """You are an expert AI prompt engineer specializing in cinematic and adult content generation.
 
-Your role is to transform simple prompts into detailed, cinematic descriptions while maintaining anatomical accuracy and realism for adult content.
 
-Focus on:
-- High-quality visual details and realistic proportions
-- Cinematic lighting and professional photography style  
-- Specific poses, expressions, and scene composition
-- Technical quality like 4K resolution and smooth motion
 
-Always respond with enhanced prompts that are detailed, specific, and optimized for AI generation."""
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Please enhance this prompt for AI generation: {original_prompt}"}
-            ]
-            
-            # Add conversation context if provided
-            if conversation_context:
-                messages.insert(-1, {"role": "assistant", "content": conversation_context})
-            
-            # ✅ THREAD-SAFE FIX: Use concurrent.futures instead of signal
-            enhanced = run_with_timeout(
-                self._enhance_with_chat_internal, 
-                self.enhancement_timeout, 
-                messages
-            )
-            
-            if enhanced and len(enhanced.strip()) > 10:
-                generation_time = time.time() - enhancement_start
-                print(f"✅ Chat enhancement completed in {generation_time:.1f}s")
-                return enhanced.strip()
-            else:
-                print("⚠️ Chat enhancement returned empty result")
-                return original_prompt
-                
-        except TimeoutException:
-            print(f"⏰ Chat enhancement timed out after {self.enhancement_timeout}s, falling back to Base")
-            return self.enhance_prompt_with_timeout(original_prompt)
-        except Exception as e:
-            print(f"❌ Instruct enhancement failed: {e}, falling back to Base")
-            return self.enhance_prompt_with_timeout(original_prompt)
-        finally:
-            self.unload_qwen_instruct_model()
+
 
     def _enhance_with_qwen_internal(self, enhancement_prompt, inputs):
         """Internal method for Qwen enhancement - optimized generation parameters"""
@@ -1864,35 +1717,36 @@ Enhanced prompt:"""
         # finally:
         #     self.unload_qwen_model()
 
-    def enhance_prompt(self, original_prompt, enhancement_type="instruct", session_id=None, conversation_context=None):
-        """Enhanced prompt with retry logic and model selection"""
-        print(f"🤖 Starting enhancement for: {original_prompt[:50]}... (type: {enhancement_type})")
+    def enhance_prompt(self, original_prompt, enhancement_type="base", session_id=None, conversation_context=None):
+        """Enhanced prompt with retry logic - BASE MODEL ONLY"""
+        print(f"🤖 Starting base model enhancement for: {original_prompt[:50]}...")
+        
+        # Only support base model enhancement for enhanced jobs
+        if enhancement_type != "base":
+            print(f"⚠️ Enhancement type '{enhancement_type}' not supported by WAN worker, using base model")
         
         for attempt in range(self.max_enhancement_attempts):
             try:
                 print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
                 
-                # Choose enhancement method based on type
-                if enhancement_type == "chat" or enhancement_type == "instruct_chat":
-                    enhanced = self.enhance_prompt_with_chat(original_prompt, session_id, conversation_context)
-                else:
-                    # Use existing Base model enhancement (preserves current functionality)
-                    enhanced = self.enhance_prompt_with_timeout(original_prompt)
+                # Use base model only
+                enhanced = self.enhance_prompt_with_timeout(original_prompt)
                 
                 if enhanced and enhanced.strip() != original_prompt.strip():
-                    print(f"✅ Enhancement successful on attempt {attempt + 1}")
+                    print(f"✅ Base model enhancement successful on attempt {attempt + 1}")
                     return enhanced
                 else:
-                    print(f"⚠️ Enhancement attempt {attempt + 1} returned original prompt")
-                    if attempt < self.max_enhancement_attempts - 1:
-                        time.sleep(5)
+                    print(f"⚠️ Base model returned original prompt on attempt {attempt + 1}")
                     
             except Exception as e:
                 print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
-                if attempt < self.max_enhancement_attempts - 1:
-                    time.sleep(5)
+                
+            if attempt < self.max_enhancement_attempts - 1:
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"⏰ Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
         
-        print("⚠️ All enhancement attempts failed, using original prompt")
+        print(f"❌ All enhancement attempts failed, using original prompt")
         return original_prompt
 
     def validate_output_file(self, file_path, expected_content_type):
@@ -2638,16 +2492,11 @@ if FLASK_AVAILABLE:
 
     @app.route('/enhance', methods=['POST'])
     def enhance_endpoint():
-        """Frontend enhancement endpoint using real Qwen Base model"""
+        """Enhanced prompt endpoint - BASE MODEL ONLY"""
         try:
             # API Key Authentication
             auth_header = request.headers.get('Authorization')
             expected_key = os.environ.get('WAN_WORKER_API_KEY', 'default_key_123')
-            
-            # 🔍 DEBUG: Log what's happening with the API key
-            print(f"🔍 DEBUG: WAN_WORKER_API_KEY env var exists: {bool(os.environ.get('WAN_WORKER_API_KEY'))}")
-            print(f"🔍 DEBUG: WAN_WORKER_API_KEY value: '{os.environ.get('WAN_WORKER_API_KEY', 'NOT SET')}'")
-            print(f"🔍 DEBUG: Expected key being used: '{expected_key}'")
             
             if not auth_header or not auth_header.startswith('Bearer '):
                 return jsonify({
@@ -2656,7 +2505,6 @@ if FLASK_AVAILABLE:
                 }), 401
             
             provided_key = auth_header.replace('Bearer ', '')
-            print(f"🔍 DEBUG: Provided key: '{provided_key}'")
             
             if provided_key != expected_key:
                 return jsonify({
@@ -2674,7 +2522,6 @@ if FLASK_AVAILABLE:
             
             original_prompt = data.get('prompt', '')
             model = data.get('model', 'qwen_base')
-            enhance_type = data.get('enhance_type', 'natural_language')
             
             if not original_prompt.strip():
                 return jsonify({
@@ -2682,41 +2529,40 @@ if FLASK_AVAILABLE:
                     'error': 'prompt cannot be empty'
                 }), 400
             
-            print(f"🎯 Frontend enhancement request: {original_prompt[:50]}...")
+            print(f"🎯 WAN Worker enhancement request: {original_prompt[:50]}...")
             start_time = time.time()
             
-            # Use existing Qwen Base enhancement with optimized timeout
-            if model == 'qwen_base':
-                worker = globals().get('worker_instance')
-                if not worker:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Worker not initialized'
-                    }), 500
+            # Force base model for WAN worker
+            if model != 'qwen_base':
+                print(f"⚠️ Model '{model}' not supported by WAN worker, using qwen_base")
+                model = 'qwen_base'
+            
+            worker = globals().get('worker_instance')
+            if not worker:
+                return jsonify({
+                    'success': False,
+                    'error': 'Worker not initialized'
+                }), 500
+            
+            # Optimize timeout based on model loading status
+            original_timeout = worker.enhancement_timeout
+            if hasattr(worker, 'qwen_model') and worker.qwen_model is not None:
+                worker.enhancement_timeout = 30
+                print("🚀 Model already loaded, using 30s timeout")
+            else:
+                worker.enhancement_timeout = 90
+                print("⏳ Model needs loading, using 90s timeout")
+            
+            try:
+                # Enhance using base model only
+                enhanced_prompt = worker.enhance_prompt(original_prompt, enhancement_type="base")
+                processing_time = time.time() - start_time
                 
-                # ✅ OPTIMIZED: Increase timeout for first-time model loading
-                original_timeout = worker.enhancement_timeout
+                # Check if enhancement actually happened
+                enhancement_applied = enhanced_prompt != original_prompt
                 
-                # Check if model is already loaded
-                if hasattr(worker, 'qwen_model') and worker.qwen_model is not None:
-                    # Model already loaded - use shorter timeout
-                    worker.enhancement_timeout = 30
-                    print("🚀 Model already loaded, using 30s timeout")
-                else:
-                    # Model needs loading - use longer timeout  
-                    worker.enhancement_timeout = 90  # Allow time for model loading
-                    print("⏳ Model needs loading, using 90s timeout")
-                
-                try:
-                    enhanced_prompt = worker.enhance_prompt_with_timeout(original_prompt)
-                    processing_time = time.time() - start_time
-                    
-                    print(f"✅ Frontend enhancement completed in {processing_time:.1f}s")
-                    
-                    # Check if enhancement actually happened
-                    enhancement_applied = enhanced_prompt != original_prompt
-                    
-                    return jsonify({
+                if enhancement_applied:
+                    response_data = {
                         'success': True,
                         'enhanced_prompt': enhanced_prompt,
                         'original_prompt': original_prompt,
@@ -2724,28 +2570,35 @@ if FLASK_AVAILABLE:
                         'processing_time': processing_time,
                         'model': model,
                         'thread_safe': True,
-                        'enhancement_applied': enhancement_applied,  # ✅ NEW: Track if enhancement worked
-                        'model_was_loaded': hasattr(worker, 'qwen_model') and worker.qwen_model is not None
-                    })
-                    
-                except Exception as e:
-                    print(f"❌ Qwen enhancement failed: {e}")
+                        'enhancement_applied': enhancement_applied,
+                        'model_was_loaded': hasattr(worker, 'qwen_model') and worker.qwen_model is not None,
+                        'worker': 'wan',
+                        'note': 'Enhanced using Qwen Base model'
+                    }
+                    print(f"✅ WAN enhancement successful: {len(original_prompt)} → {len(enhanced_prompt)} chars")
+                    return jsonify(response_data)
+                else:
+                    print(f"⚠️ WAN enhancement failed, returning original")
                     return jsonify({
                         'success': False,
-                        'error': f'Enhancement failed: {str(e)}',
-                        'enhanced_prompt': original_prompt  # Fallback
-                    }), 500
-                finally:
-                    # Restore original timeout
-                    worker.enhancement_timeout = original_timeout
-            else:
+                        'enhanced_prompt': original_prompt,
+                        'original_prompt': original_prompt,
+                        'error': 'Enhancement failed, returned original prompt'
+                    })
+                    
+            except Exception as e:
+                print(f"❌ WAN enhancement failed: {e}")
                 return jsonify({
                     'success': False,
-                    'error': f'Unsupported model: {model}'
-                }), 400
+                    'error': f'Enhancement failed: {str(e)}',
+                    'enhanced_prompt': original_prompt
+                }), 500
+            finally:
+                # Restore original timeout
+                worker.enhancement_timeout = original_timeout
                 
         except Exception as e:
-            print(f"❌ Frontend enhancement endpoint error: {e}")
+            print(f"❌ WAN enhancement endpoint error: {e}")
             return jsonify({
                 'success': False,
                 'error': str(e),
@@ -2852,6 +2705,7 @@ if __name__ == "__main__":
     print("🔧 FIXED: Using t2v-1.3B task for WAN 1.3B model")
     print("🖼️ REFERENCE: All 5 reference modes (none, single, start, end, both)")
     print("✅ THREAD-SAFE: Replaced signal timeouts with concurrent.futures")
+    print("🔧 CLEANUP: Removed Qwen Instruct model - Base model enhancement only")
     
     try:
         # Initialize worker
@@ -2925,4 +2779,4 @@ if __name__ == "__main__":
         traceback.print_exc()
         exit(1)
     finally:
-        print("👋 Enhanced WAN 1.3B Worker shutdown complete")
+        print("👋 Enhanced WAN 1.3B Worker (Base model only) shutdown complete")
