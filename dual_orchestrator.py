@@ -1,6 +1,6 @@
-# dual_orchestrator.py - UPDATED FOR GRACEFUL VALIDATION + CONSISTENT PARAMETERS
-# Manages both LUSTIFY SDXL and WAN 2.1 workers concurrently
-# Critical Fix: Graceful SDXL validation + Enhanced WAN worker support + Consistent parameter naming
+# dual_orchestrator.py - UPDATED FOR TRIPLE WORKER SYSTEM (SDXL + WAN + CHAT)
+# Manages LUSTIFY SDXL, WAN 2.1, and Chat workers concurrently
+# Critical Fix: Graceful SDXL validation + Enhanced WAN worker support + Chat worker integration
 # Optimized for RTX 6000 ADA 48GB VRAM capacity
 
 import os
@@ -32,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 class DualWorkerOrchestrator:
     def __init__(self):
-        """Initialize dual worker orchestrator"""
+        """Initialize triple worker orchestrator"""
         self.processes = {}
         self.shutdown_event = threading.Event()
         
-        # Worker configurations
+        # Worker configurations - UPDATED FOR TRIPLE WORKER SYSTEM
         self.workers = {
             'sdxl': {
                 'script': 'sdxl_worker.py',
@@ -46,7 +46,21 @@ class DualWorkerOrchestrator:
                 'expected_vram': '10-15GB',
                 'restart_delay': 10,
                 'generation_time': '3-8s',
-                'status': 'Working ✅'
+                'status': 'Working ✅',
+                'port': 7860,  # ✅ ADDED: Port for Flask API
+                'priority': 1   # ✅ ADDED: Startup priority (1 = highest)
+            },
+            'chat': {
+                'script': 'chat_worker.py',
+                'name': 'Chat Worker (Qwen Instruct)',
+                'queue': 'chat_queue',
+                'job_types': ['chat_enhance', 'chat_conversation', 'admin_utilities'],
+                'expected_vram': '15-20GB',
+                'restart_delay': 12,
+                'generation_time': '5-15s',
+                'status': 'Qwen 2.5-7B Instruct Service ✅',
+                'port': 7861,  # ✅ ADDED: Port for Flask API
+                'priority': 2   # ✅ ADDED: Startup priority (2 = medium)
             },
             'wan': {
                 'script': 'wan_worker.py', 
@@ -58,18 +72,42 @@ class DualWorkerOrchestrator:
                 'expected_vram': '15-30GB',
                 'restart_delay': 15,
                 'generation_time': '67-294s',
-                'status': 'Qwen 7B Enhancement + FLF2V/T2V Tasks ✅'
+                'status': 'Qwen 7B Enhancement + FLF2V/T2V Tasks ✅',
+                'port': 7860,  # ✅ ADDED: Port for Flask API (same as SDXL)
+                'priority': 3   # ✅ ADDED: Startup priority (3 = lowest)
             }
         }
         
-        logger.info("🎭 Dual Worker Orchestrator initialized")
-        logger.info("🎨 SDXL: Fast image generation (3-8s)")
-        logger.info("🎬 Enhanced WAN: Video + Qwen 7B enhancement + FLF2V/T2V tasks (67-294s)")
-        logger.info("🔧 FIXED: Graceful validation + consistent parameter naming + FLF2V/T2V support")
+        logger.info("🎭 Triple Worker Orchestrator initialized")
+        logger.info("🎨 SDXL: Fast image generation (3-8s) - Port 7860")
+        logger.info("💬 Chat: Qwen Instruct service (5-15s) - Port 7861")
+        logger.info("🎬 Enhanced WAN: Video + Qwen 7B enhancement + FLF2V/T2V tasks (67-294s) - Port 7860")
+        logger.info("🔧 FIXED: Graceful validation + consistent parameter naming + FLF2V/T2V support + Chat integration")
+
+    def get_worker_startup_command(self, worker_id):
+        """Generate startup command and environment for a worker"""
+        config = self.workers[worker_id]
+        
+        # Base command
+        cmd = [sys.executable, config['script']]
+        
+        # Environment setup
+        env = os.environ.copy()
+        persistent_deps = "/workspace/python_deps/lib/python3.11/site-packages"
+        if 'PYTHONPATH' in env:
+            env['PYTHONPATH'] = f"{persistent_deps}:{env['PYTHONPATH']}"
+        else:
+            env['PYTHONPATH'] = persistent_deps
+        
+        # Worker-specific environment variables
+        env['WORKER_TYPE'] = worker_id
+        env['WORKER_PORT'] = str(config['port'])
+        
+        return cmd, env
 
     def validate_environment(self):
-        """Validate environment for dual worker operation"""
-        logger.info("🔍 Validating dual worker environment...")
+        """Validate environment for triple worker operation"""
+        logger.info("🔍 Validating triple worker environment...")
         
         # CRITICAL: Check PyTorch version first (prevent cascade failures)
         try:
@@ -119,9 +157,9 @@ class DualWorkerOrchestrator:
                 logger.info(f"✅ GPU: {device_name} ({total_vram:.1f}GB)")
                 
                 if total_vram < 40:
-                    logger.warning(f"⚠️ GPU has {total_vram:.1f}GB, dual workers need 45GB+ for concurrent operation")
+                    logger.warning(f"⚠️ GPU has {total_vram:.1f}GB, triple workers need 45GB+ for concurrent operation")
                 else:
-                    logger.info(f"✅ GPU capacity sufficient for dual workers")
+                    logger.info(f"✅ GPU capacity sufficient for triple workers")
                     
             else:
                 logger.error("❌ CUDA not available")
@@ -131,14 +169,30 @@ class DualWorkerOrchestrator:
             logger.error(f"❌ GPU check failed: {e}")
             return False
             
-        # Check SDXL imports (graceful handling - let workers manage their own imports)
+        # Check imports for all workers
         try:
+            # SDXL imports
             from diffusers import StableDiffusionXLPipeline
             logger.info("✅ SDXL imports confirmed working")
         except ImportError as e:
             logger.warning(f"⚠️ SDXL imports failed in orchestrator: {e}")
             logger.info("📝 Will let SDXL worker handle its own imports")
-            # Don't fail here - let workers handle their own dependencies
+            
+        try:
+            # Flask imports (for WAN and Chat workers)
+            from flask import Flask
+            logger.info("✅ Flask imports confirmed working")
+        except ImportError as e:
+            logger.warning(f"⚠️ Flask imports failed in orchestrator: {e}")
+            logger.info("📝 Will let workers handle their own Flask imports")
+            
+        try:
+            # Transformers imports (for WAN and Chat workers)
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            logger.info("✅ Transformers imports confirmed working")
+        except ImportError as e:
+            logger.warning(f"⚠️ Transformers imports failed in orchestrator: {e}")
+            logger.info("📝 Will let workers handle their own transformers imports")
             
         # Check environment variables
         required_vars = [
@@ -155,10 +209,31 @@ class DualWorkerOrchestrator:
         else:
             logger.info("✅ All environment variables configured")
             
+        # Check model paths for all workers
+        model_paths = {
+            'SDXL': '/workspace/models/sdxl',
+            'WAN': '/workspace/models/wan2.1-t2v-1.3b',
+            'Qwen Base': '/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796',
+            'Qwen Instruct': '/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct'
+        }
+        
+        missing_models = []
+        for model_name, model_path in model_paths.items():
+            if not os.path.exists(model_path):
+                missing_models.append(f"{model_name}: {model_path}")
+                logger.warning(f"⚠️ Model not found: {model_name} at {model_path}")
+            else:
+                logger.info(f"✅ Model found: {model_name}")
+        
+        if missing_models:
+            logger.warning(f"⚠️ Missing models: {missing_models}")
+            logger.info("📝 Some workers may not function properly without their models")
+            
         # Validate parameter consistency in worker files
         logger.info("🔧 Validating parameter consistency across workers...")
         wan_script_path = Path('wan_worker.py')
         sdxl_script_path = Path('sdxl_worker.py')
+        chat_script_path = Path('chat_worker.py')
         
         consistency_issues = []
         
@@ -192,6 +267,21 @@ class DualWorkerOrchestrator:
                 else:
                     consistency_issues.append("SDXL worker parameter naming inconsistent")
         
+        if chat_script_path.exists():
+            with open(chat_script_path, 'r') as f:
+                chat_content = f.read()
+                # Check for Flask setup
+                if "Flask" in chat_content and "port" in chat_content:
+                    logger.info("✅ Chat worker has Flask setup")
+                else:
+                    consistency_issues.append("Chat worker missing Flask setup")
+                
+                # Check for Qwen Instruct model loading
+                if "Qwen2.5-7B-Instruct" in chat_content:
+                    logger.info("✅ Chat worker configured for Qwen Instruct model")
+                else:
+                    consistency_issues.append("Chat worker missing Qwen Instruct configuration")
+        
         if consistency_issues:
             logger.error(f"❌ Parameter consistency issues: {consistency_issues}")
             return False
@@ -208,26 +298,23 @@ class DualWorkerOrchestrator:
         logger.info(f"🚀 Starting {config['name']}...")
         logger.info(f"📋 Job Types: {', '.join(config['job_types'])}")
         logger.info(f"⚡ Performance: {config['generation_time']}")
+        logger.info(f"🌐 Port: {config['port']}")
         
         try:
-            # Set up environment with persistent Python path
-            env = os.environ.copy()
-            persistent_deps = "/workspace/python_deps/lib/python3.11/site-packages"
-            if 'PYTHONPATH' in env:
-                env['PYTHONPATH'] = f"{persistent_deps}:{env['PYTHONPATH']}"
-            else:
-                env['PYTHONPATH'] = persistent_deps
+            # Get startup command and environment
+            cmd, env = self.get_worker_startup_command(worker_id)
             
             logger.info(f"🔧 Setting PYTHONPATH: {env['PYTHONPATH']}")
+            logger.info(f"🔧 Worker environment: WORKER_TYPE={worker_id}, WORKER_PORT={config['port']}")
             
             # Start worker process with proper environment
             process = subprocess.Popen(
-                [sys.executable, config['script']],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
                 bufsize=1,
-                env=env  # ✅ Pass environment with PYTHONPATH
+                env=env
             )
             
             self.processes[worker_id] = {
@@ -275,6 +362,10 @@ class DualWorkerOrchestrator:
                 if "FLF2V" in line or "T2V" in line and worker_id == 'wan':
                     logger.info(f"✅ {worker_id.upper()} FLF2V/T2V task support confirmed in operation")
                 
+                # Look for Chat worker confirmations
+                if "Chat Worker" in line and worker_id == 'chat':
+                    logger.info(f"✅ {worker_id.upper()} Chat service confirmed in operation")
+                
             # Process ended
             process.wait()
             return_code = process.returncode
@@ -321,10 +412,15 @@ class DualWorkerOrchestrator:
             monitor_thread.start()
 
     def start_all_workers(self):
-        """Start all workers with monitoring"""
-        logger.info("🎬 Starting all workers...")
+        """Start all workers with monitoring in priority order"""
+        logger.info("🎬 Starting all workers in priority order...")
         
-        for worker_id in self.workers.keys():
+        # Sort workers by priority (1 = highest, 3 = lowest)
+        sorted_workers = sorted(self.workers.items(), key=lambda x: x[1]['priority'])
+        
+        for worker_id, config in sorted_workers:
+            logger.info(f"🚀 Starting {config['name']} (Priority: {config['priority']})...")
+            
             if self.start_worker(worker_id):
                 # Start monitoring thread for each worker
                 monitor_thread = threading.Thread(
@@ -335,7 +431,7 @@ class DualWorkerOrchestrator:
                 monitor_thread.start()
                 
                 # Stagger startup to avoid resource conflicts
-                time.sleep(5)
+                time.sleep(3)
             else:
                 logger.error(f"❌ Failed to start {worker_id} worker")
                 return False
@@ -386,7 +482,8 @@ class DualWorkerOrchestrator:
                         uptime = time.time() - worker_info['start_time']
                         job_count = worker_info['job_count']
                         total_jobs += job_count
-                        active_workers.append(f"{worker_id}({uptime:.0f}s/{job_count}j)")
+                        port = worker_info['config']['port']
+                        active_workers.append(f"{worker_id}({uptime:.0f}s/{job_count}j/p{port})")
                 
                 if active_workers:
                     logger.info(f"💚 Active workers: {', '.join(active_workers)} | Total jobs: {total_jobs}")
@@ -399,8 +496,13 @@ class DualWorkerOrchestrator:
                     if torch.cuda.is_available():
                         allocated = torch.cuda.memory_allocated() / (1024**3)
                         total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                        available = total - allocated
                         utilization = (allocated / total) * 100
-                        logger.info(f"🔥 GPU Memory: {allocated:.1f}GB / {total:.0f}GB ({utilization:.1f}% used)")
+                        logger.info(f"🔥 GPU Memory: {allocated:.1f}GB / {total:.0f}GB ({utilization:.1f}% used, {available:.1f}GB available)")
+                        
+                        # Warn if memory is getting low
+                        if available < 5:
+                            logger.warning(f"⚠️ Low VRAM available: {available:.1f}GB")
                 except:
                     pass
                     
@@ -413,9 +515,9 @@ class DualWorkerOrchestrator:
 
     def run(self):
         """Main orchestrator run loop"""
-        logger.info("🎭 DUAL WORKER ORCHESTRATOR STARTING")
-        logger.info("🔧 GRACEFUL VALIDATION + CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V VERSION - Production Ready")
-        logger.info("=" * 70)
+        logger.info("🎭 TRIPLE WORKER ORCHESTRATOR STARTING")
+        logger.info("🔧 GRACEFUL VALIDATION + CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V + CHAT INTEGRATION - Production Ready")
+        logger.info("=" * 80)
         
         # Validate environment
         if not self.validate_environment():
@@ -440,11 +542,17 @@ class DualWorkerOrchestrator:
             logger.error("❌ Failed to start workers")
             return False
             
-        logger.info("🎉 DUAL WORKER SYSTEM READY!")
-        logger.info("=" * 70)
+        logger.info("🎉 TRIPLE WORKER SYSTEM READY!")
+        logger.info("=" * 80)
         logger.info("🎨 SDXL Worker: sdxl_queue → sdxl_image_fast, sdxl_image_high")
         logger.info("  ⚡ Performance: 3-8s generation")
         logger.info("  📋 Parameters: job_id, assets (consistent)")
+        logger.info("  🌐 Port: 7860")
+        logger.info("")
+        logger.info("💬 Chat Worker: chat_queue → chat_enhance, chat_conversation, admin_utilities")
+        logger.info("  🤖 Model: Qwen 2.5-7B Instruct")
+        logger.info("  ⚡ Performance: 5-15s generation")
+        logger.info("  🌐 Port: 7861")
         logger.info("")
         logger.info("🎬 Enhanced WAN Worker: wan_queue → 8 job types")
         logger.info("  📝 Standard: image_fast, image_high, video_fast, video_high")
@@ -452,10 +560,11 @@ class DualWorkerOrchestrator:
         logger.info("  ⚡ Performance: 67-294s generation (includes Qwen 7B prompt enhancement)")
         logger.info("  🎬 FLF2V/T2V Tasks: Automatic task selection for video with reference frames")
         logger.info("  📋 Parameters: job_id, assets (consistent)")
+        logger.info("  🌐 Port: 7860")
         logger.info("")
-        logger.info("💡 Both workers monitoring their respective queues")
-        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B prompt enhancement + FLF2V/T2V tasks, Consistent parameter naming")
-        logger.info("=" * 70)
+        logger.info("💡 All workers monitoring their respective queues")
+        logger.info("🔧 Fixed: Graceful SDXL validation, Enhanced WAN with Qwen 7B prompt enhancement + FLF2V/T2V tasks, Chat integration")
+        logger.info("=" * 80)
         
         # Main loop - keep orchestrator alive
         try:
@@ -471,16 +580,23 @@ class DualWorkerOrchestrator:
                 if dead_workers and not self.shutdown_event.is_set():
                     logger.warning(f"⚠️ Dead workers detected: {dead_workers}")
                     
+                    # Auto-restart high-priority workers
+                    for dead_worker in dead_workers:
+                        config = self.workers[dead_worker]
+                        if config['priority'] <= 2:  # High priority workers (SDXL, Chat)
+                            logger.info(f"🔄 Auto-restarting high-priority worker: {dead_worker}")
+                            self.handle_worker_restart(dead_worker)
+                    
         except KeyboardInterrupt:
             logger.info("👋 Orchestrator interrupted by user")
         finally:
             self.stop_all_workers()
             
-        logger.info("✅ Dual Worker Orchestrator shutdown complete")
+        logger.info("✅ Triple Worker Orchestrator shutdown complete")
         return True
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting OurVidz Dual Worker System - CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V VERSION")
+    logger.info("🚀 Starting OurVidz Triple Worker System - CONSISTENT PARAMETERS + QWEN 7B + FLF2V/T2V + CHAT VERSION")
     
     try:
         # ✅ AUTO-REGISTER WORKER URL
