@@ -211,7 +211,7 @@ class DualWorkerOrchestrator:
             
         # Check model paths for all workers
         model_paths = {
-            'SDXL': '/workspace/models/sdxl',
+            'SDXL': '/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors',
             'WAN': '/workspace/models/wan2.1-t2v-1.3b',
             'Qwen Base': '/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796',
             'Qwen Instruct': '/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct'

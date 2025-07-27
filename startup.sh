@@ -21,7 +21,21 @@ qwen_instruct_ready=false
 [ -f "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors" ] && sdxl_ready=true && echo "✅ SDXL model ready"
 [ -f "/workspace/models/wan2.1-t2v-1.3b/diffusion_pytorch_model.safetensors" ] && wan_ready=true && echo "✅ WAN model ready"
 [ -d "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B" ] && qwen_base_ready=true && echo "✅ Qwen Base model ready"
-[ -d "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct" ] && qwen_instruct_ready=true && echo "✅ Qwen Instruct model ready"
+qwen_instruct_ready=$(python3 -c "
+import os
+paths = [
+    '/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct',
+    '/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B-Instruct'
+]
+found = any(os.path.exists(p) for p in paths)
+print('true' if found else 'false')
+")
+
+if [ "$qwen_instruct_ready" = "true" ]; then
+    echo "✅ Qwen Instruct model ready"
+else
+    echo "⚠️ Qwen Instruct model missing"
+fi
 
 # Chat Integration Status
 if [ "$qwen_instruct_ready" = true ]; then
