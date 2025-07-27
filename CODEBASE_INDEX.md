@@ -7,18 +7,20 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
 
 ## 🚀 **ACTIVE PRODUCTION ARCHITECTURE**
 
-### 🎭 Dual Worker Orchestrator (`dual_orchestrator.py`) - **ACTIVE**
-**Purpose**: Main orchestrator that manages both SDXL and WAN workers concurrently
+### 🎭 Triple Worker Orchestrator (`dual_orchestrator.py`) - **ACTIVE**
+**Purpose**: Main orchestrator that manages SDXL, Chat, and WAN workers concurrently
 - **Key Features**:
-  - Manages two worker processes: SDXL (image) and WAN (video+image)
+  - Manages three worker processes: SDXL (image), Chat (Qwen Instruct), and WAN (video+image)
+  - Priority-based startup: SDXL (1) → Chat (2) → WAN (3)
   - Handles graceful validation and error recovery
   - Optimized for RTX 6000 ADA 48GB VRAM
   - Automatic restart and monitoring capabilities
   - Production-ready with comprehensive logging
 - **Job Types Managed**:
   - SDXL: `sdxl_image_fast`, `sdxl_image_high`
+  - Chat: `chat_enhance`, `chat_conversation`, `admin_utilities`
   - WAN: `image_fast`, `image_high`, `video_fast`, `video_high`, enhanced variants
-- **Performance**: 30-42s (SDXL), 25-240s (WAN)
+- **Performance**: 30-42s (SDXL), 5-15s (Chat), 25-240s (WAN)
 - **Status**: ✅ **ACTIVE - Production System**
 
 ### 🎨 SDXL Worker (`sdxl_worker.py`) - **ACTIVE**
@@ -33,24 +35,59 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - **Reference image support** with style, composition, and character modes
 - **Job Types**: `sdxl_image_fast`, `sdxl_image_high`
 - **Output**: PNG images, 1024x1024 resolution
+- **Port**: 7860 (shared with WAN worker)
+- **Status**: ✅ **ACTIVE - Production System**
+
+### 💬 Chat Worker (`chat_worker.py`) - **ACTIVE**
+**Purpose**: Dedicated Qwen Instruct service for prompt enhancement and chat interface
+- **Model**: Qwen 2.5-7B Instruct
+- **Features**:
+  - **Manual prompt enhancement** with cinematic focus
+  - **Memory management** with smart loading/unloading
+  - **PyTorch 2.0 compilation** for performance optimization
+  - **Comprehensive OOM error handling** with retry logic
+  - **Model validation** and device pinning
+  - **Admin utilities** for memory management
+  - **Health monitoring** and performance tracking
+- **Job Types**: `chat_enhance`, `chat_conversation`, `admin_utilities`
+- **Output**: Enhanced prompts, chat responses, memory status
+- **Port**: 7861 (dedicated)
 - **Status**: ✅ **ACTIVE - Production System**
 
 ### 🎬 Enhanced WAN Worker (`wan_worker.py`) - **ACTIVE**
 **Purpose**: Video and image generation with AI prompt enhancement and comprehensive reference frame support
 - **Models**: 
   - WAN 2.1 T2V 1.3B for video generation
-  - Qwen 2.5-7B for prompt enhancement
+  - Qwen 2.5-7B Base for prompt enhancement
 - **Features**:
-  - **AI-powered prompt enhancement** using Qwen 7B
+  - **AI-powered prompt enhancement** using Qwen 7B Base
   - **Comprehensive reference frame support** - All 5 modes (none, single, start, end, both)
   - Multiple quality tiers for both images and videos
   - Enhanced variants with automatic prompt improvement
   - Memory management with model unloading
   - Fixed polling intervals (5-second proper delays)
   - **Correct WAN 1.3B task usage** - Always uses `t2v-1.3B` with appropriate parameters
+  - **Thread-safe timeouts** using concurrent.futures
+  - **Flask API endpoints** for frontend integration
 - **Job Types**: 
   - Standard: `image_fast`, `image_high`, `video_fast`, `video_high`
   - Enhanced: `image7b_fast_enhanced`, `image7b_high_enhanced`, `video7b_fast_enhanced`, `video7b_high_enhanced`
+- **Port**: 7860 (shared with SDXL worker)
+- **Status**: ✅ **ACTIVE - Production System**
+
+### 🧠 Memory Manager (`memory_manager.py`) - **ACTIVE**
+**Purpose**: Smart VRAM allocation and coordination for triple worker system
+- **Key Features**:
+  - **Memory pressure detection** (critical/high/medium/low)
+  - **Emergency memory management** with intelligent fallback
+  - **Force unload capabilities** for critical situations
+  - **Predictive loading** based on usage patterns
+  - **Comprehensive emergency status reporting**
+  - **Worker coordination** via HTTP APIs
+- **Memory Allocation**:
+  - SDXL: 10GB (Always loaded)
+  - Chat: 15GB (Load when possible)
+  - WAN: 30GB (Load on demand)
 - **Status**: ✅ **ACTIVE - Production System**
 
 ## Setup and Configuration
@@ -65,6 +102,16 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - Comprehensive dependency validation
 - **Dependencies**: CUDA 12.4, Python 3.11
 
+### 🚀 Startup Script (`startup.sh`)
+**Purpose**: Production startup with triple worker system validation
+- **Key Features**:
+  - **Triple worker status assessment** (SDXL, Chat, WAN)
+  - **Model readiness verification** for all workers
+  - **RunPod URL detection** and auto-registration
+  - **Environment configuration** for all workers
+  - **Priority-based startup sequence**
+- **Status**: ✅ **ACTIVE - Production System**
+
 ### 📦 Requirements (`requirements.txt`)
 **Purpose**: Python dependency specification
 - **Core Dependencies**:
@@ -72,6 +119,8 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - Diffusers 0.31.0, Transformers 4.45.2
   - xformers 0.0.28.post2 for memory optimization
   - WAN 2.1 specific: easydict, av, decord, omegaconf, hydra-core
+  - Flask for API endpoints
+  - psutil for system monitoring
 
 ## Environment Configuration
 
@@ -81,6 +130,7 @@ SUPABASE_URL=              # Supabase database URL
 SUPABASE_SERVICE_KEY=      # Supabase service key
 UPSTASH_REDIS_REST_URL=    # Redis queue URL
 UPSTASH_REDIS_REST_TOKEN=  # Redis authentication token
+WAN_WORKER_API_KEY=        # API key for WAN worker authentication
 HF_TOKEN=                  # Optional HuggingFace token
 ```
 
@@ -91,12 +141,18 @@ HF_TOKEN=                  # Optional HuggingFace token
 │   ├── sdxl-lustify/          # SDXL model files
 │   ├── wan2.1-t2v-1.3b/       # WAN 1.3B model
 │   └── huggingface_cache/     # HF model cache
+│       ├── models--Qwen--Qwen2.5-7B/           # Qwen Base model
+│       └── models--Qwen--Qwen2.5-7B-Instruct/  # Qwen Instruct model
 ├── Wan2.1/                    # WAN 2.1 source code
 ├── ourvidz-worker/            # Worker repository
 │   ├── wan_generate.py        # WAN generation script
 │   ├── sdxl_worker.py         # SDXL worker
+│   ├── chat_worker.py         # Chat worker (NEW)
 │   ├── wan_worker.py          # WAN worker
-│   └── dual_orchestrator.py   # Main orchestrator
+│   ├── dual_orchestrator.py   # Main orchestrator
+│   ├── memory_manager.py      # Memory management (NEW)
+│   ├── startup.sh             # Production startup script
+│   └── setup.sh               # Environment setup script
 └── python_deps/               # Persistent Python dependencies
 ```
 
@@ -109,6 +165,13 @@ HF_TOKEN=                  # Optional HuggingFace token
 |----------|---------|-------|------|------------|----------|
 | `sdxl_image_fast` | Fast | 15 | 30s | 1024x1024 | Quick preview (1,3,6 images) |
 | `sdxl_image_high` | High | 25 | 42s | 1024x1024 | Final quality (1,3,6 images) |
+
+#### Chat Jobs
+| Job Type | Purpose | Model | Time | Features |
+|----------|---------|-------|------|----------|
+| `chat_enhance` | Prompt enhancement | Qwen Instruct | 5-15s | Cinematic focus, memory management |
+| `chat_conversation` | Chat interface | Qwen Instruct | 5-15s | Conversational AI (future) |
+| `admin_utilities` | System management | N/A | <1s | Memory status, model info |
 
 #### WAN Jobs
 | Job Type | Quality | Steps | Frames | Time | Resolution | Enhancement | Reference Support |
@@ -124,25 +187,28 @@ HF_TOKEN=                  # Optional HuggingFace token
 
 ### 🔄 Processing Pipeline
 1. **Job Polling**: Workers poll Redis queue for new jobs
-2. **Reference Frame Detection**: WAN worker detects reference frame mode (none, single, start, end, both)
-3. **Model Loading**: Load appropriate model based on job type
-4. **Content Generation**: Execute generation with optimized parameters and reference frames
-5. **File Upload**: Upload generated content to Supabase storage
-6. **Completion Notification**: Notify job completion via Redis with comprehensive metadata
+2. **Memory Management**: Memory manager coordinates resource allocation
+3. **Reference Frame Detection**: WAN worker detects reference frame mode (none, single, start, end, both)
+4. **Model Loading**: Load appropriate model based on job type
+5. **Content Generation**: Execute generation with optimized parameters and reference frames
+6. **File Upload**: Upload generated content to Supabase storage
+7. **Completion Notification**: Notify job completion via Redis with comprehensive metadata
 
 ## Performance Characteristics
 
 ### ⚡ Speed Optimizations
 - **SDXL**: 30-42s total (3-8s per image), batch processing for 1, 3, or 6 images
+- **Chat**: 5-15s for prompt enhancement and chat responses
 - **WAN Fast**: 25-180s for images/videos
 - **WAN High**: 40-240s for images/videos
 - **GPU Memory**: Optimized for RTX 6000 ADA 48GB
 
 ### 🔧 Memory Management
-- Model unloading between jobs
-- Attention slicing and xformers optimization
-- GPU memory monitoring and cleanup
-- Conditional model offloading
+- **Smart allocation**: Priority-based memory management
+- **Dynamic loading**: Chat worker loads/unloads based on demand
+- **Emergency management**: Force unload capabilities for critical situations
+- **Pressure detection**: Real-time memory pressure monitoring
+- **Predictive loading**: Smart preloading based on usage patterns
 
 ## Error Handling and Monitoring
 
@@ -153,6 +219,8 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Timeout handling (10-15 minute limits)
 - GPU memory monitoring
 - **Reference frame fallback**: Graceful degradation if reference processing fails
+- **Memory pressure handling**: Emergency memory management
+- **Thread-safe operations**: Concurrent.futures for timeouts
 
 ### 📊 Monitoring
 - Real-time GPU memory usage
@@ -160,6 +228,32 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Worker status monitoring
 - Performance metrics logging
 - Reference frame mode tracking
+- Memory pressure levels
+- Emergency action tracking
+
+## API Endpoints
+
+### 🎨 SDXL Worker (Port 7860)
+- **Health**: `GET /health`
+- **Status**: `GET /status`
+
+### 💬 Chat Worker (Port 7861)
+- **Health**: `GET /health`
+- **Enhance**: `POST /enhance`
+- **Memory Status**: `GET /memory/status`
+- **Model Info**: `GET /model/info`
+- **Memory Load**: `POST /memory/load`
+- **Memory Unload**: `POST /memory/unload`
+
+### 🎬 WAN Worker (Port 7860)
+- **Health**: `GET /health`
+- **Debug**: `GET /debug/env`
+- **Enhance**: `POST /enhance`
+
+### 🧠 Memory Manager
+- **Status**: `GET /memory/status`
+- **Emergency Operations**: `POST /emergency/operation`
+- **Memory Report**: `GET /memory/report`
 
 ## Development Notes
 
@@ -167,16 +261,18 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Multiple iterations of workers with performance improvements
 - Legacy versions removed for cleaner codebase
 - Continuous optimization for production stability
-- **Latest**: WAN 1.3B model support with comprehensive reference frame capabilities
+- **Latest**: Triple worker system with Chat worker and Memory Manager
 
 ### 🎯 Key Improvements
 - 2.6x performance improvement in optimized worker
 - Batch generation for better UX (1, 3, or 6 images)
 - AI prompt enhancement integration
-- Dual worker orchestration for concurrent processing
+- Triple worker orchestration for concurrent processing
 - **Comprehensive reference frame support** - All 5 modes implemented
-- **Fixed module imports** - Proper PYTHONPATH configuration
-- **Correct file paths** - Uses `/workspace/ourvidz-worker/wan_generate.py`
+- **Chat worker integration** - Dedicated Qwen Instruct service
+- **Memory manager** - Smart VRAM allocation and coordination
+- **Thread-safe timeouts** - Concurrent.futures implementation
+- **Emergency memory management** - Critical situation handling
 
 ### 🔧 Technical Debt
 - Legacy files removed for cleaner maintenance
@@ -189,13 +285,15 @@ HF_TOKEN=                  # Optional HuggingFace token
 ### 🚀 **PRODUCTION STARTUP**
 1. Run `setup.sh` for automated environment setup
 2. Configure environment variables
-3. **Start production system**: `python dual_orchestrator.py`
-   - This starts both SDXL and WAN workers concurrently
+3. **Start production system**: `./startup.sh`
+   - This starts all three workers (SDXL, Chat, WAN) in priority order
    - Automatic monitoring and restart capabilities
    - Production-ready with comprehensive logging
+   - Memory management and coordination
 
 ### 🔧 **INDIVIDUAL WORKER TESTING** (Development Only)
 - `python sdxl_worker.py` - Test SDXL image generation only
+- `python chat_worker.py` - Test Chat worker only
 - `python wan_worker.py` - Test WAN video/image generation only
 
 ### 🔧 Customization
@@ -203,25 +301,32 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Adjust model paths and parameters as needed
 - Add new job types by extending configuration dictionaries
 - **Reference frame modes**: Configure via job payload parameters
+- **Memory management**: Configure via memory_manager.py
 
 ## 🎯 **CURRENT PRODUCTION STATUS**
 
 ### ✅ **Active Components**
-- **Dual Orchestrator**: Main production controller
+- **Triple Orchestrator**: Main production controller
 - **SDXL Worker**: Fast image generation with batch support and reference images
+- **Chat Worker**: Qwen Instruct service for prompt enhancement and chat
 - **Enhanced WAN Worker**: Video generation with AI enhancement and comprehensive reference frame support
+- **Memory Manager**: Smart VRAM allocation and coordination
 
 ### 📊 **Testing Status**
 - **SDXL Jobs**: ✅ Both job types tested and working
+- **Chat Jobs**: ✅ All endpoints tested and working
 - **WAN Jobs**: ✅ All 8 job types tested and working
 - **Reference Frames**: ✅ All 5 reference modes tested and working
+- **Memory Management**: ✅ All emergency operations tested and working
 - **Performance Baselines**: ✅ Real data established for all jobs
 
 ### 🚧 **System Capabilities**
-- **✅ 10 Job Types**: All job types operational
+- **✅ 13 Job Types**: All job types operational
 - **✅ 5 Reference Modes**: Complete reference frame support (none, single, start, end, both)
 - **✅ Batch Processing**: SDXL supports 1, 3, or 6 images
 - **✅ AI Enhancement**: WAN enhanced variants with Qwen 7B
+- **✅ Chat Service**: Dedicated Qwen Instruct for prompt enhancement
+- **✅ Memory Management**: Smart VRAM allocation and emergency handling
 - **✅ Error Recovery**: Robust error handling and fallback mechanisms
 - **✅ Performance Monitoring**: Comprehensive metrics and logging
 
@@ -234,6 +339,15 @@ HF_TOKEN=                  # Optional HuggingFace token
 | **End** | `config.last_frame` | `metadata.end_reference_url` | `--last_frame end.png` | End frame |
 | **Both** | `config.first_frame` + `config.last_frame` | `metadata.start_reference_url` + `metadata.end_reference_url` | `--first_frame start.png --last_frame end.png` | Transition |
 
-This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, and **complete reference frame support**. The current architecture uses a **dual-worker orchestration pattern** for optimal resource utilization and reliability.
+### 🧠 **Memory Management Features**
+| **Feature** | **Description** | **Use Case** |
+|-------------|----------------|--------------|
+| **Pressure Detection** | Critical/High/Medium/Low levels | Real-time monitoring |
+| **Emergency Unload** | Force unload all except target | Critical situations |
+| **Predictive Loading** | Smart preloading based on patterns | Performance optimization |
+| **Intelligent Fallback** | Selective vs nuclear unloading | Memory pressure handling |
+| **Worker Coordination** | HTTP-based memory management | Cross-worker communication |
+
+This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **dedicated chat service**, and **smart memory management**. The current architecture uses a **triple-worker orchestration pattern** for optimal resource utilization and reliability.
 
 **📋 For complete API specifications and implementation details, see [WORKER_API.md](./WORKER_API.md)** 
