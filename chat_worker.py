@@ -42,7 +42,7 @@ class ChatWorker:
         self.loading_lock = threading.Lock()
         
         # Model paths - using verified working paths
-        self.instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct"
+        self.instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28"
         self.qwen_instruct_model = None
         self.qwen_instruct_tokenizer = None
         
