@@ -1730,7 +1730,7 @@ Enhanced prompt:"""
                 print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
                 
                 # Use base model only
-                    enhanced = self.enhance_prompt_with_timeout(original_prompt)
+                enhanced = self.enhance_prompt_with_timeout(original_prompt)
                 
                 if enhanced and enhanced.strip() != original_prompt.strip():
                     print(f"✅ Base model enhancement successful on attempt {attempt + 1}")
@@ -1742,9 +1742,9 @@ Enhanced prompt:"""
                 print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
                 
                 if attempt < self.max_enhancement_attempts - 1:
-                wait_time = 2 ** attempt  # Exponential backoff
-                print(f"⏰ Waiting {wait_time}s before retry...")
-                time.sleep(wait_time)
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    print(f"⏰ Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
         
         print(f"❌ All enhancement attempts failed, using original prompt")
         return original_prompt
@@ -2556,8 +2556,8 @@ if FLASK_AVAILABLE:
             try:
                 # Enhance using base model only
                 enhanced_prompt = worker.enhance_prompt(original_prompt, enhancement_type="base")
-                    processing_time = time.time() - start_time
-                    
+                processing_time = time.time() - start_time
+                
                 # Check if enhancement actually happened
                 enhancement_applied = enhanced_prompt != original_prompt
                     
@@ -2586,16 +2586,16 @@ if FLASK_AVAILABLE:
                         'error': 'Enhancement failed, returned original prompt'
                     })
                     
-                except Exception as e:
+            except Exception as e:
                 print(f"❌ WAN enhancement failed: {e}")
-                    return jsonify({
-                        'success': False,
-                        'error': f'Enhancement failed: {str(e)}',
+                return jsonify({
+                    'success': False,
+                    'error': f'Enhancement failed: {str(e)}',
                     'enhanced_prompt': original_prompt
-                    }), 500
-                finally:
-                    # Restore original timeout
-                    worker.enhancement_timeout = original_timeout
+                }), 500
+            finally:
+                # Restore original timeout
+                worker.enhancement_timeout = original_timeout
                 
         except Exception as e:
             print(f"❌ WAN enhancement endpoint error: {e}")
