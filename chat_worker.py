@@ -448,6 +448,21 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
             except Exception as e:
                 return jsonify({'error': f'Failed to get model info: {str(e)}'}), 500
 
+    def start_server(self):
+        """Start the Flask server"""
+        try:
+            # Load model at startup if possible
+            logger.info("🚀 Starting Chat Worker server...")
+            self.load_qwen_instruct_model()
+            
+            # Start Flask server
+            logger.info(f"🌐 Chat Worker listening on port {self.port}")
+            self.app.run(host='0.0.0.0', port=self.port, debug=False, threaded=True)
+            
+        except Exception as e:
+            logger.error(f"❌ Server startup failed: {e}")
+            raise
+
 def auto_register_chat_worker():
     """Auto-register chat worker URL with Supabase"""
     try:
@@ -513,21 +528,6 @@ def auto_register_chat_worker():
     except Exception as e:
         print(f"❌ Auto-registration error: {e}")
         return False
-
-    def start_server(self):
-        """Start the Flask server"""
-        try:
-            # Load model at startup if possible
-            logger.info("🚀 Starting Chat Worker server...")
-            self.load_qwen_instruct_model()
-            
-            # Start Flask server
-            logger.info(f"🌐 Chat Worker listening on port {self.port}")
-            self.app.run(host='0.0.0.0', port=self.port, debug=False, threaded=True)
-            
-        except Exception as e:
-            logger.error(f"❌ Server startup failed: {e}")
-            raise
 
 if __name__ == "__main__":
     # Handle shutdown signals
