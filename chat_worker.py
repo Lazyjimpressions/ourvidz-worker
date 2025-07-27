@@ -235,26 +235,63 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
                 {"role": "user", "content": f"Enhance this prompt for AI generation: {original_prompt}"}
             ]
 
-            # Prepare chat input
-            text = self.qwen_instruct_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-
-            # Tokenize
-            inputs = self.qwen_instruct_tokenizer([text], return_tensors="pt")
-            
-            # Move to device with comprehensive error handling
+            # FIXED: Apply chat template and tokenize properly
             try:
-                inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                # Apply chat template
+                text = self.qwen_instruct_tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                logger.info(f"🔍 Chat template applied successfully, length: {len(text)}")
+                
+                # Tokenize with explicit parameters
+                inputs = self.qwen_instruct_tokenizer(
+                    text,  # Single string, not list
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=2048
+                )
+                
+                # Verify inputs structure
+                if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
+                    logger.error("❌ Tokenizer output missing input_ids")
+                    return {
+                        'success': False,
+                        'error': 'Tokenization failed - missing input_ids',
+                        'enhanced_prompt': original_prompt
+                    }
+                
+                logger.info(f"✅ Tokenization successful, input shape: {inputs.input_ids.shape}")
+                
+            except Exception as e:
+                logger.error(f"❌ Chat template or tokenization failed: {e}")
+                return {
+                    'success': False,
+                    'error': f'Tokenization error: {str(e)}',
+                    'enhanced_prompt': original_prompt
+                }
+            
+            # Move to device with better error handling
+            try:
+                # Handle both dict and object formats
+                if isinstance(inputs, dict):
+                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                else:
+                    inputs = inputs.to(self.model_device)
+                logger.info("✅ Inputs moved to device successfully")
+                
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
                     logger.warning("⚠️ Out of memory during tensor device transfer, attempting cleanup...")
                     torch.cuda.empty_cache()
                     # Retry once after cleanup
                     try:
-                        inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                        if isinstance(inputs, dict):
+                            inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                        else:
+                            inputs = inputs.to(self.model_device)
                         logger.info("✅ Tensor transfer successful after memory cleanup")
                     except RuntimeError as retry_e:
                         logger.error(f"❌ Tensor transfer failed even after cleanup: {retry_e}")
@@ -263,7 +300,7 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
                     logger.error(f"❌ Device transfer error: {e}")
                     raise
 
-            # Generate enhanced prompt with error handling
+            # Generate enhanced prompt with better parameters
             try:
                 with torch.no_grad():
                     generated_ids = self.qwen_instruct_model.generate(
@@ -274,7 +311,8 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
                         top_p=0.9,
                         repetition_penalty=1.1,
                         pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                        early_stopping=True
+                        # Remove early_stopping as it's not valid for this model
+                        use_cache=True
                     )
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
@@ -291,7 +329,7 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
                                 top_p=0.9,
                                 repetition_penalty=1.1,
                                 pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                                early_stopping=True
+                                use_cache=True
                             )
                         logger.info("✅ Generation successful after memory cleanup")
                     except RuntimeError as retry_e:
