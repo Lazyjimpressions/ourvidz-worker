@@ -47,7 +47,7 @@ class DualWorkerOrchestrator:
                 'restart_delay': 10,
                 'generation_time': '3-8s',
                 'status': 'Working ✅',
-                'port': 7860,  # ✅ ADDED: Port for Flask API
+                'port': 7859,  # ✅ ADDED: Port for Flask API
                 'priority': 1   # ✅ ADDED: Startup priority (1 = highest)
             },
             'chat': {
@@ -79,7 +79,7 @@ class DualWorkerOrchestrator:
         }
         
         logger.info("🎭 Triple Worker Orchestrator initialized")
-        logger.info("🎨 SDXL: Fast image generation (3-8s) - Port 7860")
+        logger.info("🎨 SDXL: Fast image generation (3-8s) - Port 7859")
         logger.info("💬 Chat: Qwen Instruct service (5-15s) - Port 7861")
         logger.info("🎬 Enhanced WAN: Video + Qwen 7B enhancement + FLF2V/T2V tasks (67-294s) - Port 7860")
         logger.info("🔧 FIXED: Graceful validation + consistent parameter naming + FLF2V/T2V support + Chat integration")
@@ -547,7 +547,7 @@ class DualWorkerOrchestrator:
         logger.info("🎨 SDXL Worker: sdxl_queue → sdxl_image_fast, sdxl_image_high")
         logger.info("  ⚡ Performance: 3-8s generation")
         logger.info("  📋 Parameters: job_id, assets (consistent)")
-        logger.info("  🌐 Port: 7860")
+        logger.info("  🌐 Port: 7859")
         logger.info("")
         logger.info("💬 Chat Worker: chat_queue → chat_enhance, chat_conversation, admin_utilities")
         logger.info("  🤖 Model: Qwen 2.5-7B Instruct")
