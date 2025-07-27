@@ -216,7 +216,7 @@ GET /memory/status
   "total_vram": 48.0,
   "allocated_vram": 15.2,
   "available_vram": 32.8,
-  "model_loaded": true,
+      "model_loaded": true,
   "model_device": "cuda:0",
   "device_type": "cuda"
 }
@@ -302,7 +302,7 @@ GET /debug/env
   "model_paths": {
     "wan_model": "/workspace/models/wan2.1-t2v-1.3b",
     "qwen_model": "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B"
-  }
+    }
 }
 ```
 
@@ -471,7 +471,7 @@ GET /memory/report
     "first_frame": "https://example.com/start.jpg",
     "last_frame": "https://example.com/end.jpg"
   },
-  "metadata": {
+    "metadata": {
     "start_reference_url": "https://example.com/start.jpg",
     "end_reference_url": "https://example.com/end.jpg",
     "reference_strength": 0.8

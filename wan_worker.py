@@ -1520,29 +1520,29 @@ class EnhancedWanWorker:
 
     def _load_qwen_model_internal(self):
         """Internal method for loading Qwen model - used with timeout wrapper"""
-        model_path = self.qwen_model_path
-        print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
-        
-        # Load tokenizer first
-        print("📝 Loading tokenizer...")
-        self.qwen_tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            trust_remote_code=True
-        )
-        
-        # Load base model - no safety filters
-        print("🧠 Loading base model...")
-        self.qwen_model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
-            device_map="auto",
-            trust_remote_code=True
-        )
-        
-        # Set pad token for base models (they often don't have one)
-        if self.qwen_tokenizer.pad_token is None:
-            self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
-        
+                model_path = self.qwen_model_path
+                print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
+                
+                # Load tokenizer first
+                print("📝 Loading tokenizer...")
+                self.qwen_tokenizer = AutoTokenizer.from_pretrained(
+                    model_path,
+                    trust_remote_code=True
+                )
+                
+                # Load base model - no safety filters
+                print("🧠 Loading base model...")
+                self.qwen_model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
+                    device_map="auto",
+                    trust_remote_code=True
+                )
+                
+                # Set pad token for base models (they often don't have one)
+                if self.qwen_tokenizer.pad_token is None:
+                    self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
+                
         return True
 
     def load_qwen_model(self):
@@ -1599,11 +1599,11 @@ class EnhancedWanWorker:
         print(f"🧠 Generating enhancement with Qwen 2.5-7B...")
         
         # Generate with optimized parameters for speed and quality
-        with torch.no_grad():
+            with torch.no_grad():
             output = self.qwen_model.generate(
-                **inputs,
+                    **inputs,
                 max_new_tokens=150,     # ✅ REDUCED: Faster generation
-                do_sample=True,
+                    do_sample=True,
                 temperature=0.7,       # Balanced creativity
                 top_p=0.9,            # Good diversity
                 top_k=40,             # Prevent repetition
@@ -1730,7 +1730,7 @@ Enhanced prompt:"""
                 print(f"🔄 Enhancement attempt {attempt + 1}/{self.max_enhancement_attempts}")
                 
                 # Use base model only
-                enhanced = self.enhance_prompt_with_timeout(original_prompt)
+                    enhanced = self.enhance_prompt_with_timeout(original_prompt)
                 
                 if enhanced and enhanced.strip() != original_prompt.strip():
                     print(f"✅ Base model enhancement successful on attempt {attempt + 1}")
@@ -1741,7 +1741,7 @@ Enhanced prompt:"""
             except Exception as e:
                 print(f"❌ Enhancement attempt {attempt + 1} failed: {e}")
                 
-            if attempt < self.max_enhancement_attempts - 1:
+                if attempt < self.max_enhancement_attempts - 1:
                 wait_time = 2 ** attempt  # Exponential backoff
                 print(f"⏰ Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
@@ -2537,15 +2537,15 @@ if FLASK_AVAILABLE:
                 print(f"⚠️ Model '{model}' not supported by WAN worker, using qwen_base")
                 model = 'qwen_base'
             
-            worker = globals().get('worker_instance')
-            if not worker:
-                return jsonify({
-                    'success': False,
-                    'error': 'Worker not initialized'
-                }), 500
-            
+                worker = globals().get('worker_instance')
+                if not worker:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Worker not initialized'
+                    }), 500
+                
             # Optimize timeout based on model loading status
-            original_timeout = worker.enhancement_timeout
+                original_timeout = worker.enhancement_timeout
             if hasattr(worker, 'qwen_model') and worker.qwen_model is not None:
                 worker.enhancement_timeout = 30
                 print("🚀 Model already loaded, using 30s timeout")
@@ -2556,11 +2556,11 @@ if FLASK_AVAILABLE:
             try:
                 # Enhance using base model only
                 enhanced_prompt = worker.enhance_prompt(original_prompt, enhancement_type="base")
-                processing_time = time.time() - start_time
-                
+                    processing_time = time.time() - start_time
+                    
                 # Check if enhancement actually happened
                 enhancement_applied = enhanced_prompt != original_prompt
-                
+                    
                 if enhancement_applied:
                     response_data = {
                         'success': True,
@@ -2586,16 +2586,16 @@ if FLASK_AVAILABLE:
                         'error': 'Enhancement failed, returned original prompt'
                     })
                     
-            except Exception as e:
+                except Exception as e:
                 print(f"❌ WAN enhancement failed: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': f'Enhancement failed: {str(e)}',
+                    return jsonify({
+                        'success': False,
+                        'error': f'Enhancement failed: {str(e)}',
                     'enhanced_prompt': original_prompt
-                }), 500
-            finally:
-                # Restore original timeout
-                worker.enhancement_timeout = original_timeout
+                    }), 500
+                finally:
+                    # Restore original timeout
+                    worker.enhancement_timeout = original_timeout
                 
         except Exception as e:
             print(f"❌ WAN enhancement endpoint error: {e}")
