@@ -1520,29 +1520,29 @@ class EnhancedWanWorker:
 
     def _load_qwen_model_internal(self):
         """Internal method for loading Qwen model - used with timeout wrapper"""
-                model_path = self.qwen_model_path
-                print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
-                
-                # Load tokenizer first
-                print("📝 Loading tokenizer...")
-                self.qwen_tokenizer = AutoTokenizer.from_pretrained(
-                    model_path,
-                    trust_remote_code=True
-                )
-                
-                # Load base model - no safety filters
-                print("🧠 Loading base model...")
-                self.qwen_model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
-                    device_map="auto",
-                    trust_remote_code=True
-                )
-                
-                # Set pad token for base models (they often don't have one)
-                if self.qwen_tokenizer.pad_token is None:
-                    self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
-                
+        model_path = self.qwen_model_path
+        print(f"🔄 Loading Qwen 2.5-7B Base model from {model_path}")
+        
+        # Load tokenizer first
+        print("📝 Loading tokenizer...")
+        self.qwen_tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            trust_remote_code=True
+        )
+        
+        # Load base model - no safety filters
+        print("🧠 Loading base model...")
+        self.qwen_model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.bfloat16,  # Base models work well with bfloat16
+            device_map="auto",
+            trust_remote_code=True
+        )
+        
+        # Set pad token for base models (they often don't have one)
+        if self.qwen_tokenizer.pad_token is None:
+            self.qwen_tokenizer.pad_token = self.qwen_tokenizer.eos_token
+        
         return True
 
     def load_qwen_model(self):
@@ -1599,11 +1599,11 @@ class EnhancedWanWorker:
         print(f"🧠 Generating enhancement with Qwen 2.5-7B...")
         
         # Generate with optimized parameters for speed and quality
-            with torch.no_grad():
+        with torch.no_grad():
             output = self.qwen_model.generate(
-                    **inputs,
+                **inputs,
                 max_new_tokens=150,     # ✅ REDUCED: Faster generation
-                    do_sample=True,
+                do_sample=True,
                 temperature=0.7,       # Balanced creativity
                 top_p=0.9,            # Good diversity
                 top_k=40,             # Prevent repetition
