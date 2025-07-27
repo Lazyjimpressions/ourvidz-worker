@@ -41,6 +41,131 @@ except ImportError:
 import socket
 from datetime import datetime
 
+class EnhancementSystemPrompts:
+    """Intelligent system prompts for model-specific enhancement"""
+    
+    @staticmethod
+    def get_sdxl_system_prompt(job_type="sdxl_image_fast", quality="fast"):
+        """SDXL LUSTIFY-specific system prompt"""
+        base_prompt = """You are an expert AI prompt engineer specializing in SDXL LUSTIFY model optimization and adult content generation.
+
+CRITICAL REQUIREMENTS:
+- Target Model: SDXL LUSTIFY v2.0 (75-token optimal, 150-token maximum)
+- Content Focus: Adult/NSFW content with anatomical accuracy
+- Quality Priority: Photorealistic details, professional lighting, technical excellence
+
+ENHANCEMENT STRATEGY:
+1. ANATOMY FIRST: Ensure accurate proportions, realistic features, natural poses
+2. QUALITY TAGS: Add professional photography terms (4K, sharp focus, detailed)
+3. LIGHTING: Specify cinematic lighting (soft lighting, natural light, studio lighting)
+4. TECHNICAL: Include quality modifiers (masterpiece, best quality, ultra-detailed)
+5. COMPRESS: Optimize for 75-token sweet spot while preserving key details
+
+SDXL-SPECIFIC OPTIMIZATION:
+- Use proven SDXL quality tags: "masterpiece, best quality, ultra detailed"
+- Emphasize lighting: "professional photography, soft lighting, detailed"
+- Anatomical accuracy: "realistic proportions, natural pose, detailed features"
+- Avoid unnecessary words, prioritize visual impact terms
+- Balance detail with token efficiency"""
+
+        if quality == "high":
+            base_prompt += """
+
+HIGH QUALITY MODE:
+- Extend to 100-120 tokens for maximum detail
+- Add advanced technical terms: "photorealistic, hyperdetailed, professional grade"
+- Include specific camera settings: "85mm lens, shallow depth of field"
+- Enhanced lighting details: "rim lighting, volumetric lighting, perfect exposure"
+"""
+        
+        return base_prompt
+
+    @staticmethod 
+    def get_wan_system_prompt(job_type="video_fast", quality="fast"):
+        """WAN 2.1-specific system prompt"""
+        base_prompt = """You are an expert AI prompt engineer specializing in WAN 2.1 video generation and temporal consistency.
+
+CRITICAL REQUIREMENTS:
+- Target Model: WAN 2.1 T2V 1.3B (motion-focused, 5-second videos)
+- Content Focus: Temporal consistency, smooth motion, cinematic quality
+- Quality Priority: Motion realism, scene coherence, professional cinematography
+
+ENHANCEMENT STRATEGY:
+1. MOTION FIRST: Describe natural, fluid movements and transitions
+2. TEMPORAL CONSISTENCY: Ensure elements maintain coherence across frames
+3. CINEMATOGRAPHY: Add professional camera work (smooth pans, steady shots)
+4. SCENE SETTING: Establish clear environment and spatial relationships  
+5. TECHNICAL QUALITY: Video-specific quality terms (smooth motion, stable)
+
+WAN-SPECIFIC OPTIMIZATION:
+- Motion descriptions: "smooth movement, natural motion, fluid transitions"
+- Temporal stability: "consistent lighting, stable composition, coherent scene"
+- Cinematography: "professional camera work, smooth pans, steady shots"
+- Video quality: "high framerate, smooth motion, temporal consistency"
+- Scene coherence: "well-lit environment, clear spatial relationships"
+
+TOKEN STRATEGY: 150-250 tokens optimal for detailed motion description"""
+
+        if "7b_enhanced" in job_type:
+            base_prompt += """
+
+QWEN 7B ENHANCED MODE:
+- Leverage full 7B model capabilities for superior enhancement
+- Advanced cinematography: "dynamic camera angles, professional composition"
+- Complex motion: "multi-layered motion, realistic physics, natural timing"
+- Enhanced storytelling: "narrative coherence, emotional resonance"
+- Technical excellence: "broadcast quality, professional grade, cinema-level"
+"""
+
+        return base_prompt
+
+    @staticmethod
+    def get_enhancement_context(job_type, quality_level, model_target):
+        """Generate contextual information for AI enhancement"""
+        return {
+            "job_type": job_type,
+            "quality_level": quality_level, 
+            "target_model": model_target,
+            "token_target": 75 if "sdxl" in job_type else 200,
+            "content_type": "video" if "video" in job_type else "image",
+            "enhancement_level": "enhanced" if "7b" in job_type else "standard"
+        }
+
+def create_enhanced_messages(original_prompt, job_type="sdxl_image_fast", quality="fast"):
+    """Create contextually-aware messages for AI enhancement"""
+    
+    # Determine system prompt based on job type
+    if "sdxl" in job_type:
+        system_prompt = EnhancementSystemPrompts.get_sdxl_system_prompt(job_type, quality)
+        model_context = "SDXL LUSTIFY"
+    elif "video" in job_type or "image" in job_type:
+        system_prompt = EnhancementSystemPrompts.get_wan_system_prompt(job_type, quality)
+        model_context = "WAN 2.1"
+    else:
+        # Fallback
+        system_prompt = EnhancementSystemPrompts.get_sdxl_system_prompt(job_type, quality)
+        model_context = "SDXL LUSTIFY"
+    
+    # Create enhancement context
+    context = EnhancementSystemPrompts.get_enhancement_context(job_type, quality, model_context)
+    
+    # Build intelligent user prompt with context
+    user_prompt = f"""ENHANCEMENT REQUEST:
+Model Target: {context['target_model']}
+Content Type: {context['content_type'].title()}
+Quality Level: {context['quality_level'].title()}
+Token Target: {context['token_target']} tokens optimal
+Enhancement Level: {context['enhancement_level'].title()}
+
+Original Prompt: "{original_prompt}"
+
+Task: Enhance this prompt according to the system requirements above. Focus on {model_context}-specific optimization while maintaining the original creative intent. Ensure the enhancement is optimized for {context['content_type']} generation with {context['quality_level']} quality settings."""
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
 class TimeoutException(Exception):
     """Custom exception for timeouts - now thread-safe"""
     pass
