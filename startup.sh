@@ -194,6 +194,38 @@ except Exception as e:
 EOF
 
 echo ""
+echo "📊 Temporary storage analysis:"
+df -h /tmp
+echo "💾 Available for caching: $(df -h /tmp | awk 'NR==2{print $4}')"
+
+# Smart cache allocation based on available temp space
+echo "🔧 Smart cache allocation strategy:"
+TEMP_AVAILABLE=$(df /tmp --output=avail | tail -1)
+TEMP_AVAILABLE_GB=$((TEMP_AVAILABLE / 1024 / 1024))
+
+if [ "$TEMP_AVAILABLE" -gt 20000000 ]; then  # >20GB
+    CACHE_SIZE="8GB"
+    CACHE_STRATEGY="aggressive"
+    echo "✅ High temp storage available: ${TEMP_AVAILABLE_GB}GB"
+    echo "📈 Cache strategy: ${CACHE_STRATEGY} (${CACHE_SIZE})"
+else
+    CACHE_SIZE="4GB"
+    CACHE_STRATEGY="conservative"
+    echo "⚠️ Limited temp storage: ${TEMP_AVAILABLE_GB}GB"
+    echo "📉 Cache strategy: ${CACHE_STRATEGY} (${CACHE_SIZE})"
+fi
+
+# Set cache environment variables for workers
+export TEMP_CACHE_SIZE="$CACHE_SIZE"
+export TEMP_CACHE_STRATEGY="$CACHE_STRATEGY"
+export TEMP_AVAILABLE_GB="$TEMP_AVAILABLE_GB"
+
+echo "🔧 Cache configuration exported:"
+echo "  TEMP_CACHE_SIZE=$TEMP_CACHE_SIZE"
+echo "  TEMP_CACHE_STRATEGY=$TEMP_CACHE_STRATEGY"
+echo "  TEMP_AVAILABLE_GB=${TEMP_AVAILABLE_GB}GB"
+
+echo ""
 echo "🚀 LAUNCHING TRIPLE WORKER SYSTEM"
 echo "=================================="
 echo "⚡ Expected startup sequence:"
@@ -213,6 +245,12 @@ echo "🧠 Memory Management:"
 echo "  📊 Smart allocation based on priority and availability"
 echo "  🔄 Dynamic loading/unloading as needed"
 echo "  ⚠️ Chat worker may temporarily unload for WAN jobs"
+echo ""
+echo "💾 Cache Strategy:"
+echo "  📈 Strategy: $CACHE_STRATEGY"
+echo "  💾 Cache Size: $CACHE_SIZE"
+echo "  📊 Temp Available: ${TEMP_AVAILABLE_GB}GB"
+echo "  🔄 Workers will use cache for model loading and temporary files"
 echo ""
 
 exec python -u dual_orchestrator.py
