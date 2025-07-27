@@ -23,63 +23,48 @@ qwen_instruct_ready=false
 [ -d "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B" ] && qwen_base_ready=true && echo "✅ Qwen Base model ready"
 [ -d "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct" ] && qwen_instruct_ready=true && echo "✅ Qwen Instruct model ready"
 
-# Triple Worker Status Assessment
-echo ""
-echo "=== TRIPLE WORKER STATUS ==="
-if [ "$sdxl_ready" = true ]; then
-    echo "🎨 SDXL Worker: ✅ READY (Port 7860, Priority 1)"
-else
-    echo "🎨 SDXL Worker: ❌ NOT READY (missing model)"
-fi
-
+# Chat Integration Status
 if [ "$qwen_instruct_ready" = true ]; then
-    echo "💬 Chat Worker: ✅ READY (Port 7861, Priority 2)"
+    echo "🤖 Chat Worker: ✅ READY (Qwen Instruct available)"
 else
-    echo "💬 Chat Worker: ❌ NOT READY (missing Qwen Instruct model)"
+    echo "🤖 Chat Worker: ⚠️ PARTIAL (Qwen Instruct missing)"
 fi
 
-if [ "$wan_ready" = true ] && [ "$qwen_base_ready" = true ]; then
-    echo "🎬 WAN Worker: ✅ READY (Port 7860, Priority 3)"
+# Enhanced Job Status  
+if [ "$qwen_base_ready" = true ]; then
+    echo "✨ Enhanced Jobs: ✅ READY (Qwen Base available)"
 else
-    echo "🎬 WAN Worker: ⚠️ PARTIAL (missing WAN or Qwen Base model)"
-fi
-
-# Overall System Status
-ready_workers=0
-[ "$sdxl_ready" = true ] && ready_workers=$((ready_workers + 1))
-[ "$qwen_instruct_ready" = true ] && ready_workers=$((ready_workers + 1))
-[ "$wan_ready" = true ] && [ "$qwen_base_ready" = true ] && ready_workers=$((ready_workers + 1))
-
-echo ""
-if [ $ready_workers -eq 3 ]; then
-    echo "🎉 TRIPLE WORKER SYSTEM: ✅ FULLY READY"
-elif [ $ready_workers -eq 2 ]; then
-    echo "🎯 TRIPLE WORKER SYSTEM: ⚠️ PARTIALLY READY ($ready_workers/3 workers)"
-elif [ $ready_workers -eq 1 ]; then
-    echo "⚠️ TRIPLE WORKER SYSTEM: LIMITED ($ready_workers/3 workers)"
-else
-    echo "❌ TRIPLE WORKER SYSTEM: NOT READY (0/3 workers)"
+    echo "✨ Enhanced Jobs: ⚠️ PARTIAL (Qwen Base missing)"
 fi
 
 echo "=== AUTO-REGISTRATION: Checking RunPod environment ==="
 if [ -n "$RUNPOD_POD_ID" ]; then
-    detected_url="https://${RUNPOD_POD_ID}-7860.proxy.runpod.net"
+    # Detect all worker URLs
+    sdxl_url="https://${RUNPOD_POD_ID}-7859.proxy.runpod.net"
+    wan_url="https://${RUNPOD_POD_ID}-7860.proxy.runpod.net"
     chat_url="https://${RUNPOD_POD_ID}-7861.proxy.runpod.net"
+    
     echo "✅ RunPod Pod ID detected: $RUNPOD_POD_ID"
-    echo "🌐 WAN/SDXL Worker URL: $detected_url"
-    echo "🌐 Chat Worker URL: $chat_url"
-    echo "🔧 Auto-registration will be handled by WAN worker after Flask startup"
+    echo "🌐 Worker URLs will be:"
+    echo "  🎨 SDXL Worker: $sdxl_url"
+    echo "  🎬 WAN Worker: $wan_url"
+    echo "  🤖 Chat Worker: $chat_url"
+    echo "🔧 Auto-registration will be handled by workers after startup"
 else
     echo "⚠️ RUNPOD_POD_ID not found - will try hostname fallback"
     hostname=$(hostname)
     echo "🔍 Hostname: $hostname"
     if [[ "$hostname" =~ ^[a-z0-9]+-[a-z0-9]+ ]]; then
         pod_id=$(echo "$hostname" | cut -d'-' -f1)
-        detected_url="https://${pod_id}-7860.proxy.runpod.net"
+        sdxl_url="https://${pod_id}-7859.proxy.runpod.net"
+        wan_url="https://${pod_id}-7860.proxy.runpod.net"
         chat_url="https://${pod_id}-7861.proxy.runpod.net"
+        
         echo "✅ Pod ID from hostname: $pod_id"
-        echo "🌐 WAN/SDXL Worker URL: $detected_url"
-        echo "🌐 Chat Worker URL: $chat_url"
+        echo "🌐 Worker URLs will be:"
+        echo "  🎨 SDXL Worker: $sdxl_url"
+        echo "  🎬 WAN Worker: $wan_url"
+        echo "  🤖 Chat Worker: $chat_url"
     else
         echo "⚠️ Could not detect Pod ID from hostname"
         echo "🔧 Auto-registration may not work - manual registration may be needed"
@@ -97,46 +82,137 @@ python << 'EOF'
 import sys
 sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
 try:
-    import transformers, torch, diffusers, compel
-    print("Dependencies OK: transformers " + transformers.__version__)
+    import transformers, torch, diffusers, compel, flask
+    print("Dependencies OK:")
+    print("  transformers: " + transformers.__version__)
+    print("  torch: " + torch.__version__)
+    print("  flask: " + flask.__version__)
+    
+    # Check GPU memory for triple worker system
+    if torch.cuda.is_available():
+        total_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        print(f"  CUDA: {total_vram:.0f}GB VRAM available")
+        
+        if total_vram >= 45:
+            print("  Memory: ✅ Sufficient for all workers")
+        else:
+            print("  Memory: ⚠️ May need smart loading")
     
     import os
-    # Check all model paths
+    # Check model availability
     sdxl_ok = os.path.exists("/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors")
     wan_ok = os.path.exists("/workspace/models/wan2.1-t2v-1.3b/diffusion_pytorch_model.safetensors")
     base_ok = os.path.exists("/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B")
     inst_ok = os.path.exists("/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct")
     
-    print(f"SDXL: {'READY' if sdxl_ok else 'MISSING'}")
-    print(f"WAN: {'READY' if wan_ok else 'MISSING'}")
-    print(f"Qwen Base: {'READY' if base_ok else 'MISSING'}")
-    print(f"Qwen Instruct: {'READY' if inst_ok else 'MISSING'}")
+    workers_ready = []
+    if sdxl_ok:
+        workers_ready.append("SDXL")
+    if wan_ok and base_ok:
+        workers_ready.append("WAN")
+    if inst_ok:
+        workers_ready.append("Chat")
     
-    ready_count = sum([sdxl_ok, wan_ok and base_ok, inst_ok])
-    print(f"Triple Worker Status: {ready_count}/3 workers ready")
+    print(f"  Workers Ready: {', '.join(workers_ready) if workers_ready else 'None'}")
     
 except ImportError as e:
     print("Missing dependency: " + str(e))
     exit(1)
 EOF
 
-echo "=== Starting triple workers (auto-registration handled by WAN worker) ==="
-echo "🌐 Auto-registration sequence:"
+echo "=== Starting triple workers (auto-registration handled by each worker) ==="
+echo "🌐 Triple Worker Auto-registration sequence:"
 echo "  1. Orchestrator starts all three workers in priority order"
-echo "  2. SDXL worker starts (Priority 1, Port 7860)"
-echo "  3. Chat worker starts (Priority 2, Port 7861)"
-echo "  4. WAN worker starts (Priority 3, Port 7860)"
-echo "  5. WAN worker starts Flask server on port 7860"
-echo "  6. WAN worker detects RunPod URL using RUNPOD_POD_ID"
-echo "  7. WAN worker validates URL health"
-echo "  8. WAN worker registers URL with Supabase"
-echo "  9. WAN worker starts periodic health monitoring"
-echo "  10. Edge functions can now find worker automatically"
+echo "  2. SDXL worker starts first (highest priority)"
+echo "  3. Chat worker starts second (real-time responses)"
+echo "  4. WAN worker starts third (batch processing)"
+echo "  5. Each worker detects RunPod URL using RUNPOD_POD_ID"
+echo "  6. Each worker validates URL health on their respective ports"
+echo "  7. Workers register URLs with Supabase (chat worker registers for enhancement)"
+echo "  8. Edge functions can now route to appropriate workers automatically"
+echo "  9. Smart memory management handles model loading conflicts"
 echo ""
-echo "🎭 Triple Worker System Architecture:"
-echo "  🎨 SDXL Worker: Fast image generation (3-8s) - Port 7860"
-echo "  💬 Chat Worker: Qwen Instruct service (5-15s) - Port 7861"
-echo "  🎬 WAN Worker: Video + Qwen enhancement (67-294s) - Port 7860"
+echo "🎯 Worker Ports:"
+echo "  🎨 SDXL Worker: 7859 (always loaded)"
+echo "  🎬 WAN Worker: 7860 (load on demand)"  
+echo "  🤖 Chat Worker: 7861 (load when possible)"
+echo ""
+
+echo "🔧 Final validation before startup..."
+python << 'EOF'
+import sys
+sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
+try:
+    import torch
+    if torch.cuda.is_available():
+        total_vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        print(f"🔥 GPU: RTX 6000 ADA with {total_vram:.0f}GB VRAM")
+        
+        # Memory allocation validation
+        sdxl_mem = 10
+        chat_mem = 15  
+        wan_mem = 30
+        total_needed = sdxl_mem + chat_mem + wan_mem  # 55GB max scenario
+        
+        if total_vram >= total_needed:
+            print(f"✅ Memory validation: {total_needed}GB max needed, {total_vram:.0f}GB available")
+        else:
+            print(f"⚠️ Memory warning: {total_needed}GB max needed, {total_vram:.0f}GB available - smart loading required")
+        
+        # Worker memory allocation
+        print(f"📊 Worker Memory Allocation:")
+        print(f"  🎨 SDXL Worker: {sdxl_mem}GB (always loaded)")
+        print(f"  🤖 Chat Worker: {chat_mem}GB (load when possible)")
+        print(f"  🎬 WAN Worker: {wan_mem}GB (load on demand)")
+        print(f"  🔄 Smart Management: Unload chat for WAN jobs if needed")
+        
+    # Check all worker scripts exist
+    import os
+    worker_scripts = [
+        'dual_orchestrator.py',
+        'sdxl_worker.py', 
+        'wan_worker.py',
+        'chat_worker.py'
+    ]
+    
+    missing_scripts = []
+    for script in worker_scripts:
+        if not os.path.exists(script):
+            missing_scripts.append(script)
+    
+    if missing_scripts:
+        print(f"❌ Missing worker scripts: {missing_scripts}")
+        exit(1)
+    else:
+        print(f"✅ All worker scripts present")
+        
+    print(f"✅ Triple worker system validation complete")
+    
+except Exception as e:
+    print(f"❌ Validation failed: {e}")
+    exit(1)
+EOF
+
+echo ""
+echo "🚀 LAUNCHING TRIPLE WORKER SYSTEM"
+echo "=================================="
+echo "⚡ Expected startup sequence:"
+echo "1. Orchestrator validates environment and starts workers"
+echo "2. SDXL Worker (7859) - Loads immediately, always ready"
+echo "3. Chat Worker (7861) - Loads Qwen Instruct when memory allows"  
+echo "4. WAN Worker (7860) - Loads models on-demand for jobs"
+echo "5. All workers register URLs and start heartbeat monitoring"
+echo "6. Edge functions route to appropriate workers automatically"
+echo ""
+echo "🎯 Performance Targets:"
+echo "  🎨 SDXL: 3-8 seconds per image"
+echo "  🤖 Chat: <3 seconds per enhancement"
+echo "  🎬 WAN: 67-294 seconds per video"
+echo ""
+echo "🧠 Memory Management:"
+echo "  📊 Smart allocation based on priority and availability"
+echo "  🔄 Dynamic loading/unloading as needed"
+echo "  ⚠️ Chat worker may temporarily unload for WAN jobs"
 echo ""
 
 exec python -u dual_orchestrator.py
