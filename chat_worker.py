@@ -4,6 +4,13 @@ OurVidz Chat Worker - Dedicated Qwen Instruct Service
 Handles: Manual prompt enhancement, chat interface, admin utilities
 Model: Qwen 2.5-7B Instruct (always loaded when possible)
 Port: 7861
+
+OPTIMIZATIONS:
+- Model set to eval() mode for inference-only
+- Device pinning with stored model_device
+- PyTorch 2.0 compilation (when available)
+- Comprehensive OOM error handling with retry logic
+- Memory cleanup and validation
 """
 
 import os
@@ -53,7 +60,7 @@ class ChatWorker:
         # Setup Flask routes
         self.setup_routes()
         
-        logger.info("🤖 Chat Worker initialized")
+        logger.info("🤖 Chat Worker initialized with optimized model loading")
 
     def setup_environment(self):
         """Configure environment variables"""
@@ -127,6 +134,29 @@ class ChatWorker:
                     trust_remote_code=True,
                     local_files_only=True
                 )
+                
+                # Store the actual device for consistent tensor operations
+                self.model_device = next(self.qwen_instruct_model.parameters()).device
+                
+                # Set model to evaluation mode (disable dropout, etc.)
+                self.qwen_instruct_model.eval()
+                
+                # Clean up any fragmented memory
+                torch.cuda.empty_cache()
+                
+                # PyTorch 2.0 optimization (if available)
+                try:
+                    self.qwen_instruct_model = torch.compile(self.qwen_instruct_model)
+                    logger.info("✅ PyTorch 2.0 compilation applied")
+                except Exception as e:
+                    logger.info(f"ℹ️ PyTorch 2.0 compilation not available: {e}")
+                
+                # Validate model works with a test inference
+                logger.info("🔍 Validating model with test inference...")
+                test_input = self.qwen_instruct_tokenizer(["test"], return_tensors="pt")
+                with torch.no_grad():
+                    _ = self.qwen_instruct_model(**test_input.to(self.model_device))
+                logger.info("✅ Model validation successful")
 
                 load_time = time.time() - load_start
                 self.model_loaded = True
@@ -213,22 +243,61 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
             # Tokenize
             inputs = self.qwen_instruct_tokenizer([text], return_tensors="pt")
             
-            # Move to device
-            if hasattr(self.qwen_instruct_model, 'device'):
-                inputs = {k: v.to(self.qwen_instruct_model.device) for k, v in inputs.items()}
+            # Move to device with comprehensive error handling
+            try:
+                inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    logger.warning("⚠️ Out of memory during tensor device transfer, attempting cleanup...")
+                    torch.cuda.empty_cache()
+                    # Retry once after cleanup
+                    try:
+                        inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                        logger.info("✅ Tensor transfer successful after memory cleanup")
+                    except RuntimeError as retry_e:
+                        logger.error(f"❌ Tensor transfer failed even after cleanup: {retry_e}")
+                        raise
+                else:
+                    logger.error(f"❌ Device transfer error: {e}")
+                    raise
 
-            # Generate enhanced prompt
-            with torch.no_grad():
-                generated_ids = self.qwen_instruct_model.generate(
-                    **inputs,
-                    max_new_tokens=200,
-                    do_sample=True,
-                    temperature=0.7,
-                    top_p=0.9,
-                    repetition_penalty=1.1,
-                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                    early_stopping=True
-                )
+            # Generate enhanced prompt with error handling
+            try:
+                with torch.no_grad():
+                    generated_ids = self.qwen_instruct_model.generate(
+                        **inputs,
+                        max_new_tokens=200,
+                        do_sample=True,
+                        temperature=0.7,
+                        top_p=0.9,
+                        repetition_penalty=1.1,
+                        pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                        early_stopping=True
+                    )
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    logger.warning("⚠️ Out of memory during generation, attempting cleanup...")
+                    torch.cuda.empty_cache()
+                    # Retry generation once after cleanup
+                    try:
+                        with torch.no_grad():
+                            generated_ids = self.qwen_instruct_model.generate(
+                                **inputs,
+                                max_new_tokens=200,
+                                do_sample=True,
+                                temperature=0.7,
+                                top_p=0.9,
+                                repetition_penalty=1.1,
+                                pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                                early_stopping=True
+                            )
+                        logger.info("✅ Generation successful after memory cleanup")
+                    except RuntimeError as retry_e:
+                        logger.error(f"❌ Generation failed even after cleanup: {retry_e}")
+                        raise
+                else:
+                    logger.error(f"❌ Generation error: {e}")
+                    raise
 
             # Decode response
             generated_ids = [
@@ -322,12 +391,19 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
                 total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
                 available = total - allocated
                 
-                return jsonify({
+                response = {
                     'total_vram': total,
                     'allocated_vram': allocated,
                     'available_vram': available,
                     'model_loaded': self.model_loaded
-                })
+                }
+                
+                # Add device information if model is loaded
+                if self.model_loaded and hasattr(self, 'model_device'):
+                    response['model_device'] = str(self.model_device)
+                    response['device_type'] = 'cuda' if 'cuda' in str(self.model_device) else 'cpu'
+                
+                return jsonify(response)
             else:
                 return jsonify({'error': 'CUDA not available'}), 500
 
@@ -342,6 +418,33 @@ Respond with enhanced prompts that are detailed, specific, and optimized for AI 
             """Force load model"""
             success = self.load_qwen_instruct_model(force=True)
             return jsonify({'success': success, 'message': 'Model load attempted'})
+
+        @self.app.route('/model/info', methods=['GET'])
+        def model_info():
+            """Get detailed model information"""
+            if not self.model_loaded:
+                return jsonify({'error': 'Model not loaded'}), 404
+            
+            try:
+                info = {
+                    'model_loaded': True,
+                    'model_path': self.instruct_model_path,
+                    'model_device': str(self.model_device),
+                    'device_type': 'cuda' if 'cuda' in str(self.model_device) else 'cpu',
+                    'model_parameters': sum(p.numel() for p in self.qwen_instruct_model.parameters()),
+                    'model_size_gb': sum(p.numel() * p.element_size() for p in self.qwen_instruct_model.parameters()) / (1024**3),
+                    'is_eval_mode': self.qwen_instruct_model.training == False,
+                    'torch_version': torch.__version__,
+                    'cuda_available': torch.cuda.is_available()
+                }
+                
+                if torch.cuda.is_available():
+                    info['cuda_version'] = torch.version.cuda
+                    info['gpu_name'] = torch.cuda.get_device_name(0)
+                
+                return jsonify(info)
+            except Exception as e:
+                return jsonify({'error': f'Failed to get model info: {str(e)}'}), 500
 
     def start_server(self):
         """Start the Flask server"""
