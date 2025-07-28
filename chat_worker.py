@@ -1229,25 +1229,35 @@ class ChatWorker:
             )
             
             # Verify inputs structure
-            if not isinstance(inputs, dict) or 'input_ids' not in inputs:
-                logger.error(f"❌ Tokenizer output invalid: {type(inputs)}, keys: {inputs.keys() if isinstance(inputs, dict) else 'not dict'}")
+            if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
+                logger.error(f"❌ Tokenizer output missing input_ids: {type(inputs)}")
                 return {
                     'success': False,
-                    'error': 'Tokenization failed - invalid output format',
+                    'error': 'Tokenization failed - missing input_ids',
                     'response': 'I apologize, but I encountered a technical error. Please try again.'
                 }
             
-            # Move to device
+            logger.info(f"✅ Tokenization successful for chat, input shape: {inputs.input_ids.shape if hasattr(inputs, 'input_ids') else 'unknown'}")
+            
+            # Move to device with better error handling
             try:
-                inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                # Handle both dict and object formats
+                if isinstance(inputs, dict):
+                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                else:
+                    inputs = inputs.to(self.model_device)
                 logger.info("✅ Inputs moved to device successfully for chat")
+                
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
                     logger.warning("⚠️ Out of memory during tensor device transfer for chat, attempting cleanup...")
                     torch.cuda.empty_cache()
                     # Retry once after cleanup
                     try:
-                        inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                        if isinstance(inputs, dict):
+                            inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                        else:
+                            inputs = inputs.to(self.model_device)
                         logger.info("✅ Tensor transfer successful after memory cleanup for chat")
                     except RuntimeError as retry_e:
                         logger.error(f"❌ Tensor transfer failed even after cleanup for chat: {retry_e}")
@@ -1271,8 +1281,10 @@ class ChatWorker:
             
             # Decode response
             try:
+                # Handle both dict and object formats for input_ids access
+                input_ids = inputs['input_ids'] if isinstance(inputs, dict) else inputs.input_ids
                 generated_ids = [
-                    output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs['input_ids'], generated_ids)
+                    output_ids[len(input_ids):] for input_ids, output_ids in zip(input_ids, generated_ids)
                 ]
                 
                 response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
