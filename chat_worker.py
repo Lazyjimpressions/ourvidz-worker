@@ -385,7 +385,7 @@ class ChatWorkerEnhancement:
 
             # Decode response
             generated_ids = [
-                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs['input_ids'], generated_ids)
             ]
             
             enhanced = self.chat_worker.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
@@ -861,7 +861,7 @@ class ChatWorker:
 
             # Decode response
             generated_ids = [
-                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs['input_ids'], generated_ids)
             ]
             
             enhanced = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
@@ -1228,6 +1228,15 @@ class ChatWorker:
                 max_length=4096  # Increased for conversation context
             )
             
+            # Verify inputs structure
+            if not isinstance(inputs, dict) or 'input_ids' not in inputs:
+                logger.error(f"❌ Tokenizer output invalid: {type(inputs)}, keys: {inputs.keys() if isinstance(inputs, dict) else 'not dict'}")
+                return {
+                    'success': False,
+                    'error': 'Tokenization failed - invalid output format',
+                    'response': 'I apologize, but I encountered a technical error. Please try again.'
+                }
+            
             # Move to device
             try:
                 inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
@@ -1261,12 +1270,21 @@ class ChatWorker:
                 )
             
             # Decode response
-            generated_ids = [
-                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
-            ]
-            
-            response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-            response = response.strip()
+            try:
+                generated_ids = [
+                    output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs['input_ids'], generated_ids)
+                ]
+                
+                response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                response = response.strip()
+                
+                if not response:
+                    logger.warning("⚠️ Generated response is empty, using fallback")
+                    response = "I understand your message, but I'm having trouble generating a response right now. Could you please rephrase or try again?"
+                    
+            except Exception as decode_error:
+                logger.error(f"❌ Response decoding failed: {decode_error}")
+                response = "I apologize, but I encountered an error while processing my response. Please try again."
             
             generation_time = time.time() - start_time
             self.stats['requests_served'] += 1
