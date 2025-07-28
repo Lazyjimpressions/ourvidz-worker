@@ -1038,12 +1038,68 @@ class ChatWorker:
 
         @self.app.route('/chat', methods=['POST'])
         def chat_endpoint():
-            """Chat interface endpoint (future implementation)"""
+            """Dedicated conversational chat endpoint for Playground"""
+            try:
+                data = request.get_json()
+                if not data or 'message' not in data:
+                    return jsonify({'success': False, 'error': 'Missing message'}), 400
+
+                message = data['message']
+                conversation_id = data.get('conversation_id')
+                project_id = data.get('project_id')
+                context_type = data.get('context_type', 'general')
+                conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
+                
+                logger.info(f"💬 Chat request: {message[:50]}... (conversation: {conversation_id})")
+                
+                # Generate conversational response
+                result = self.generate_chat_response(
+                    message=message,
+                    conversation_id=conversation_id,
+                    project_id=project_id,
+                    context_type=context_type,
+                    conversation_history=conversation_history
+                )
+                
+                if result['success']:
+                    logger.info(f"✅ Chat response generated in {result.get('generation_time', 0):.1f}s")
+                    return jsonify({
+                        'success': True,
+                        'response': result['response'],
+                        'generation_time': result.get('generation_time'),
+                        'conversation_id': conversation_id,
+                        'context_type': context_type,
+                        'message_id': result.get('message_id')
+                    })
+                else:
+                    return jsonify(result), 500
+                    
+            except Exception as e:
+                logger.error(f"❌ Chat endpoint error: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'response': 'I apologize, but I encountered an error. Please try again.'
+                }), 500
+
+        @self.app.route('/chat/health', methods=['GET'])
+        def chat_health():
+            """Health check specifically for chat functionality"""
             return jsonify({
-                'success': False,
-                'error': 'Chat endpoint not yet implemented',
-                'message': 'Coming soon in Phase 2'
-            }), 501
+                'status': 'healthy',
+                'chat_ready': self.model_loaded,
+                'endpoints': {
+                    '/chat': 'POST - Conversational chat',
+                    '/enhance': 'POST - Prompt enhancement', 
+                    '/health': 'GET - General health check'
+                },
+                'model_info': {
+                    'loaded': self.model_loaded,
+                    'model_name': 'Qwen2.5-7B-Instruct' if self.model_loaded else None,
+                    'memory_usage': self.get_memory_info()
+                },
+                'timestamp': time.time()
+            })
 
         @self.app.route('/admin', methods=['POST'])
         def admin_endpoint():
@@ -1131,6 +1187,236 @@ class ChatWorker:
         except Exception as e:
             logger.error(f"❌ Server startup failed: {e}")
             raise
+
+    def generate_chat_response(self, message: str, conversation_id: str = None, 
+                             project_id: str = None, context_type: str = 'general',
+                             conversation_history: list = None) -> dict:
+        """Generate conversational response using Qwen Instruct model"""
+        
+        if not self.model_loaded:
+            if not self.load_qwen_instruct_model():
+                return {
+                    'success': False,
+                    'error': 'Model not available',
+                    'response': 'I apologize, but the chat service is currently unavailable. Please try again later.'
+                }
+
+        try:
+            start_time = time.time()
+            
+            # Build conversation messages with history and context
+            messages = self.build_conversation_messages(
+                message=message,
+                context_type=context_type,
+                project_id=project_id,
+                conversation_history=conversation_history or []
+            )
+            
+            # Apply chat template
+            text = self.qwen_instruct_tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            # Tokenize with proper parameters
+            inputs = self.qwen_instruct_tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=4096  # Increased for conversation context
+            )
+            
+            # Move to device
+            try:
+                inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                logger.info("✅ Inputs moved to device successfully for chat")
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    logger.warning("⚠️ Out of memory during tensor device transfer for chat, attempting cleanup...")
+                    torch.cuda.empty_cache()
+                    # Retry once after cleanup
+                    try:
+                        inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                        logger.info("✅ Tensor transfer successful after memory cleanup for chat")
+                    except RuntimeError as retry_e:
+                        logger.error(f"❌ Tensor transfer failed even after cleanup for chat: {retry_e}")
+                        raise
+                else:
+                    logger.error(f"❌ Device transfer error for chat: {e}")
+                    raise
+            
+            # Generate conversational response
+            with torch.no_grad():
+                generated_ids = self.qwen_instruct_model.generate(
+                    **inputs,
+                    max_new_tokens=500,  # Longer responses for conversation
+                    do_sample=True,
+                    temperature=0.8,     # Slightly higher for more personality
+                    top_p=0.9,
+                    repetition_penalty=1.1,
+                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                    use_cache=True
+                )
+            
+            # Decode response
+            generated_ids = [
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            
+            response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            response = response.strip()
+            
+            generation_time = time.time() - start_time
+            self.stats['requests_served'] += 1
+            
+            logger.info(f"✅ Chat response completed in {generation_time:.1f}s")
+            
+            return {
+                'success': True,
+                'response': response,
+                'generation_time': generation_time,
+                'context_type': context_type,
+                'message_id': f"msg_{int(time.time() * 1000)}"  # Simple message ID
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Chat generation failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'response': 'I encountered an error generating a response. Please try again.'
+            }
+
+    def build_conversation_messages(self, message: str, context_type: str = 'general',
+                                  project_id: str = None, conversation_history: list = None) -> list:
+        """Build conversation messages with proper context and history"""
+        
+        # Build system prompt based on context
+        system_prompt = self.build_conversation_system_prompt(context_type, project_id)
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history (limit to last 10 exchanges for context window)
+        if conversation_history:
+            # Take last 20 messages (10 exchanges) to stay within context window
+            recent_history = conversation_history[-20:] if len(conversation_history) > 20 else conversation_history
+            
+            for hist_msg in recent_history:
+                if hist_msg.get('sender') == 'user':
+                    messages.append({"role": "user", "content": hist_msg.get('content', '')})
+                elif hist_msg.get('sender') == 'assistant':
+                    messages.append({"role": "assistant", "content": hist_msg.get('content', '')})
+        
+        # Add current message
+        messages.append({"role": "user", "content": message})
+        
+        return messages
+
+    def build_conversation_system_prompt(self, context_type: str, project_id: str = None) -> str:
+        """Build system prompt based on conversation context"""
+        
+        if context_type == 'story_development':
+            prompt = """You are an expert AI storytelling assistant specializing in adult content creation and narrative development.
+
+CORE CAPABILITIES:
+- Character development and consistency tracking
+- Plot structure and story arc development
+- Scene development and dialogue creation
+- Story continuity and world-building
+- Creative writing assistance and brainstorming
+
+CONVERSATION STYLE:
+- Engaging and collaborative storytelling partner
+- Ask clarifying questions to understand the user's creative vision
+- Offer specific, actionable suggestions for story improvement
+- Maintain story consistency across conversations
+- Support both creative exploration and technical execution
+- Remember character details, plot points, and story rules
+
+STORY MEMORY:
+- Track character names, personalities, and relationships
+- Remember plot developments and story timeline
+- Maintain consistency with established story rules
+- Reference previous story elements naturally in conversation
+
+CURRENT CONTEXT:"""
+            
+            if project_id:
+                prompt += f"\nProject ID: {project_id}"
+                prompt += "\n(This conversation is linked to a specific project - maintain context accordingly)"
+            
+            prompt += """
+
+Remember: You're helping create compelling, consistent stories. Be creative, supportive, and maintain narrative coherence throughout our conversation."""
+            
+        else:  # general conversation
+            prompt = """You are a helpful AI assistant for OurVidz platform users and administrators.
+
+CAPABILITIES:
+- General conversation and assistance
+- Platform guidance and support questions
+- Creative brainstorming and ideation
+- Technical questions about content creation
+- Administrative support tasks
+- Content planning and strategy discussions
+
+CONVERSATION STYLE:
+- Professional but friendly and approachable
+- Conversational yet informative
+- Helpful and solution-oriented
+- Respectful of user privacy and preferences
+- Maintain context across our conversation
+
+PLATFORM CONTEXT:
+- OurVidz is an AI-powered content creation platform
+- Users create images and videos using AI models
+- Focus on helping users achieve their creative goals
+
+Provide helpful, accurate responses while maintaining a natural conversational tone. Remember previous parts of our conversation to provide contextual assistance."""
+        
+        return prompt
+
+    def get_memory_info(self):
+        """Get current memory information for health checks"""
+        try:
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / (1024**3)
+                total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                available = total - allocated
+                
+                return {
+                    'total_vram_gb': round(total, 2),
+                    'allocated_vram_gb': round(allocated, 2),
+                    'available_vram_gb': round(available, 2),
+                    'memory_usage_percent': round((allocated / total) * 100, 1)
+                }
+            else:
+                return {'error': 'CUDA not available'}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def validate_conversation_history(self, history: list) -> list:
+        """Validate and clean conversation history"""
+        if not isinstance(history, list):
+            return []
+        
+        valid_history = []
+        for msg in history:
+            if isinstance(msg, dict) and 'sender' in msg and 'content' in msg:
+                if msg['sender'] in ['user', 'assistant'] and isinstance(msg['content'], str):
+                    valid_history.append({
+                        'sender': msg['sender'],
+                        'content': msg['content'][:2000]  # Limit message length
+                    })
+        
+        return valid_history
+
+    def estimate_context_tokens(self, messages: list) -> int:
+        """Rough estimation of token count for context management"""
+        total_chars = sum(len(msg.get('content', '')) for msg in messages)
+        return total_chars // 4  # Rough estimation: 4 chars ≈ 1 token
 
 def auto_register_chat_worker():
     """Auto-register chat worker URL with Supabase"""
