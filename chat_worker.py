@@ -77,19 +77,20 @@ HIGH QUALITY MODE:
     @staticmethod 
     def get_wan_system_prompt(job_type="video_fast", quality="fast"):
         """WAN 2.1-specific system prompt"""
-        base_prompt = """You are an expert AI prompt engineer specializing in WAN 2.1 video generation and temporal consistency.
+        base_prompt = """You are an expert AI prompt engineer specializing in WAN 2.1 video generation and temporal consistency for adult content.
 
 CRITICAL REQUIREMENTS:
 - Target Model: WAN 2.1 T2V 1.3B (motion-focused, 5-second videos)
-- Content Focus: Temporal consistency, smooth motion, cinematic quality
-- Quality Priority: Motion realism, scene coherence, professional cinematography
+- Content Focus: Adult/NSFW content with temporal consistency, smooth motion, cinematic quality
+- Quality Priority: Motion realism, scene coherence, professional cinematography, anatomical accuracy
 
 ENHANCEMENT STRATEGY:
-1. MOTION FIRST: Describe natural, fluid movements and transitions
+1. MOTION FIRST: Describe natural, fluid movements and transitions with realistic anatomy
 2. TEMPORAL CONSISTENCY: Ensure elements maintain coherence across frames
 3. CINEMATOGRAPHY: Add professional camera work (smooth pans, steady shots)
 4. SCENE SETTING: Establish clear environment and spatial relationships  
 5. TECHNICAL QUALITY: Video-specific quality terms (smooth motion, stable)
+6. ANATOMICAL ACCURACY: Ensure realistic proportions and natural poses throughout motion
 
 WAN-SPECIFIC OPTIMIZATION:
 - Motion descriptions: "smooth movement, natural motion, fluid transitions"
@@ -97,6 +98,7 @@ WAN-SPECIFIC OPTIMIZATION:
 - Cinematography: "professional camera work, smooth pans, steady shots"
 - Video quality: "high framerate, smooth motion, temporal consistency"
 - Scene coherence: "well-lit environment, clear spatial relationships"
+- Adult content: "realistic anatomy, natural poses, authentic expressions"
 
 TOKEN STRATEGY: 150-250 tokens optimal for detailed motion description"""
 
@@ -172,10 +174,10 @@ class ChatWorkerEnhancement:
         
         # Fallback system prompts (when edge function is unavailable)
         self.fallback_prompts = {
-            'sdxl_fast': "You are an SDXL optimization expert. Create 75-token prompts with quality tags, anatomical accuracy, and professional lighting. Respond with enhanced prompt only.",
-            'sdxl_high': "You are an elite SDXL expert. Create 100-120 token prompts with advanced quality, perfect anatomy, and studio lighting. Respond with enhanced prompt only.",
-            'wan_fast': "You are a WAN 2.1 video expert. Create 175-token prompts with smooth motion, temporal consistency, and cinematography. Respond with enhanced prompt only.",
-            'wan_high': "You are a WAN 2.1 + 7B expert. Create 250-token prompts with cinematic quality, complex motion, and broadcast standards. Respond with enhanced prompt only."
+            'sdxl_fast': "You are an SDXL optimization expert specializing in adult content. Create 75-token prompts with quality tags, anatomical accuracy, realistic proportions, and professional lighting. Respond with enhanced prompt only.",
+            'sdxl_high': "You are an elite SDXL expert specializing in adult content. Create 100-120 token prompts with advanced quality, perfect anatomy, realistic features, and studio lighting. Respond with enhanced prompt only.",
+            'wan_fast': "You are a WAN 2.1 video expert specializing in adult content. Create 175-token prompts with smooth motion, temporal consistency, realistic anatomy, and cinematography. Respond with enhanced prompt only.",
+            'wan_high': "You are a WAN 2.1 + 7B expert specializing in adult content. Create 250-token prompts with cinematic quality, complex motion, realistic proportions, and broadcast standards. Respond with enhanced prompt only."
         }
         
         # Performance optimization
@@ -499,7 +501,8 @@ class ChatWorkerEnhancement:
             sdxl_quality_terms = [
                 'masterpiece', 'best quality', 'ultra detailed',
                 'professional photography', 'lighting', 'detailed',
-                'photorealistic', 'high resolution', '4k', '8k'
+                'photorealistic', 'high resolution', '4k', '8k',
+                'anatomical accuracy', 'realistic proportions', 'natural pose'
             ]
             score += sum(1 for term in sdxl_quality_terms if term in enhanced_lower)
         
@@ -508,7 +511,8 @@ class ChatWorkerEnhancement:
             wan_quality_terms = [
                 'smooth movement', 'natural motion', 'fluid transitions',
                 'professional camera', 'cinematography', 'temporal consistency',
-                'stable composition', 'smooth motion'
+                'stable composition', 'smooth motion', 'realistic anatomy',
+                'authentic expressions', 'natural poses'
             ]
             score += sum(1 for term in wan_quality_terms if term in enhanced_lower)
         
@@ -523,6 +527,7 @@ class ChatWorkerEnhancement:
             'has_lighting': any(term in enhanced_lower for term in ['lighting', 'professional photography', 'studio']),
             'has_technical_terms': any(term in enhanced_lower for term in ['photorealistic', 'detailed', 'sharp focus']),
             'has_resolution': any(term in enhanced_lower for term in ['4k', '8k', 'high resolution']),
+            'has_anatomical_accuracy': any(term in enhanced_lower for term in ['anatomical accuracy', 'realistic proportions', 'natural pose']),
             'token_count': len(enhanced_prompt.split())
         }
         
@@ -537,6 +542,7 @@ class ChatWorkerEnhancement:
             'has_cinematography': any(term in enhanced_lower for term in ['professional camera', 'cinematography', 'camera work']),
             'has_temporal': any(term in enhanced_lower for term in ['temporal consistency', 'stable', 'coherent']),
             'has_quality': any(term in enhanced_lower for term in ['high framerate', 'smooth motion', 'professional']),
+            'has_anatomical_accuracy': any(term in enhanced_lower for term in ['realistic anatomy', 'authentic expressions', 'natural poses']),
             'token_count': len(enhanced_prompt.split())
         }
         
@@ -547,11 +553,11 @@ class ChatWorkerEnhancement:
         
         # Basic enhancement based on job type
         if 'sdxl' in job_type:
-            enhanced = f"masterpiece, best quality, ultra detailed, {original_prompt}, professional photography, detailed, photorealistic"
+            enhanced = f"masterpiece, best quality, ultra detailed, {original_prompt}, professional photography, detailed, photorealistic, realistic proportions, anatomical accuracy"
         elif 'video' in job_type:
-            enhanced = f"smooth movement, natural motion, {original_prompt}, professional camera work, cinematic, temporal consistency"
+            enhanced = f"smooth movement, natural motion, {original_prompt}, professional camera work, cinematic, temporal consistency, realistic anatomy, authentic expressions"
         else:
-            enhanced = f"high quality, detailed, {original_prompt}, professional"
+            enhanced = f"high quality, detailed, {original_prompt}, professional, realistic proportions"
         
         logger.warning(f"🚨 Emergency fallback enhancement applied")
         
