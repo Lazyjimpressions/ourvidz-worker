@@ -1051,6 +1051,7 @@ class ChatWorker:
                     return jsonify({'success': False, 'error': 'Missing message'}), 400
 
                 message = data['message']
+                system_prompt = data.get('system_prompt')  # Add this
                 conversation_id = data.get('conversation_id')
                 project_id = data.get('project_id')
                 context_type = data.get('context_type', 'general')
@@ -1061,6 +1062,7 @@ class ChatWorker:
                 # Generate conversational response
                 result = self.generate_chat_response(
                     message=message,
+                    system_prompt=system_prompt,  # Add this
                     conversation_id=conversation_id,
                     project_id=project_id,
                     context_type=context_type,
@@ -1075,13 +1077,61 @@ class ChatWorker:
                         'generation_time': result.get('generation_time'),
                         'conversation_id': conversation_id,
                         'context_type': context_type,
-                        'message_id': result.get('message_id')
+                        'message_id': result.get('message_id'),
+                        'system_prompt_used': result.get('system_prompt_used', False),
+                        'unrestricted_mode': result.get('unrestricted_mode', False)
                     })
                 else:
                     return jsonify(result), 500
                     
             except Exception as e:
                 logger.error(f"❌ Chat endpoint error: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'response': 'I apologize, but I encountered an error. Please try again.'
+                }), 500
+
+        @self.app.route('/chat/unrestricted', methods=['POST'])
+        def chat_unrestricted_endpoint():
+            """Dedicated unrestricted chat endpoint for adult content"""
+            try:
+                data = request.get_json()
+                if not data or 'message' not in data:
+                    return jsonify({'success': False, 'error': 'Missing message'}), 400
+
+                message = data['message']
+                system_prompt = data.get('system_prompt')
+                conversation_id = data.get('conversation_id')
+                project_id = data.get('project_id')
+                context_type = data.get('context_type', 'unrestricted')
+                conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
+                
+                logger.info(f"🔓 Unrestricted chat request: {message[:50]}... (conversation: {conversation_id})")
+                
+                # Build conversation messages
+                messages = self.build_conversation_messages(
+                    message=message,
+                    system_prompt=system_prompt,
+                    context_type=context_type,
+                    project_id=project_id,
+                    conversation_history=conversation_history
+                )
+                
+                # Generate unrestricted response
+                result = self.generate_unrestricted_response(messages)
+                result['unrestricted_mode'] = True
+                result['conversation_id'] = conversation_id
+                result['context_type'] = context_type
+                
+                if result['success']:
+                    logger.info(f"✅ Unrestricted response generated in {result.get('generation_time', 0):.1f}s")
+                    return jsonify(result)
+                else:
+                    return jsonify(result), 500
+                    
+            except Exception as e:
+                logger.error(f"❌ Unrestricted chat endpoint error: {e}")
                 return jsonify({
                     'success': False,
                     'error': str(e),
@@ -1096,6 +1146,7 @@ class ChatWorker:
                 'chat_ready': self.model_loaded,
                 'endpoints': {
                     '/chat': 'POST - Conversational chat',
+                    '/chat/unrestricted': 'POST - Unrestricted adult content chat',
                     '/enhance': 'POST - Prompt enhancement', 
                     '/health': 'GET - General health check'
                 },
@@ -1194,7 +1245,7 @@ class ChatWorker:
             logger.error(f"❌ Server startup failed: {e}")
             raise
 
-    def generate_chat_response(self, message: str, conversation_id: str = None, 
+    def generate_chat_response(self, message: str, system_prompt: str = None, conversation_id: str = None, 
                              project_id: str = None, context_type: str = 'general',
                              conversation_history: list = None) -> dict:
         """Generate conversational response using Qwen Instruct model"""
@@ -1210,13 +1261,24 @@ class ChatWorker:
         try:
             start_time = time.time()
             
+            # Check for unrestricted mode
+            is_unrestricted = self.detect_unrestricted_mode(message)
+            
             # Build conversation messages with history and context
             messages = self.build_conversation_messages(
                 message=message,
+                system_prompt=system_prompt,
                 context_type=context_type,
                 project_id=project_id,
                 conversation_history=conversation_history or []
             )
+            
+            # Use unrestricted generation if detected
+            if is_unrestricted:
+                logger.info("🔓 Using unrestricted generation mode")
+                result = self.generate_unrestricted_response(messages)
+                result['unrestricted_mode'] = True
+                return result
             
             # Apply chat template
             text = self.qwen_instruct_tokenizer.apply_chat_template(
@@ -1314,7 +1376,9 @@ class ChatWorker:
                 'response': response,
                 'generation_time': generation_time,
                 'context_type': context_type,
-                'message_id': f"msg_{int(time.time() * 1000)}"  # Simple message ID
+                'message_id': f"msg_{int(time.time() * 1000)}",  # Simple message ID
+                'system_prompt_used': system_prompt is not None,
+                'unrestricted_mode': False
             }
             
         except Exception as e:
@@ -1325,14 +1389,17 @@ class ChatWorker:
                 'response': 'I encountered an error generating a response. Please try again.'
             }
 
-    def build_conversation_messages(self, message: str, context_type: str = 'general',
+    def build_conversation_messages(self, message: str, system_prompt: str = None, context_type: str = 'general',
                                   project_id: str = None, conversation_history: list = None) -> list:
         """Build conversation messages with proper context and history"""
         
-        # Build system prompt based on context
-        system_prompt = self.build_conversation_system_prompt(context_type, project_id)
-        
-        messages = [{"role": "system", "content": system_prompt}]
+        # Apply dynamic system prompt if provided, otherwise use default
+        if system_prompt:
+            messages = [{"role": "system", "content": system_prompt}]
+        else:
+            # Build system prompt based on context
+            default_system_prompt = self.build_conversation_system_prompt(context_type, project_id)
+            messages = [{"role": "system", "content": default_system_prompt}]
         
         # Add conversation history (limit to last 10 exchanges for context window)
         if conversation_history:
@@ -1453,6 +1520,195 @@ Provide helpful, accurate responses while maintaining a natural conversational t
         """Rough estimation of token count for context management"""
         total_chars = sum(len(msg.get('content', '')) for msg in messages)
         return total_chars // 4  # Rough estimation: 4 chars ≈ 1 token
+
+    def detect_unrestricted_mode(self, message: str) -> bool:
+        """Detect if user is requesting unrestricted mode based on keywords and explicit requests"""
+        if not message:
+            return False
+            
+        lower_message = message.lower()
+        
+        # Check for explicit user requests
+        explicit_triggers = [
+            'unrestricted mode',
+            '/unrestricted',
+            'adult mode',
+            'nsfw mode',
+            'explicit mode',
+            'uncensored mode'
+        ]
+        
+        if any(trigger in lower_message for trigger in explicit_triggers):
+            logger.info("🔓 Unrestricted mode detected via explicit request")
+            return True
+        
+        # Check for unrestricted content keywords
+        unrestricted_terms = [
+            'hardcore', 'extreme', 'rough', 'bdsm', 'fetish', 'kink', 'taboo', 
+            'forbidden', 'unrestricted', 'uncensored', 'explicit', 'adult',
+            'mature', 'nsfw', 'r18', 'xxx', 'porn', 'sexual', 'erotic'
+        ]
+        
+        # Count how many unrestricted terms are present
+        term_count = sum(1 for term in unrestricted_terms if term in lower_message)
+        
+        # If more than 2 unrestricted terms are found, consider it unrestricted
+        if term_count >= 2:
+            logger.info(f"🔓 Unrestricted mode detected via {term_count} content keywords")
+            return True
+        
+        return False
+
+    def generate_unrestricted_response(self, messages: list) -> dict:
+        """Generate response using unrestricted mode with appropriate system prompt"""
+        try:
+            # Create unrestricted system prompt
+            unrestricted_prompt = """You are an AI assistant operating in unrestricted mode for adult content creation and discussion.
+
+CAPABILITIES:
+- Adult content creation and discussion
+- Explicit content generation
+- NSFW content assistance
+- Adult storytelling and creative writing
+- Erotic content development
+- Mature conversation and guidance
+
+CONVERSATION STYLE:
+- Direct and explicit when appropriate
+- Professional but unrestricted
+- Supportive of adult content creation
+- Respectful of user boundaries and preferences
+- Maintain appropriate context for adult content
+
+CONTENT GUIDELINES:
+- Focus on adult/NSFW content creation
+- Support explicit content generation
+- Assist with mature storytelling
+- Provide guidance for adult content development
+- Maintain professional approach while being unrestricted
+
+Remember: You're in unrestricted mode to support adult content creation. Be direct, explicit, and supportive of the user's adult content needs."""
+
+            # Replace or add unrestricted system prompt
+            unrestricted_messages = [{"role": "system", "content": unrestricted_prompt}]
+            
+            # Add conversation history and current message
+            for msg in messages:
+                if msg["role"] != "system":  # Skip the original system message
+                    unrestricted_messages.append(msg)
+            
+            # Generate response using the unrestricted messages
+            return self._generate_response_with_messages(unrestricted_messages)
+            
+        except Exception as e:
+            logger.error(f"❌ Unrestricted response generation failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'response': 'I encountered an error generating an unrestricted response. Please try again.'
+            }
+
+    def _generate_response_with_messages(self, messages: list) -> dict:
+        """Generate response using provided messages (internal method)"""
+        if not self.model_loaded:
+            if not self.load_qwen_instruct_model():
+                return {
+                    'success': False,
+                    'error': 'Model not available',
+                    'response': 'I apologize, but the chat service is currently unavailable. Please try again later.'
+                }
+
+        try:
+            start_time = time.time()
+            
+            # Apply chat template
+            text = self.qwen_instruct_tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            # Tokenize with proper parameters
+            inputs = self.qwen_instruct_tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=4096
+            )
+            
+            # Verify inputs structure
+            if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
+                logger.error(f"❌ Tokenizer output missing input_ids: {type(inputs)}")
+                return {
+                    'success': False,
+                    'error': 'Tokenization failed - missing input_ids',
+                    'response': 'I apologize, but I encountered a technical error. Please try again.'
+                }
+            
+            # Move to device
+            try:
+                if isinstance(inputs, dict):
+                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                else:
+                    inputs = inputs.to(self.model_device)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    torch.cuda.empty_cache()
+                    if isinstance(inputs, dict):
+                        inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                    else:
+                        inputs = inputs.to(self.model_device)
+                else:
+                    raise
+            
+            # Generate response
+            with torch.no_grad():
+                generated_ids = self.qwen_instruct_model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    do_sample=True,
+                    temperature=0.8,
+                    top_p=0.9,
+                    repetition_penalty=1.1,
+                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                    use_cache=True
+                )
+            
+            # Decode response
+            try:
+                input_ids = inputs['input_ids'] if isinstance(inputs, dict) else inputs.input_ids
+                generated_ids = [
+                    output_ids[len(input_ids):] for input_ids, output_ids in zip(input_ids, generated_ids)
+                ]
+                
+                response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                response = response.strip()
+                
+                if not response:
+                    response = "I understand your message, but I'm having trouble generating a response right now. Could you please rephrase or try again?"
+                    
+            except Exception as decode_error:
+                logger.error(f"❌ Response decoding failed: {decode_error}")
+                response = "I apologize, but I encountered an error while processing my response. Please try again."
+            
+            generation_time = time.time() - start_time
+            self.stats['requests_served'] += 1
+            
+            return {
+                'success': True,
+                'response': response,
+                'generation_time': generation_time,
+                'message_id': f"msg_{int(time.time() * 1000)}"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Response generation failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'response': 'I encountered an error generating a response. Please try again.'
+            }
 
 def auto_register_chat_worker():
     """Auto-register chat worker URL with Supabase"""
