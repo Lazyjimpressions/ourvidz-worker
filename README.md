@@ -11,7 +11,8 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **Comprehensive reference frame support**: 5 reference modes for video generation
 - **Batch image & video generation**: 13 job types, NSFW-capable
 - **Smart memory management**: Intelligent VRAM allocation and emergency handling
-- **Dedicated chat service**: Qwen Instruct for prompt enhancement
+- **Enhanced chat service**: Qwen Instruct with dynamic prompts and unrestricted mode
+- **NSFW optimization**: Zero content restrictions with anatomical accuracy focus
 - **Backend**: Supabase (PostgreSQL, Auth, Storage, Edge Functions)
 - **Queue**: Upstash Redis (REST API)
 - **Frontend**: [Lovable](https://ourvidz.lovable.app/) (React/TypeScript)
@@ -63,6 +64,7 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 ### **📋 API Reference**
 - **[WORKER_API.md](./WORKER_API.md)** - Complete API specifications, job types, and reference frame support
 - **[CODEBASE_INDEX.md](./CODEBASE_INDEX.md)** - System architecture and component overview
+- **[CHAT_WORKER_CONSOLIDATED.md](./CHAT_WORKER_CONSOLIDATED.md)** - Enhanced chat worker features and NSFW optimization
 
 ### **🎯 Key Features**
 
@@ -72,11 +74,13 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **Reference image support**: Style, composition, and character modes
 - **Performance**: 30-42s total (3-8s per image)
 
-#### **Chat Worker**
-- **Prompt enhancement**: Qwen 2.5-7B Instruct for cinematic focus
+#### **Enhanced Chat Worker**
+- **Dynamic system prompts**: Custom prompts for each conversation
+- **Unrestricted mode detection**: Automatic adult content detection
+- **Prompt enhancement**: Qwen 2.5-7B Instruct with intelligent fallback
+- **NSFW optimization**: Zero content restrictions with anatomical accuracy
 - **Memory management**: Smart loading/unloading with PyTorch 2.0 compilation
-- **Admin utilities**: Memory status, model info, emergency operations
-- **Performance**: 5-15s for prompt enhancement
+- **Performance**: 5-15s for prompt enhancement, 1-3s for cached responses
 
 #### **WAN 1.3B Worker**
 - **Video generation**: High-quality video with temporal consistency
@@ -113,6 +117,16 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **WAN Standard**: `image_fast`, `image_high`, `video_fast`, `video_high`
 - **WAN Enhanced**: `image7b_fast_enhanced`, `image7b_high_enhanced`, `video7b_fast_enhanced`, `video7b_high_enhanced`
 
+### **🧠 Enhanced Chat Worker Features**
+| **Feature** | **Description** | **Use Case** |
+|-------------|----------------|--------------|
+| **Dynamic System Prompts** | Custom prompts per conversation | Context-aware responses |
+| **Unrestricted Mode** | Automatic adult content detection | NSFW content creation |
+| **Intelligent Enhancement** | Edge function integration with fallback | High-quality prompt enhancement |
+| **NSFW Optimization** | Zero content restrictions | Unrestricted adult content |
+| **Anatomical Accuracy** | Realistic proportions and poses | Professional quality output |
+| **Performance Caching** | Enhancement result caching | Faster repeated requests |
+
 ### **🧠 Memory Management Features**
 | **Feature** | **Description** | **Use Case** |
 |-------------|----------------|--------------|
@@ -130,4 +144,5 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 
 ---
 
-**© 2025 OurVidz.com. All rights reserved.**
+**© 2025 OurVidz.com. All rights reserved.**  
+**Last Updated:** July 30, 2025

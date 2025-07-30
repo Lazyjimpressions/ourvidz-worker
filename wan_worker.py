@@ -6,7 +6,7 @@
 # AUTO-REGISTRATION FIX: Detect RunPod URL and register with Supabase automatically
 # THREAD-SAFE FIX: Replace signal-based timeouts with thread-safe concurrent.futures
 # CLEANUP: Removed Qwen Instruct model code - WAN worker focuses on video generation + Base model enhancement only
-# Date: July 26, 2025
+# Date: July 30, 2025
 
 import os
 import json

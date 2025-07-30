@@ -38,19 +38,23 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
 - **Port**: 7860 (shared with WAN worker)
 - **Status**: ✅ **ACTIVE - Production System**
 
-### 💬 Chat Worker (`chat_worker.py`) - **ACTIVE**
-**Purpose**: Dedicated Qwen Instruct service for prompt enhancement and chat interface
+### 💬 Enhanced Chat Worker (`chat_worker.py`) - **ACTIVE**
+**Purpose**: Advanced Qwen Instruct service with dynamic prompts, unrestricted mode, and NSFW optimization
 - **Model**: Qwen 2.5-7B Instruct
 - **Features**:
-  - **Manual prompt enhancement** with cinematic focus
+  - **Dynamic system prompts** with custom prompts per conversation
+  - **Unrestricted mode detection** for automatic adult content handling
+  - **Intelligent prompt enhancement** with edge function integration and fallback
+  - **NSFW optimization** with zero content restrictions and anatomical accuracy
+  - **Performance caching** for faster repeated requests
   - **Memory management** with smart loading/unloading
   - **PyTorch 2.0 compilation** for performance optimization
   - **Comprehensive OOM error handling** with retry logic
   - **Model validation** and device pinning
-  - **Admin utilities** for memory management
+  - **Admin utilities** for memory management and enhancement info
   - **Health monitoring** and performance tracking
-- **Job Types**: `chat_enhance`, `chat_conversation`, `admin_utilities`
-- **Output**: Enhanced prompts, chat responses, memory status
+- **Job Types**: `chat_enhance`, `chat_conversation`, `chat_unrestricted`, `admin_utilities`
+- **Output**: Enhanced prompts, chat responses, memory status, enhancement info
 - **Port**: 7861 (dedicated)
 - **Status**: ✅ **ACTIVE - Production System**
 
@@ -166,12 +170,13 @@ HF_TOKEN=                  # Optional HuggingFace token
 | `sdxl_image_fast` | Fast | 15 | 30s | 1024x1024 | Quick preview (1,3,6 images) |
 | `sdxl_image_high` | High | 25 | 42s | 1024x1024 | Final quality (1,3,6 images) |
 
-#### Chat Jobs
+#### Enhanced Chat Jobs
 | Job Type | Purpose | Model | Time | Features |
 |----------|---------|-------|------|----------|
-| `chat_enhance` | Prompt enhancement | Qwen Instruct | 5-15s | Cinematic focus, memory management |
-| `chat_conversation` | Chat interface | Qwen Instruct | 5-15s | Conversational AI (future) |
-| `admin_utilities` | System management | N/A | <1s | Memory status, model info |
+| `chat_enhance` | Intelligent prompt enhancement | Qwen Instruct | 1-3s | Edge function integration, caching, NSFW optimization |
+| `chat_conversation` | Dynamic chat interface | Qwen Instruct | 5-15s | Custom system prompts, unrestricted mode detection |
+| `chat_unrestricted` | Dedicated NSFW chat | Qwen Instruct | 5-15s | Adult content optimization, anatomical accuracy |
+| `admin_utilities` | System management | N/A | <1s | Memory status, enhancement info |
 
 #### WAN Jobs
 | Job Type | Quality | Steps | Frames | Time | Resolution | Enhancement | Reference Support |
@@ -237,9 +242,15 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Health**: `GET /health`
 - **Status**: `GET /status`
 
-### 💬 Chat Worker (Port 7861)
+### 💬 Enhanced Chat Worker (Port 7861)
 - **Health**: `GET /health`
+- **Chat**: `POST /chat`
+- **Unrestricted Chat**: `POST /chat/unrestricted`
 - **Enhance**: `POST /enhance`
+- **Intelligent Enhance**: `POST /enhance/intelligent`
+- **Legacy Enhance**: `POST /enhance/legacy`
+- **Enhancement Info**: `GET /enhancement/info`
+- **Clear Cache**: `POST /enhancement/cache/clear`
 - **Memory Status**: `GET /memory/status`
 - **Model Info**: `GET /model/info`
 - **Memory Load**: `POST /memory/load`
@@ -269,10 +280,13 @@ HF_TOKEN=                  # Optional HuggingFace token
 - AI prompt enhancement integration
 - Triple worker orchestration for concurrent processing
 - **Comprehensive reference frame support** - All 5 modes implemented
-- **Chat worker integration** - Dedicated Qwen Instruct service
+- **Enhanced chat worker** - Dynamic prompts, unrestricted mode, NSFW optimization
+- **Intelligent enhancement system** - Edge function integration with fallback
+- **Performance caching** - Faster repeated requests with intelligent caching
 - **Memory manager** - Smart VRAM allocation and coordination
 - **Thread-safe timeouts** - Concurrent.futures implementation
 - **Emergency memory management** - Critical situation handling
+- **Zero content restrictions** - Full NSFW optimization with anatomical accuracy
 
 ### 🔧 Technical Debt
 - Legacy files removed for cleaner maintenance
@@ -321,14 +335,16 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Performance Baselines**: ✅ Real data established for all jobs
 
 ### 🚧 **System Capabilities**
-- **✅ 13 Job Types**: All job types operational
+- **✅ 14 Job Types**: All job types operational (including new chat_unrestricted)
 - **✅ 5 Reference Modes**: Complete reference frame support (none, single, start, end, both)
 - **✅ Batch Processing**: SDXL supports 1, 3, or 6 images
 - **✅ AI Enhancement**: WAN enhanced variants with Qwen 7B
-- **✅ Chat Service**: Dedicated Qwen Instruct for prompt enhancement
+- **✅ Enhanced Chat Service**: Dynamic prompts, unrestricted mode, NSFW optimization
+- **✅ Intelligent Enhancement**: Edge function integration with performance caching
 - **✅ Memory Management**: Smart VRAM allocation and emergency handling
 - **✅ Error Recovery**: Robust error handling and fallback mechanisms
 - **✅ Performance Monitoring**: Comprehensive metrics and logging
+- **✅ Zero Content Restrictions**: Full NSFW optimization with anatomical accuracy
 
 ### 📋 **Reference Frame Support Matrix**
 | **Reference Mode** | **Config Parameter** | **Metadata Fallback** | **WAN Parameters** | **Use Case** |
@@ -348,6 +364,17 @@ HF_TOKEN=                  # Optional HuggingFace token
 | **Intelligent Fallback** | Selective vs nuclear unloading | Memory pressure handling |
 | **Worker Coordination** | HTTP-based memory management | Cross-worker communication |
 
-This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **dedicated chat service**, and **smart memory management**. The current architecture uses a **triple-worker orchestration pattern** for optimal resource utilization and reliability.
+### 💬 **Enhanced Chat Worker Features**
+| **Feature** | **Description** | **Use Case** |
+|-------------|----------------|--------------|
+| **Dynamic System Prompts** | Custom prompts per conversation | Context-aware responses |
+| **Unrestricted Mode** | Automatic adult content detection | NSFW content creation |
+| **Intelligent Enhancement** | Edge function integration with fallback | High-quality prompt enhancement |
+| **NSFW Optimization** | Zero content restrictions | Unrestricted adult content |
+| **Anatomical Accuracy** | Realistic proportions and poses | Professional quality output |
+| **Performance Caching** | Enhancement result caching | Faster repeated requests |
+| **Quality Validation** | Enhancement quality scoring | Consistent output quality |
+
+This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **enhanced chat service with NSFW optimization**, and **smart memory management**. The current architecture uses a **triple-worker orchestration pattern** for optimal resource utilization and reliability.
 
 **📋 For complete API specifications and implementation details, see [WORKER_API.md](./WORKER_API.md)** 

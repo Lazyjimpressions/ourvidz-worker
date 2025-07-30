@@ -1,6 +1,6 @@
 # OurVidz Worker API Reference
 
-**Last Updated:** July 26, 2025 at 2:30 PM CST  
+**Last Updated:** July 30, 2025 at 2:30 PM CST  
 **Status:** ✅ Production Ready - Triple Worker System (SDXL + Chat + WAN) with Smart Memory Management  
 **System:** Triple Worker (SDXL + Chat + WAN) on RTX 6000 ADA (48GB VRAM)
 
@@ -50,21 +50,26 @@ All workers use standardized callback parameters and comprehensive metadata mana
 }
 ```
 
-#### **Chat Job Payload**
+#### **Enhanced Chat Job Payload**
 ```json
 {
   "id": "uuid",
-  "type": "chat_enhance" | "chat_conversation" | "admin_utilities",
+  "type": "chat_enhance" | "chat_conversation" | "chat_unrestricted" | "admin_utilities",
   "prompt": "string",
   "user_id": "uuid",
   "config": {
     "enhancement_type": "manual" | "cinematic" | "custom",
-    "conversation_context": "string"
+    "conversation_context": "string",
+    "system_prompt": "string",
+    "job_type": "sdxl_image_fast" | "sdxl_image_high" | "video_fast" | "video_high",
+    "quality": "fast" | "high"
   },
   "metadata": {
     "session_id": "string",
     "memory_management": "auto" | "manual",
-    "model_preference": "qwen_instruct"
+    "model_preference": "qwen_instruct",
+    "unrestricted_mode": true | false,
+    "nsfw_optimization": true
   }
 }
 ```
@@ -119,6 +124,16 @@ POST /functions/v1/job-callback
     "enhancement_time": 2.5,
     "original_prompt": "string",
     "enhanced_prompt": "string",
+    "enhancement_source": "edge_function" | "worker_fallback" | "emergency_fallback",
+    "quality_score": 0.85,
+    "worker_optimizations": {
+      "caching": true,
+      "post_processing": true,
+      "fallback_ready": true
+    },
+    "unrestricted_mode": true | false,
+    "system_prompt_used": true | false,
+    "nsfw_optimization": true,
     "memory_pressure": "low" | "medium" | "high" | "critical",
     "worker_used": "sdxl" | "chat" | "wan"
   }
@@ -165,7 +180,7 @@ GET /status
 }
 ```
 
-### **💬 Chat Worker (Port 7861)**
+### **💬 Enhanced Chat Worker (Port 7861)**
 
 #### **Health Check**
 ```http
@@ -181,17 +196,70 @@ GET /health
     "requests_served": 45,
     "model_loads": 1,
     "model_unloads": 0
-  }
+  },
+  "enhancement_system": "active",
+  "nsfw_optimization": "enabled"
 }
 ```
 
-#### **Prompt Enhancement**
+#### **Chat Conversation**
+```http
+POST /chat
+Content-Type: application/json
+
+{
+  "message": "Tell me a story about a magical forest",
+  "system_prompt": "You are a creative storyteller specializing in fantasy tales.",
+  "conversation_id": "story_001"
+}
+```
+**Response:**
+```json
+{
+  "success": true,
+  "response": "Once upon a time, in a mystical forest...",
+  "generation_time": 2.3,
+  "conversation_id": "story_001",
+  "context_type": "general",
+  "message_id": "msg_1234567890",
+  "system_prompt_used": true,
+  "unrestricted_mode": false
+}
+```
+
+#### **Unrestricted Mode Chat**
+```http
+POST /chat/unrestricted
+Content-Type: application/json
+
+{
+  "message": "Help me create adult content for my project",
+  "conversation_id": "adult_002"
+}
+```
+**Response:**
+```json
+{
+  "success": true,
+  "response": "I can help you create high-quality adult content...",
+  "generation_time": 3.1,
+  "conversation_id": "adult_002",
+  "context_type": "unrestricted",
+  "message_id": "msg_1234567891",
+  "system_prompt_used": true,
+  "unrestricted_mode": true
+}
+```
+
+#### **Intelligent Prompt Enhancement**
 ```http
 POST /enhance
 Content-Type: application/json
 
 {
-  "prompt": "a beautiful sunset",
+  "prompt": "beautiful woman",
+  "job_type": "sdxl_image_fast",
+  "quality": "fast",
   "enhancement_type": "manual"
 }
 ```
@@ -199,10 +267,55 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "original_prompt": "a beautiful sunset",
-  "enhanced_prompt": "A breathtaking cinematic sunset with golden hour lighting, dramatic clouds, and warm atmospheric colors, captured in 4K resolution with professional photography techniques",
-  "generation_time": 3.2,
-  "enhancement_type": "manual"
+  "original_prompt": "beautiful woman",
+  "enhanced_prompt": "masterpiece, best quality, ultra detailed, beautiful woman, professional photography, detailed, photorealistic, realistic proportions, anatomical accuracy",
+  "generation_time": 1.23,
+  "enhancement_type": "manual",
+  "job_type": "sdxl_image_fast",
+  "quality": "fast",
+  "enhancement_source": "worker_fallback",
+  "worker_optimizations": {
+    "caching": true,
+    "post_processing": true,
+    "fallback_ready": true
+  },
+  "quality_score": 0.85,
+  "sdxl_optimizations": {
+    "has_quality_tags": true,
+    "has_lighting": true,
+    "has_technical_terms": true,
+    "has_resolution": true,
+    "has_anatomical_accuracy": true,
+    "token_count": 75
+  }
+}
+```
+
+#### **Enhancement System Info**
+```http
+GET /enhancement/info
+```
+**Response:**
+```json
+{
+  "enhancement_system": "active",
+  "supported_job_types": ["sdxl_image_fast", "sdxl_image_high", "video_fast", "video_high"],
+  "cache_size": 45,
+  "model_status": "loaded",
+  "nsfw_optimization": "enabled"
+}
+```
+
+#### **Clear Enhancement Cache**
+```http
+POST /enhancement/cache/clear
+```
+**Response:**
+```json
+{
+  "success": true,
+  "cache_cleared": 45,
+  "cache_size": 0
 }
 ```
 
@@ -429,12 +542,13 @@ GET /memory/report
 | `sdxl_image_fast` | Fast | 15 | 30s | 1024x1024 | 1,3,6 | Quick preview |
 | `sdxl_image_high` | High | 25 | 42s | 1024x1024 | 1,3,6 | Final quality |
 
-### **Chat Jobs**
+### **Enhanced Chat Jobs**
 | Job Type | Purpose | Model | Time | Features |
 |----------|---------|-------|------|----------|
-| `chat_enhance` | Prompt enhancement | Qwen Instruct | 5-15s | Cinematic focus |
-| `chat_conversation` | Chat interface | Qwen Instruct | 5-15s | Conversational AI |
-| `admin_utilities` | System management | N/A | <1s | Memory status |
+| `chat_enhance` | Intelligent prompt enhancement | Qwen Instruct | 1-3s | Edge function integration, caching, NSFW optimization |
+| `chat_conversation` | Dynamic chat interface | Qwen Instruct | 5-15s | Custom system prompts, unrestricted mode detection |
+| `chat_unrestricted` | Dedicated NSFW chat | Qwen Instruct | 5-15s | Adult content optimization, anatomical accuracy |
+| `admin_utilities` | System management | N/A | <1s | Memory status, enhancement info |
 
 ### **WAN Jobs**
 | Job Type | Quality | Steps | Frames | Time | Resolution | Enhancement | Reference Support |
@@ -548,7 +662,10 @@ GET /memory/report
 |---------------|------------------|---------------|-----------|
 | SDXL Fast (1 image) | 30s | 42s | 15 steps |
 | SDXL High (1 image) | 42s | 60s | 25 steps |
-| Chat Enhancement | 5-15s | 20s | Qwen Instruct |
+| Chat Enhancement (cached) | 1-3s | 5s | Intelligent enhancement |
+| Chat Enhancement (new) | 5-15s | 20s | Qwen Instruct |
+| Chat Conversation | 5-15s | 20s | Dynamic prompts |
+| Chat Unrestricted | 5-15s | 20s | NSFW optimization |
 | WAN Fast Image | 25-40s | 60s | No enhancement |
 | WAN High Image | 40-100s | 120s | No enhancement |
 | WAN Fast Video | 135-180s | 240s | 83 frames |
