@@ -1338,7 +1338,7 @@ class ChatWorker:
             with torch.no_grad():
                 generated_ids = self.qwen_instruct_model.generate(
                     **inputs,
-                    max_new_tokens=500,  # Longer responses for conversation
+                    max_new_tokens=250,  # Reduced for better UI fit
                     do_sample=True,
                     temperature=0.8,     # Slightly higher for more personality
                     top_p=0.9,
@@ -1666,7 +1666,7 @@ Remember: You're in unrestricted mode to support adult content creation. Be dire
             with torch.no_grad():
                 generated_ids = self.qwen_instruct_model.generate(
                     **inputs,
-                    max_new_tokens=500,
+                    max_new_tokens=250,  # Reduced for better UI fit
                     do_sample=True,
                     temperature=0.8,
                     top_p=0.9,
