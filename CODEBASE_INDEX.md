@@ -247,10 +247,8 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Chat**: `POST /chat`
 - **Unrestricted Chat**: `POST /chat/unrestricted`
 - **Enhance**: `POST /enhance`
-- **Intelligent Enhance**: `POST /enhance/intelligent`
 - **Legacy Enhance**: `POST /enhance/legacy`
 - **Enhancement Info**: `GET /enhancement/info`
-- **Clear Cache**: `POST /enhancement/cache/clear`
 - **Memory Status**: `GET /memory/status`
 - **Model Info**: `GET /model/info`
 - **Memory Load**: `POST /memory/load`
@@ -281,8 +279,8 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Triple worker orchestration for concurrent processing
 - **Comprehensive reference frame support** - All 5 modes implemented
 - **Enhanced chat worker** - Dynamic prompts, unrestricted mode, NSFW optimization
-- **Intelligent enhancement system** - Edge function integration with fallback
-- **Performance caching** - Faster repeated requests with intelligent caching
+- **Simplified enhancement system** - Direct Qwen Instruct enhancement
+- **Memory management** - OOM handling with retry logic
 - **Memory manager** - Smart VRAM allocation and coordination
 - **Thread-safe timeouts** - Concurrent.futures implementation
 - **Emergency memory management** - Critical situation handling

@@ -163,412 +163,6 @@ Task: Enhance this prompt according to the system requirements above. Focus on {
         {"role": "user", "content": user_prompt}
     ]
 
-# Worker Level Implementation (chat_worker.py)
-# FALLBACK & PERFORMANCE OPTIMIZATION LAYER
-
-class ChatWorkerEnhancement:
-    """Worker-level enhancement with fallbacks and optimization"""
-    
-    def __init__(self, chat_worker):
-        self.chat_worker = chat_worker  # Reference to parent ChatWorker
-        
-        # Fallback system prompts (when edge function is unavailable)
-        self.fallback_prompts = {
-            'sdxl_fast': "You are an SDXL optimization expert specializing in adult content. Create 75-token prompts with quality tags, anatomical accuracy, realistic proportions, and professional lighting. Respond with enhanced prompt only.",
-            'sdxl_high': "You are an elite SDXL expert specializing in adult content. Create 100-120 token prompts with advanced quality, perfect anatomy, realistic features, and studio lighting. Respond with enhanced prompt only.",
-            'wan_fast': "You are a WAN 2.1 video expert specializing in adult content. Create 175-token prompts with smooth motion, temporal consistency, realistic anatomy, and cinematography. Respond with enhanced prompt only.",
-            'wan_high': "You are a WAN 2.1 + 7B expert specializing in adult content. Create 250-token prompts with cinematic quality, complex motion, realistic proportions, and broadcast standards. Respond with enhanced prompt only."
-        }
-        
-        # Performance optimization
-        self.prompt_cache = {}  # Cache recent enhancements
-        self.model_warm = False
-        
-    def enhance_prompt_intelligent(self, request_data):
-        """Enhanced prompt generation with edge function integration"""
-        
-        # Extract request parameters
-        original_prompt = request_data.get('prompt', '')
-        job_type = request_data.get('job_type', 'sdxl_image_fast')
-        quality = request_data.get('quality', 'fast')
-        enhancement_type = request_data.get('enhancement_type', 'manual')
-        
-        # Check if edge function provided system prompt
-        edge_system_prompt = request_data.get('system_prompt')
-        edge_context = request_data.get('context', {})
-        
-        try:
-            if edge_system_prompt:
-                # USE EDGE FUNCTION'S INTELLIGENT SYSTEM PROMPT
-                logger.info("🧠 Using edge function's intelligent system prompt")
-                messages = [
-                    {"role": "system", "content": edge_system_prompt},
-                    {"role": "user", "content": f"Original prompt: {original_prompt}"}
-                ]
-                enhancement_source = "edge_function"
-                
-            else:
-                # FALLBACK TO WORKER'S BUILT-IN PROMPTS
-                logger.info("🔄 Falling back to worker's built-in system prompts")
-                fallback_key = self._get_fallback_key(job_type, quality)
-                system_prompt = self.fallback_prompts.get(fallback_key, self.fallback_prompts['sdxl_fast'])
-                
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Enhance this prompt: {original_prompt}"}
-                ]
-                enhancement_source = "worker_fallback"
-            
-            # Performance optimization - check cache
-            cache_key = f"{original_prompt}_{job_type}_{quality}"
-            if cache_key in self.prompt_cache:
-                logger.info("⚡ Returning cached enhancement")
-                cached_result = self.prompt_cache[cache_key].copy()
-                cached_result['cache_hit'] = True
-                return cached_result
-            
-            # Generate enhancement using the parent worker's model
-            start_time = time.time()
-            enhanced_result = self._generate_with_model(messages, original_prompt, enhancement_type, job_type, quality)
-            
-            if enhanced_result['success']:
-                # Worker-level post-processing
-                enhanced_result = self._worker_post_process(
-                    enhanced_result, 
-                    job_type, 
-                    quality,
-                    edge_context
-                )
-                
-                # Cache successful results
-                self.prompt_cache[cache_key] = enhanced_result.copy()
-                
-                # Cleanup cache if too large
-                if len(self.prompt_cache) > 100:
-                    # Remove oldest entries
-                    oldest_keys = list(self.prompt_cache.keys())[:20]
-                    for key in oldest_keys:
-                        del self.prompt_cache[key]
-                
-                enhanced_result['enhancement_source'] = enhancement_source
-                enhanced_result['worker_optimizations'] = {
-                    'caching': True,
-                    'post_processing': True,
-                    'fallback_ready': True
-                }
-                
-            return enhanced_result
-            
-        except Exception as e:
-            logger.error(f"❌ Worker enhancement failed: {e}")
-            # Ultimate fallback - return original with basic enhancement
-            return self._emergency_fallback(original_prompt, job_type, quality)
-    
-    def _generate_with_model(self, messages, original_prompt, enhancement_type, job_type, quality):
-        """Generate enhancement using the parent worker's model infrastructure"""
-        # Use the parent worker's enhance_prompt method but with our custom messages
-        # We'll temporarily override the message generation in the parent method
-        
-        if not self.chat_worker.model_loaded:
-            # Try to load model
-            if not self.chat_worker.load_qwen_instruct_model():
-                return {
-                    'success': False,
-                    'error': 'Model not available',
-                    'enhanced_prompt': original_prompt
-                }
-
-        try:
-            logger.info(f"🤖 Intelligent enhancement for {job_type} with {quality} quality: {original_prompt[:50]}...")
-            start_time = time.time()
-
-            # Apply chat template and tokenize properly
-            try:
-                # Apply chat template
-                text = self.chat_worker.qwen_instruct_tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                logger.info(f"🔍 Chat template applied successfully, length: {len(text)}")
-                
-                # Tokenize with explicit parameters
-                inputs = self.chat_worker.qwen_instruct_tokenizer(
-                    text,  # Single string, not list
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=2048
-                )
-                
-                # Verify inputs structure
-                if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
-                    logger.error("❌ Tokenizer output missing input_ids")
-                    return {
-                        'success': False,
-                        'error': 'Tokenization failed - missing input_ids',
-                        'enhanced_prompt': original_prompt
-                    }
-                
-                logger.info(f"✅ Tokenization successful, input shape: {inputs.input_ids.shape}")
-                
-            except Exception as e:
-                logger.error(f"❌ Chat template or tokenization failed: {e}")
-                return {
-                    'success': False,
-                    'error': f'Tokenization error: {str(e)}',
-                    'enhanced_prompt': original_prompt
-                }
-            
-            # Move to device with better error handling
-            try:
-                # Handle both dict and object formats
-                if isinstance(inputs, dict):
-                    inputs = {k: v.to(self.chat_worker.model_device) for k, v in inputs.items()}
-                else:
-                    inputs = inputs.to(self.chat_worker.model_device)
-                logger.info("✅ Inputs moved to device successfully")
-                
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    logger.warning("⚠️ Out of memory during tensor device transfer, attempting cleanup...")
-                    torch.cuda.empty_cache()
-                    # Retry once after cleanup
-                    try:
-                        if isinstance(inputs, dict):
-                            inputs = {k: v.to(self.chat_worker.model_device) for k, v in inputs.items()}
-                        else:
-                            inputs = inputs.to(self.chat_worker.model_device)
-                        logger.info("✅ Tensor transfer successful after memory cleanup")
-                    except RuntimeError as retry_e:
-                        logger.error(f"❌ Tensor transfer failed even after cleanup: {retry_e}")
-                        raise
-                else:
-                    logger.error(f"❌ Device transfer error: {e}")
-                    raise
-
-            # Generate enhanced prompt with better parameters
-            try:
-                with torch.no_grad():
-                    generated_ids = self.chat_worker.qwen_instruct_model.generate(
-                        **inputs,
-                        max_new_tokens=200,
-                        do_sample=True,
-                        temperature=0.7,
-                        top_p=0.9,
-                        repetition_penalty=1.1,
-                        pad_token_id=self.chat_worker.qwen_instruct_tokenizer.eos_token_id,
-                        use_cache=True
-                    )
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    logger.warning("⚠️ Out of memory during generation, attempting cleanup...")
-                    torch.cuda.empty_cache()
-                    # Retry generation once after cleanup
-                    try:
-                        with torch.no_grad():
-                            generated_ids = self.chat_worker.qwen_instruct_model.generate(
-                                **inputs,
-                                max_new_tokens=200,
-                                do_sample=True,
-                                temperature=0.7,
-                                top_p=0.9,
-                                repetition_penalty=1.1,
-                                pad_token_id=self.chat_worker.qwen_instruct_tokenizer.eos_token_id,
-                                use_cache=True
-                            )
-                        logger.info("✅ Generation successful after memory cleanup")
-                    except RuntimeError as retry_e:
-                        logger.error(f"❌ Generation failed even after cleanup: {retry_e}")
-                        raise
-                else:
-                    logger.error(f"❌ Generation error: {e}")
-                    raise
-
-            # Decode response
-            generated_ids = [
-                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs['input_ids'], generated_ids)
-            ]
-            
-            enhanced = self.chat_worker.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-            enhanced = enhanced.strip()
-
-            generation_time = time.time() - start_time
-            self.chat_worker.stats['requests_served'] += 1
-
-            logger.info(f"✅ Intelligent enhancement completed in {generation_time:.1f}s")
-            logger.info(f"📝 Length: {len(original_prompt)} → {len(enhanced)} chars")
-
-            return {
-                'success': True,
-                'original_prompt': original_prompt,
-                'enhanced_prompt': enhanced,
-                'generation_time': generation_time,
-                'enhancement_type': enhancement_type,
-                'job_type': job_type,
-                'quality': quality
-            }
-
-        except Exception as e:
-            logger.error(f"❌ Intelligent enhancement failed: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'enhanced_prompt': original_prompt
-            }
-    
-    def _get_fallback_key(self, job_type, quality):
-        """Determine fallback prompt key based on job type and quality"""
-        if 'sdxl' in job_type:
-            return 'sdxl_high' if quality == 'high' else 'sdxl_fast'
-        elif 'video' in job_type or '7b' in job_type:
-            return 'wan_high' if quality == 'high' or '7b' in job_type else 'wan_fast'
-        else:
-            return 'sdxl_fast'  # Default fallback
-    
-    def _worker_post_process(self, result, job_type, quality, edge_context):
-        """Worker-level post-processing and optimization"""
-        enhanced_prompt = result['enhanced_prompt']
-        
-        # Token counting and compression (backup to edge function)
-        token_count = len(enhanced_prompt.split())
-        
-        # SDXL-specific optimization
-        if 'sdxl' in job_type:
-            target_tokens = 120 if quality == 'high' else 75
-            
-            if token_count > target_tokens:
-                logger.info(f"🔧 Worker-level token compression: {token_count} → {target_tokens}")
-                enhanced_prompt = self._compress_for_sdxl(enhanced_prompt, target_tokens)
-                result['enhanced_prompt'] = enhanced_prompt
-                result['worker_compression'] = {
-                    'original_tokens': token_count,
-                    'compressed_tokens': len(enhanced_prompt.split()),
-                    'target_tokens': target_tokens
-                }
-        
-        # Quality validation
-        quality_score = self._validate_enhancement_quality(enhanced_prompt, job_type)
-        result['quality_score'] = quality_score
-        
-        # Model-specific validation
-        if 'sdxl' in job_type:
-            result['sdxl_optimizations'] = self._validate_sdxl_optimization(enhanced_prompt)
-        elif 'video' in job_type:
-            result['wan_optimizations'] = self._validate_wan_optimization(enhanced_prompt)
-        
-        return result
-    
-    def _compress_for_sdxl(self, prompt, target_tokens):
-        """Intelligent compression for SDXL while preserving key elements"""
-        words = prompt.split()
-        
-        if len(words) <= target_tokens:
-            return prompt
-        
-        # Priority preservation: quality tags > subject > lighting > technical > style
-        quality_terms = ['masterpiece', 'best quality', 'ultra detailed', '4K', '8K', 'hyperrealistic']
-        lighting_terms = ['lighting', 'professional photography', 'studio', 'natural light']
-        technical_terms = ['photorealistic', 'detailed', 'sharp focus', 'high resolution']
-        
-        preserved = []
-        remaining_words = []
-        
-        # First pass: preserve critical quality terms
-        for word in words:
-            if any(term in word.lower() for term in quality_terms):
-                preserved.append(word)
-            else:
-                remaining_words.append(word)
-        
-        # Second pass: fill remaining slots with most important content
-        available_slots = target_tokens - len(preserved)
-        if available_slots > 0:
-            preserved.extend(remaining_words[:available_slots])
-        
-        compressed = ' '.join(preserved)
-        logger.info(f"✂️ Compressed prompt: {len(words)} → {len(preserved)} tokens")
-        
-        return compressed
-    
-    def _validate_enhancement_quality(self, enhanced_prompt, job_type):
-        """Validate enhancement quality with scoring"""
-        score = 0
-        enhanced_lower = enhanced_prompt.lower()
-        
-        # SDXL quality indicators
-        if 'sdxl' in job_type:
-            sdxl_quality_terms = [
-                'masterpiece', 'best quality', 'ultra detailed',
-                'professional photography', 'lighting', 'detailed',
-                'photorealistic', 'high resolution', '4k', '8k',
-                'anatomical accuracy', 'realistic proportions', 'natural pose'
-            ]
-            score += sum(1 for term in sdxl_quality_terms if term in enhanced_lower)
-        
-        # WAN quality indicators  
-        elif 'video' in job_type:
-            wan_quality_terms = [
-                'smooth movement', 'natural motion', 'fluid transitions',
-                'professional camera', 'cinematography', 'temporal consistency',
-                'stable composition', 'smooth motion', 'realistic anatomy',
-                'authentic expressions', 'natural poses'
-            ]
-            score += sum(1 for term in wan_quality_terms if term in enhanced_lower)
-        
-        return min(score / 5.0, 1.0)  # Normalize to 0-1
-    
-    def _validate_sdxl_optimization(self, enhanced_prompt):
-        """Validate SDXL-specific optimizations"""
-        enhanced_lower = enhanced_prompt.lower()
-        
-        optimizations = {
-            'has_quality_tags': any(term in enhanced_lower for term in ['masterpiece', 'best quality', 'ultra detailed']),
-            'has_lighting': any(term in enhanced_lower for term in ['lighting', 'professional photography', 'studio']),
-            'has_technical_terms': any(term in enhanced_lower for term in ['photorealistic', 'detailed', 'sharp focus']),
-            'has_resolution': any(term in enhanced_lower for term in ['4k', '8k', 'high resolution']),
-            'has_anatomical_accuracy': any(term in enhanced_lower for term in ['anatomical accuracy', 'realistic proportions', 'natural pose']),
-            'token_count': len(enhanced_prompt.split())
-        }
-        
-        return optimizations
-    
-    def _validate_wan_optimization(self, enhanced_prompt):
-        """Validate WAN-specific optimizations"""
-        enhanced_lower = enhanced_prompt.lower()
-        
-        optimizations = {
-            'has_motion': any(term in enhanced_lower for term in ['smooth movement', 'natural motion', 'fluid']),
-            'has_cinematography': any(term in enhanced_lower for term in ['professional camera', 'cinematography', 'camera work']),
-            'has_temporal': any(term in enhanced_lower for term in ['temporal consistency', 'stable', 'coherent']),
-            'has_quality': any(term in enhanced_lower for term in ['high framerate', 'smooth motion', 'professional']),
-            'has_anatomical_accuracy': any(term in enhanced_lower for term in ['realistic anatomy', 'authentic expressions', 'natural poses']),
-            'token_count': len(enhanced_prompt.split())
-        }
-        
-        return optimizations
-    
-    def _emergency_fallback(self, original_prompt, job_type, quality):
-        """Emergency fallback when all enhancement fails"""
-        
-        # Basic enhancement based on job type
-        if 'sdxl' in job_type:
-            enhanced = f"masterpiece, best quality, ultra detailed, {original_prompt}, professional photography, detailed, photorealistic, realistic proportions, anatomical accuracy"
-        elif 'video' in job_type:
-            enhanced = f"smooth movement, natural motion, {original_prompt}, professional camera work, cinematic, temporal consistency, realistic anatomy, authentic expressions"
-        else:
-            enhanced = f"high quality, detailed, {original_prompt}, professional, realistic proportions"
-        
-        logger.warning(f"🚨 Emergency fallback enhancement applied")
-        
-        return {
-            'success': True,
-            'enhanced_prompt': enhanced,
-            'original_prompt': original_prompt,
-            'enhancement_source': 'emergency_fallback',
-            'warning': 'Emergency fallback applied - reduced quality enhancement'
-        }
-
 class ChatWorker:
     def __init__(self):
         """Initialize Chat Worker with smart memory management"""
@@ -592,9 +186,6 @@ class ChatWorker:
         
         # Setup environment
         self.setup_environment()
-        
-        # Initialize enhancement system
-        self.enhancement = ChatWorkerEnhancement(self)
         
         # Setup Flask routes
         self.setup_routes()
@@ -913,17 +504,27 @@ class ChatWorker:
 
         @self.app.route('/enhance', methods=['POST'])
         def enhance_endpoint():
-            """Intelligent enhancement endpoint with edge function integration"""
+            """Simple prompt enhancement using Qwen Instruct model"""
             try:
                 data = request.get_json()
                 if not data or 'prompt' not in data:
                     return jsonify({'success': False, 'error': 'Missing prompt'}), 400
 
-                # Use intelligent enhancement method
-                result = self.enhancement.enhance_prompt_intelligent(data)
+                prompt = data['prompt']
+                enhancement_type = data.get('enhancement_type', 'manual')
+                job_type = data.get('job_type', 'sdxl_image_fast')
+                quality = data.get('quality', 'fast')
+                
+                # Use direct Qwen Instruct enhancement
+                result = self.enhance_prompt(
+                    prompt, 
+                    enhancement_type, 
+                    job_type, 
+                    quality
+                )
                 
                 if result['success']:
-                    logger.info(f"✅ Enhancement successful via {result.get('enhancement_source', 'unknown')}")
+                    logger.info(f"✅ Enhancement successful: {len(prompt)} → {len(result['enhanced_prompt'])} chars")
                     return jsonify(result)
                 else:
                     logger.error(f"❌ Enhancement failed: {result.get('error', 'Unknown error')}")
@@ -931,32 +532,6 @@ class ChatWorker:
 
             except Exception as e:
                 logger.error(f"❌ Enhancement endpoint error: {e}")
-                return jsonify({
-                    'success': False, 
-                    'error': str(e),
-                    'enhanced_prompt': data.get('prompt', '') if data else ''
-                }), 500
-
-        @self.app.route('/enhance/intelligent', methods=['POST'])
-        def enhance_endpoint_intelligent():
-            """Intelligent enhancement endpoint with edge function integration"""
-            try:
-                data = request.get_json()
-                if not data or 'prompt' not in data:
-                    return jsonify({'success': False, 'error': 'Missing prompt'}), 400
-
-                # Use intelligent enhancement method
-                result = self.enhancement.enhance_prompt_intelligent(data)
-                
-                if result['success']:
-                    logger.info(f"✅ Intelligent enhancement successful via {result.get('enhancement_source', 'unknown')}")
-                    return jsonify(result)
-                else:
-                    logger.error(f"❌ Intelligent enhancement failed: {result.get('error', 'Unknown error')}")
-                    return jsonify(result), 500
-
-            except Exception as e:
-                logger.error(f"❌ Intelligent enhancement endpoint error: {e}")
                 return jsonify({
                     'success': False, 
                     'error': str(e),
@@ -997,14 +572,13 @@ class ChatWorker:
             """Get enhancement system information"""
             try:
                 info = {
-                    'enhancement_system': 'ChatWorkerEnhancement',
+                    'enhancement_system': 'Direct Qwen Instruct Enhancement',
                     'features': {
-                        'edge_function_integration': True,
-                        'fallback_system': True,
-                        'caching': True,
-                        'post_processing': True,
-                        'quality_validation': True,
-                        'token_compression': True
+                        'dynamic_system_prompts': True,
+                        'job_type_optimization': True,
+                        'quality_levels': True,
+                        'memory_management': True,
+                        'error_handling': True
                     },
                     'supported_job_types': {
                         'sdxl_image_fast': 'SDXL LUSTIFY fast mode (75 tokens)',
@@ -1013,33 +587,22 @@ class ChatWorker:
                         'video_high': 'WAN 2.1 high quality (250 tokens)',
                         'wan_7b_enhanced': 'WAN 2.1 + 7B enhanced mode'
                     },
-                    'fallback_prompts': list(self.enhancement.fallback_prompts.keys()),
-                    'cache_size': len(self.enhancement.prompt_cache),
-                    'model_loaded': self.model_loaded
+                    'model_info': {
+                        'model_name': 'Qwen2.5-7B-Instruct',
+                        'model_loaded': self.model_loaded,
+                        'enhancement_method': 'Direct Qwen Instruct with dynamic prompts'
+                    },
+                    'endpoints': {
+                        '/enhance': 'POST - Simple prompt enhancement',
+                        '/enhance/legacy': 'POST - Legacy enhancement (same as /enhance)',
+                        '/enhancement/info': 'GET - This information'
+                    }
                 }
                 
                 return jsonify(info)
                 
             except Exception as e:
                 logger.error(f"❌ Enhancement info endpoint error: {e}")
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/enhancement/cache/clear', methods=['POST'])
-        def clear_enhancement_cache():
-            """Clear enhancement cache"""
-            try:
-                cache_size = len(self.enhancement.prompt_cache)
-                self.enhancement.prompt_cache.clear()
-                logger.info(f"🗑️ Enhancement cache cleared ({cache_size} entries)")
-                
-                return jsonify({
-                    'success': True,
-                    'message': f'Cache cleared ({cache_size} entries)',
-                    'cache_size': 0
-                })
-                
-            except Exception as e:
-                logger.error(f"❌ Cache clear error: {e}")
                 return jsonify({'error': str(e)}), 500
 
         @self.app.route('/chat', methods=['POST'])
@@ -1147,7 +710,7 @@ class ChatWorker:
                 'endpoints': {
                     '/chat': 'POST - Conversational chat',
                     '/chat/unrestricted': 'POST - Unrestricted adult content chat',
-                    '/enhance': 'POST - Prompt enhancement', 
+                    '/enhance': 'POST - Simple prompt enhancement', 
                     '/health': 'GET - General health check'
                 },
                 'model_info': {

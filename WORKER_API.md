@@ -52,7 +52,7 @@ ourvidz-worker/
 ## Enhanced Chat Worker
 
 ### Overview
-The Enhanced Chat Worker provides AI conversation capabilities and intelligent prompt enhancement with NSFW optimization, dynamic system prompts, and performance caching.
+The Enhanced Chat Worker provides AI conversation capabilities and intelligent prompt enhancement with NSFW optimization, dynamic system prompts, and performance optimization.
 
 ### API Endpoints
 
@@ -92,15 +92,13 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 
 #### Enhancement Endpoints
 
-**POST /enhance** - Intelligent Prompt Enhancement
+**POST /enhance** - Simple Prompt Enhancement
 ```json
 {
   "prompt": "Original prompt",
   "config": {
     "job_type": "sdxl_lustify|wan_2.1_video",
-    "quality": "high|medium|low",
-    "caching": true,
-    "post_processing": true
+    "quality": "high|medium|low"
   },
   "metadata": {
     "nsfw_optimization": true,
@@ -112,21 +110,13 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 **GET /enhancement/info** - Enhancement System Info
 ```json
 {
-  "enhancement_system": {
-    "primary_model": "Qwen Instruct",
-    "fallback_model": "Qwen 7B Base",
-    "edge_function": "Available",
-    "caching": "Enabled",
-    "supported_job_types": ["sdxl_lustify", "wan_2.1_video"],
-    "quality_levels": ["high", "medium", "low"]
+  "enhancement_system": "Direct Qwen Instruct Enhancement",
+  "supported_job_types": ["sdxl_image_fast", "sdxl_image_high", "video_fast", "video_high"],
+  "model_info": {
+    "model_name": "Qwen2.5-7B-Instruct",
+    "model_loaded": true,
+    "enhancement_method": "Direct Qwen Instruct with dynamic prompts"
   }
-}
-```
-
-**POST /enhancement/cache/clear** - Clear Enhancement Cache
-```json
-{
-  "cache_type": "all|prompts|responses"
 }
 ```
 
@@ -323,13 +313,7 @@ All workers use a standardized callback format for job status updates:
     }
   ],
   "metadata": {
-    "enhancement_source": "qwen_instruct|qwen_7b|edge_function",
-    "quality_score": 0.95,
-    "worker_optimizations": {
-      "caching": true,
-      "post_processing": true,
-      "fallback_ready": false
-    },
+    "enhancement_source": "qwen_instruct",
     "unrestricted_mode": false,
     "system_prompt_used": "Custom system prompt",
     "nsfw_optimization": true,
@@ -347,9 +331,8 @@ All workers use a standardized callback format for job status updates:
 ## Performance Metrics
 
 ### Chat Enhancement
-- **Cached Requests:** 1-3 seconds
+- **Direct Enhancement:** 1-3 seconds
 - **New Requests:** 5-15 seconds
-- **Fallback Mode:** 8-20 seconds
 
 ### Chat Conversation
 - **Standard Mode:** 2-5 seconds
@@ -386,8 +369,6 @@ ASSET_CACHE_DIR=/assets
   },
   "chat_worker": {
     "primary_model": "/models/qwen-instruct",
-    "fallback_model": "/models/qwen-7b",
-    "cache_size": 1000,
     "max_tokens": 2048
   },
   "wan_worker": {

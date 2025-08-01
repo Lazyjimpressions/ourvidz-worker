@@ -1,14 +1,14 @@
 # Chat Worker System - Consolidated Documentation
 
 **Last Updated:** July 30, 2025  
-**Status:** ✅ Production Ready - Enhanced Chat Worker with NSFW Optimization  
+**Status:** ✅ Production Ready - Simplified Chat Worker with NSFW Optimization  
 **System:** Triple Worker (SDXL + Chat + WAN) on RTX 6000 ADA (48GB VRAM)
 
 ---
 
 ## 🎯 **Overview**
 
-The Chat Worker has been significantly enhanced with comprehensive features for prompt enhancement, dynamic system prompts, unrestricted mode detection, and NSFW optimization. This consolidated documentation covers all aspects of the enhanced chat worker system.
+The Chat Worker has been simplified and optimized with core features for prompt enhancement, dynamic system prompts, unrestricted mode detection, and NSFW optimization. This consolidated documentation covers all aspects of the current chat worker system.
 
 ---
 
@@ -17,7 +17,7 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 ### **1. Dynamic System Prompt Support**
 - **Custom System Prompts**: Override default prompts for each conversation
 - **Context-Aware Responses**: Automatic context detection and appropriate prompting
-- **Flexible Integration**: Support for edge function integration and fallback systems
+- **Flexible Integration**: Support for custom system prompts per request
 
 ### **2. Unrestricted Mode Detection**
 - **Automatic Detection**: Detects adult content requests automatically
@@ -31,10 +31,10 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 - **Professional Standards**: Maintains high-quality adult content generation
 - **Unrestricted Processing**: Processes all prompts without censorship
 
-### **4. Enhanced Prompt Enhancement System**
-- **Intelligent Fallback**: Edge function integration with worker fallback
-- **Performance Optimization**: Caching and token compression
-- **Quality Validation**: Scoring system for enhancement quality
+### **4. Simplified Prompt Enhancement System**
+- **Direct Qwen Instruct Enhancement**: Uses Qwen 2.5-7B Instruct model directly
+- **Dynamic System Prompts**: Model-specific prompts for SDXL and WAN
+- **Quality Levels**: Fast and high quality modes
 - **Memory Management**: OOM handling with retry logic
 
 ---
@@ -79,7 +79,7 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 ### **Enhancement Endpoints**
 
 #### `/enhance` (POST)
-**Purpose**: Intelligent prompt enhancement with fallback system
+**Purpose**: Simple prompt enhancement using Qwen Instruct model
 ```json
 {
   "prompt": "beautiful woman",
@@ -98,32 +98,13 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
   "generation_time": 1.23,
   "enhancement_type": "manual",
   "job_type": "sdxl_image_fast",
-  "quality": "fast",
-  "enhancement_source": "worker_fallback",
-  "worker_optimizations": {
-    "caching": true,
-    "post_processing": true,
-    "fallback_ready": true
-  },
-  "quality_score": 0.85,
-  "sdxl_optimizations": {
-    "has_quality_tags": true,
-    "has_lighting": true,
-    "has_technical_terms": true,
-    "has_resolution": true,
-    "has_anatomical_accuracy": true,
-    "token_count": 75
-  }
+  "quality": "fast"
 }
 ```
 
-#### `/enhance/intelligent` (POST)
-**Purpose**: Explicit intelligent enhancement endpoint
-- Same functionality as `/enhance` with clearer naming
-
 #### `/enhance/legacy` (POST)
 **Purpose**: Backward compatibility endpoint
-- Uses original `enhance_prompt()` method
+- Uses same functionality as `/enhance`
 
 ### **Management Endpoints**
 
@@ -131,21 +112,18 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 **Purpose**: Enhancement system information
 ```json
 {
-  "enhancement_system": "active",
+  "enhancement_system": "Direct Qwen Instruct Enhancement",
   "supported_job_types": ["sdxl_image_fast", "sdxl_image_high", "video_fast", "video_high"],
-  "cache_size": 45,
-  "model_status": "loaded",
-  "nsfw_optimization": "enabled"
-}
-```
-
-#### `/enhancement/cache/clear` (POST)
-**Purpose**: Clear enhancement cache
-```json
-{
-  "success": true,
-  "cache_cleared": 45,
-  "cache_size": 0
+  "model_info": {
+    "model_name": "Qwen2.5-7B-Instruct",
+    "model_loaded": true,
+    "enhancement_method": "Direct Qwen Instruct with dynamic prompts"
+  },
+  "endpoints": {
+    "/enhance": "POST - Simple prompt enhancement",
+    "/enhance/legacy": "POST - Legacy enhancement (same as /enhance)",
+    "/enhancement/info": "GET - This information"
+  }
 }
 ```
 
@@ -167,7 +145,7 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 ```json
 {
   "model_loaded": true,
-  "model_path": "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct",
+  "model_path": "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28",
   "model_device": "cuda:0",
   "device_type": "cuda",
   "model_parameters": 7250000000,
@@ -208,10 +186,11 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 
 ## 🔄 **Enhancement System Architecture**
 
-### **Fallback Hierarchy**
-1. **Edge Function**: Use provided system prompt if available
-2. **Worker Fallback**: Use built-in prompts based on job type and quality
-3. **Emergency Fallback**: Basic enhancement with minimal processing
+### **Direct Enhancement Approach**
+1. **Qwen Instruct Model**: Direct enhancement using Qwen 2.5-7B Instruct
+2. **Dynamic System Prompts**: Model-specific prompts for SDXL and WAN
+3. **Quality Optimization**: Fast and high quality modes
+4. **Error Handling**: Comprehensive error handling and fallbacks
 
 ### **Supported Job Types**
 
@@ -232,28 +211,14 @@ The Chat Worker has been significantly enhanced with comprehensive features for 
 
 ## ⚡ **Performance Features**
 
-### **Caching Strategy**
-- **Cache Key**: `{original_prompt}_{job_type}_{quality}`
-- **Automatic Cleanup**: Removes oldest 20 entries when cache exceeds 100
-- **Performance Impact**: Reduces redundant processing significantly
+### **Memory Management**
+- **Automatic Loading**: Model loads automatically when needed
+- **Memory Cleanup**: OOM handling with automatic retry logic
+- **Device Optimization**: Efficient tensor operations and device management
 
-### **Token Compression**
-- **Priority Preservation**: quality tags > subject > lighting > technical > style
-- **Intelligent Selection**: Maintains key elements while reducing token count
-- **Model Optimization**: Tailored for each model type (SDXL vs WAN)
-
-### **Quality Validation**
-- **Scoring System**: Based on model-specific quality indicators
-- **Normalized Scores**: 0-1 scale for easy comparison
-- **Model-Specific Validation**: Different criteria for SDXL vs WAN
-
----
-
-## 🛡️ **Error Handling**
-
-### **Graceful Degradation**
-- **OOM Handling**: Automatic retry logic with cleanup
-- **Emergency Fallback**: Basic enhancement for complete failures
+### **Error Handling**
+- **Graceful Degradation**: Comprehensive error handling and fallbacks
+- **OOM Recovery**: Automatic memory cleanup and retry logic
 - **Comprehensive Logging**: Detailed error reporting and tracking
 
 ### **Error Response Format**
@@ -311,19 +276,6 @@ curl -X POST http://localhost:7861/enhance \
   }'
 ```
 
-### **Edge Function Integration**
-```bash
-curl -X POST http://localhost:7861/enhance \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "beautiful woman",
-    "job_type": "sdxl_image_fast",
-    "quality": "fast",
-    "system_prompt": "Custom edge function system prompt",
-    "context": {"user_preferences": "high_detail"}
-  }'
-```
-
 ---
 
 ## 🔧 **Configuration**
@@ -348,7 +300,7 @@ No additional environment variables required. Uses existing configuration:
 | **Operation** | **Typical Time** | **Peak Time** | **Notes** |
 |---------------|------------------|---------------|-----------|
 | Chat Response | 5-15s | 20s | Qwen Instruct |
-| Prompt Enhancement | 1-3s | 5s | Cached responses faster |
+| Prompt Enhancement | 1-3s | 5s | Direct Qwen Instruct |
 | Memory Operations | <1s | 2s | Load/unload operations |
 | Health Checks | <1s | 1s | Status monitoring |
 
@@ -367,8 +319,7 @@ No additional environment variables required. Uses existing configuration:
 1. **Model Loading**: Automatic Qwen Instruct loading
 2. **Memory Validation**: VRAM availability check
 3. **Service Registration**: Health endpoint activation
-4. **Cache Initialization**: Enhancement cache setup
-5. **Monitoring Start**: Performance tracking activation
+4. **Monitoring Start**: Performance tracking activation
 
 ### **Health Monitoring**
 - **Health Check**: `GET /health`
@@ -432,10 +383,9 @@ python test_chat_worker_updates.py
 5. **Unrestricted Processing**: Process prompts without sanitization
 
 ### **Performance Optimization**
-1. **Caching**: Leverage enhancement caching for repeated prompts
-2. **Memory Management**: Monitor VRAM usage and model loading
-3. **Error Handling**: Implement proper error handling and fallbacks
-4. **Quality Validation**: Use quality scoring for enhancement validation
+1. **Memory Management**: Monitor VRAM usage and model loading
+2. **Error Handling**: Implement proper error handling and fallbacks
+3. **Quality Validation**: Use appropriate job types and quality levels
 
 ---
 
@@ -450,4 +400,4 @@ For issues or questions:
 
 ---
 
-**Status: ✅ PRODUCTION READY - Enhanced Chat Worker with Comprehensive NSFW Optimization** 
+**Status: ✅ PRODUCTION READY - Simplified Chat Worker with Comprehensive NSFW Optimization** 
