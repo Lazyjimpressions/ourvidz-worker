@@ -44,9 +44,8 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
 - **Features**:
   - **Dynamic system prompts** with custom prompts per conversation
   - **Unrestricted mode detection** for automatic adult content handling
-  - **Intelligent prompt enhancement** with edge function integration and fallback
+  - **Simple prompt enhancement** using direct Qwen Instruct model
   - **NSFW optimization** with zero content restrictions and anatomical accuracy
-  - **Performance caching** for faster repeated requests
   - **Memory management** with smart loading/unloading
   - **PyTorch 2.0 compilation** for performance optimization
   - **Comprehensive OOM error handling** with retry logic
@@ -173,7 +172,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 #### Enhanced Chat Jobs
 | Job Type | Purpose | Model | Time | Features |
 |----------|---------|-------|------|----------|
-| `chat_enhance` | Intelligent prompt enhancement | Qwen Instruct | 1-3s | Edge function integration, caching, NSFW optimization |
+| `chat_enhance` | Simple prompt enhancement | Qwen Instruct | 1-3s | Direct Qwen Instruct enhancement, NSFW optimization |
 | `chat_conversation` | Dynamic chat interface | Qwen Instruct | 5-15s | Custom system prompts, unrestricted mode detection |
 | `chat_unrestricted` | Dedicated NSFW chat | Qwen Instruct | 5-15s | Adult content optimization, anatomical accuracy |
 | `admin_utilities` | System management | N/A | <1s | Memory status, enhancement info |
@@ -338,7 +337,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **✅ Batch Processing**: SDXL supports 1, 3, or 6 images
 - **✅ AI Enhancement**: WAN enhanced variants with Qwen 7B
 - **✅ Enhanced Chat Service**: Dynamic prompts, unrestricted mode, NSFW optimization
-- **✅ Intelligent Enhancement**: Edge function integration with performance caching
+- **✅ Simple Enhancement**: Direct Qwen Instruct enhancement
 - **✅ Memory Management**: Smart VRAM allocation and emergency handling
 - **✅ Error Recovery**: Robust error handling and fallback mechanisms
 - **✅ Performance Monitoring**: Comprehensive metrics and logging
@@ -367,11 +366,11 @@ HF_TOKEN=                  # Optional HuggingFace token
 |-------------|----------------|--------------|
 | **Dynamic System Prompts** | Custom prompts per conversation | Context-aware responses |
 | **Unrestricted Mode** | Automatic adult content detection | NSFW content creation |
-| **Intelligent Enhancement** | Edge function integration with fallback | High-quality prompt enhancement |
+| **Simple Enhancement** | Direct Qwen Instruct enhancement | High-quality prompt enhancement |
 | **NSFW Optimization** | Zero content restrictions | Unrestricted adult content |
 | **Anatomical Accuracy** | Realistic proportions and poses | Professional quality output |
-| **Performance Caching** | Enhancement result caching | Faster repeated requests |
-| **Quality Validation** | Enhancement quality scoring | Consistent output quality |
+| **Memory Management** | Smart loading/unloading | Resource optimization |
+| **Error Handling** | Comprehensive OOM handling | System stability |
 
 This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **enhanced chat service with NSFW optimization**, and **smart memory management**. The current architecture uses a **triple-worker orchestration pattern** for optimal resource utilization and reliability.
 
