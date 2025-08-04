@@ -633,18 +633,55 @@ class ChatWorker:
                 )
                 
                 if result['success']:
+                    # Log the complete raw response for debugging
+                    logger.info(f"🔍 COMPLETE CHAT WORKER RESPONSE DATA:")
+                    logger.info(f"   Raw result: {result}")
+                    logger.info(f"   Response field: {result.get('response', 'MISSING')}")
+                    logger.info(f"   Response type: {type(result.get('response'))}")
+                    logger.info(f"   Response length: {len(result.get('response', ''))}")
+                    
+                    # Validate response structure
+                    if 'response' not in result:
+                        logger.error("❌ Response field missing from worker result")
+                        return jsonify({
+                            'success': False,
+                            'error': 'Worker response missing response field',
+                            'response': 'I apologize, but I encountered a technical error. Please try again.'
+                        }), 500
+                    
+                    response_text = result['response']
+                    if not isinstance(response_text, str):
+                        logger.error(f"❌ Response field is not a string: {type(response_text)}")
+                        return jsonify({
+                            'success': False,
+                            'error': 'Worker response field is not a string',
+                            'response': 'I apologize, but I encountered a technical error. Please try again.'
+                        }), 500
+                    
+                    # Check for response content issues
+                    if len(response_text) == 0:
+                        logger.error("❌ Response is empty string")
+                        response_text = "I apologize, but I couldn't generate a proper response. Please try again."
+                    elif response_text.strip() == "":
+                        logger.error("❌ Response is whitespace only")
+                        response_text = "I apologize, but I couldn't generate a proper response. Please try again."
+                    
                     logger.info(f"✅ Chat response generated in {result.get('generation_time', 0):.1f}s")
+                    logger.info(f"📝 Final response length: {len(response_text)} characters")
+                    
                     return jsonify({
                         'success': True,
-                        'response': result['response'],
+                        'response': response_text,
                         'generation_time': result.get('generation_time'),
                         'conversation_id': conversation_id,
                         'context_type': context_type,
                         'message_id': result.get('message_id'),
                         'system_prompt_used': result.get('system_prompt_used', False),
-                        'unrestricted_mode': result.get('unrestricted_mode', False)
+                        'response_length': result.get('response_length', len(response_text)),
+                        'model_info': result.get('model_info', {})
                     })
                 else:
+                    logger.error(f"❌ Worker returned error: {result}")
                     return jsonify(result), 500
                     
             except Exception as e:
@@ -706,6 +743,70 @@ class ChatWorker:
                     'error': str(e)
                 }), 500
 
+        @self.app.route('/chat/debug/response-extraction', methods=['POST'])
+        def debug_response_extraction():
+            """Debug endpoint to test response extraction and formatting"""
+            try:
+                data = request.get_json()
+                if not data or 'message' not in data:
+                    return jsonify({'success': False, 'error': 'Missing message'}), 400
+
+                message = data['message']
+                system_prompt = data.get('system_prompt')
+                context_type = data.get('context_type', 'general')
+                conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
+                
+                logger.info(f"🔍 Debug response extraction request: {message[:50]}...")
+                
+                # Generate a full response to test extraction
+                result = self.generate_chat_response(
+                    message=message,
+                    system_prompt=system_prompt,
+                    context_type=context_type,
+                    conversation_history=conversation_history
+                )
+                
+                # Build messages for comparison
+                messages = self.build_conversation_messages(
+                    message=message,
+                    system_prompt=system_prompt,
+                    context_type=context_type,
+                    conversation_history=conversation_history
+                )
+                
+                # Apply chat template to see what was sent to model
+                text = self.qwen_instruct_tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                
+                debug_info = {
+                    'success': True,
+                    'worker_result': result,
+                    'messages_built': messages,
+                    'chat_template_output': text,
+                    'system_prompt_provided': system_prompt,
+                    'context_type': context_type,
+                    'conversation_history_count': len(conversation_history),
+                    'response_validation': {
+                        'has_response_field': 'response' in result,
+                        'response_type': type(result.get('response')).__name__ if 'response' in result else 'missing',
+                        'response_length': len(result.get('response', '')),
+                        'response_empty': not result.get('response', '').strip() if 'response' in result else True,
+                        'contains_fragments': any(fragment in result.get('response', '').lower() for fragment in ['user:', 'system:', 'assistant:', '<|im_start|>', '<|im_end|>']) if 'response' in result else False
+                    }
+                }
+                
+                return jsonify(debug_info)
+                
+            except Exception as e:
+                logger.error(f"❌ Debug response extraction endpoint error: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+
         @self.app.route('/chat/health', methods=['GET'])
         def chat_health():
             """Health check specifically for chat functionality"""
@@ -715,13 +816,23 @@ class ChatWorker:
                 'endpoints': {
                     '/chat': 'POST - Conversational chat',
                     '/chat/debug/system-prompt': 'POST - Debug system prompt handling',
+                    '/chat/debug/response-extraction': 'POST - Debug response extraction and formatting',
                     '/enhance': 'POST - Simple prompt enhancement', 
                     '/health': 'GET - General health check'
                 },
                 'system_prompt_features': {
                     'custom_system_prompts': True,
                     'pure_inference_engine': True,
-                    'debug_endpoint': True
+                    'debug_endpoint': True,
+                    'comprehensive_logging': True,
+                    'response_validation': True,
+                    'error_handling': True
+                },
+                'response_handling': {
+                    'size_limit': '10KB',
+                    'fragment_detection': True,
+                    'empty_response_handling': True,
+                    'format_validation': True
                 },
                 'model_info': {
                     'loaded': self.model_loaded,
@@ -941,14 +1052,35 @@ class ChatWorker:
             input_length = inputs.input_ids.shape[1]
             response_text = generated_text[input_length:].strip()
             
+            # Log the raw generated text for debugging
+            logger.info(f"🔍 RAW GENERATED TEXT:")
+            logger.info(f"   Full generated text: {generated_text}")
+            logger.info(f"   Input length: {input_length}")
+            logger.info(f"   Extracted response: {response_text}")
+            
             # Clean up response
             if response_text.startswith('<|im_start|>assistant'):
                 response_text = response_text.replace('<|im_start|>assistant\n', '', 1)
+                logger.info(f"   Cleaned assistant tag: {response_text}")
             if response_text.endswith('<|im_end|>'):
                 response_text = response_text[:-len('<|im_end|>')].strip()
+                logger.info(f"   Cleaned end tag: {response_text}")
+            
+            # Additional cleanup for common issues
+            if response_text.startswith('assistant'):
+                response_text = response_text.replace('assistant', '', 1).strip()
+                logger.info(f"   Cleaned assistant prefix: {response_text}")
+            
+            # Check for conversation history fragments in response
+            if any(fragment in response_text.lower() for fragment in ['user:', 'system:', 'assistant:', '<|im_start|>', '<|im_end|>']):
+                logger.warning(f"⚠️ Response may contain conversation fragments: {response_text[:200]}...")
             
             # Ensure we have a response
             if not response_text:
+                logger.error("❌ Response is empty after extraction and cleanup")
+                response_text = "I apologize, but I couldn't generate a proper response. Please try again."
+            elif response_text.strip() == "":
+                logger.error("❌ Response is whitespace only after cleanup")
                 response_text = "I apologize, but I couldn't generate a proper response. Please try again."
             
             generation_time = time.time() - start_time
@@ -956,12 +1088,36 @@ class ChatWorker:
             logger.info(f"✅ Chat response generated successfully in {generation_time:.2f}s")
             logger.info(f"📝 Response length: {len(response_text)} characters")
             
+            # Log the raw response for debugging
+            logger.info(f"🔍 RAW CHAT WORKER RESPONSE:")
+            logger.info(f"   Response text: {response_text}")
+            logger.info(f"   Response length: {len(response_text)} characters")
+            logger.info(f"   Generation time: {generation_time:.2f}s")
+            
+            # Validate response format and size
+            if len(response_text) > 10000:  # 10KB limit
+                logger.warning(f"⚠️ Response exceeds size limit: {len(response_text)} characters")
+                response_text = response_text[:10000] + "... [truncated]"
+            
+            # Ensure response is not empty or just whitespace
+            if not response_text or response_text.strip() == "":
+                logger.error("❌ Generated response is empty or whitespace only")
+                response_text = "I apologize, but I couldn't generate a proper response. Please try again."
+            
+            # Check for common response format issues
+            if response_text.startswith("system:") or response_text.startswith("user:"):
+                logger.warning("⚠️ Response appears to contain conversation history fragments")
+            
             return {
                 'success': True,
                 'response': response_text,
                 'generation_time': generation_time,
                 'system_prompt_used': system_prompt is not None,
-                'custom_system_preserved': system_prompt is not None
+                'response_length': len(response_text),
+                'model_info': {
+                    'model_name': 'Qwen 2.5-7B-Instruct',
+                    'architecture': 'pure_inference_engine'
+                }
             }
             
         except Exception as e:

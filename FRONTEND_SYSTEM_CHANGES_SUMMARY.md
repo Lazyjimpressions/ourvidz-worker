@@ -24,6 +24,7 @@ This document provides a comprehensive summary of all changes made to the chat w
 #### Updated Endpoints
 - ✅ `/chat` - Now handles all chat requests (both SFW and NSFW)
 - ✅ `/chat/debug/system-prompt` - Updated to show pure inference behavior
+- ✅ `/chat/debug/response-extraction` - **NEW** - Debug response extraction and formatting
 - ✅ `/chat/health` - Updated to reflect new architecture
 
 ### 3. Request/Response Format
@@ -44,9 +45,13 @@ This document provides a comprehensive summary of all changes made to the chat w
 {
   "response": "AI generated response",
   "conversation_history": [...],
-  "system_prompt_used": "your provided system prompt",
-  "model_info": {...},
-  "processing_time": 1.23
+  "system_prompt_used": true,
+  "response_length": 150,
+  "model_info": {
+    "model_name": "Qwen 2.5-7B-Instruct",
+    "architecture": "pure_inference_engine"
+  },
+  "generation_time": 1.23
 }
 ```
 
@@ -54,6 +59,10 @@ This document provides a comprehensive summary of all changes made to the chat w
 - `unrestricted_mode` field
 - `custom_system_preserved` field
 - `enhanced_system_prompt` field
+
+**Added to Response**:
+- `response_length` - Length of the generated response
+- `model_info` - Information about the model and architecture
 
 ### 4. Edge Function Responsibilities (Frontend System)
 
@@ -109,7 +118,9 @@ The frontend system (edge function) is now responsible for:
 
 ## Testing and Verification
 
-### Debug Endpoint
+### Debug Endpoints
+
+#### 1. System Prompt Debug
 Use `/chat/debug/system-prompt` to verify system prompt handling:
 
 ```json
@@ -123,11 +134,48 @@ Use `/chat/debug/system-prompt` to verify system prompt handling:
 **Expected Response**:
 ```json
 {
-  "system_prompt_received": "You are a helpful assistant.",
-  "system_prompt_used": "You are a helpful assistant.",
-  "messages_built": [...],
-  "no_override_detected": true,
-  "pure_inference_mode": true
+  "success": true,
+  "message": "test message",
+  "system_prompt_provided": "You are a helpful assistant.",
+  "final_system_prompt": "You are a helpful assistant.",
+  "message_count": 2,
+  "conversation_history_count": 0
+}
+```
+
+#### 2. Response Extraction Debug
+Use `/chat/debug/response-extraction` to test response extraction and formatting:
+
+```json
+{
+  "message": "Hello, how are you?",
+  "system_prompt": "You are a helpful assistant.",
+  "conversation_history": []
+}
+```
+
+**Expected Response**:
+```json
+{
+  "success": true,
+  "worker_result": {
+    "success": true,
+    "response": "Hello! I'm doing well, thank you for asking...",
+    "generation_time": 1.23,
+    "system_prompt_used": true,
+    "response_length": 45,
+    "model_info": {
+      "model_name": "Qwen 2.5-7B-Instruct",
+      "architecture": "pure_inference_engine"
+    }
+  },
+  "response_validation": {
+    "has_response_field": true,
+    "response_type": "str",
+    "response_length": 45,
+    "response_empty": false,
+    "contains_fragments": false
+  }
 }
 ```
 
@@ -192,7 +240,21 @@ Use `/chat/health` to verify system status:
 - ✅ Worker is simpler and more reliable
 - ✅ Better testability
 
-## Error Handling
+## Error Handling and Response Validation
+
+### Comprehensive Logging Added
+- ✅ **Raw response logging** - Logs the complete worker response for debugging
+- ✅ **Response format validation** - Validates response structure and content
+- ✅ **Fragment detection** - Detects conversation history fragments in responses
+- ✅ **Size limit enforcement** - 10KB limit with truncation warnings
+- ✅ **Empty response handling** - Graceful handling of empty or whitespace responses
+
+### Response Validation Features
+- ✅ **Field presence validation** - Ensures 'response' field exists
+- ✅ **Type validation** - Ensures response is a string
+- ✅ **Content validation** - Checks for empty or whitespace-only responses
+- ✅ **Fragment detection** - Identifies conversation history fragments
+- ✅ **Size validation** - Enforces 10KB response limit
 
 ### Common Issues and Solutions
 
@@ -207,6 +269,15 @@ Use `/chat/health` to verify system status:
 
 #### Issue: Missing system prompts
 **Solution**: Ensure edge function always provides a system prompt (worker will use minimal fallback)
+
+#### Issue: Response contains conversation fragments
+**Solution**: Check logs for fragment detection warnings and verify response extraction
+
+#### Issue: Empty or malformed responses
+**Solution**: Check logs for validation errors and ensure proper response structure
+
+#### Issue: Response size too large
+**Solution**: Check logs for size limit warnings and consider truncating long responses
 
 ## Summary
 
@@ -225,6 +296,9 @@ The frontend system (edge function) is now responsible for all prompt management
 2. **Test Integration**: Verify that roleplay and explicit content scenarios work correctly
 3. **Update Documentation**: Update any frontend documentation that referenced removed features
 4. **Monitor Performance**: Ensure the new architecture performs well under load
+5. **Use Debug Endpoints**: Test `/chat/debug/response-extraction` to verify response handling
+6. **Check Logs**: Monitor worker logs for response validation and fragment detection warnings
+7. **Run Test Script**: Use `testing/test_response_extraction.py` to verify all changes
 
 ---
 
