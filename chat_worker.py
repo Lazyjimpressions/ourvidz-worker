@@ -655,9 +655,11 @@ class ChatWorker:
                     'response': 'I apologize, but I encountered an error. Please try again.'
                 }), 500
 
-        @self.app.route('/chat/unrestricted', methods=['POST'])
-        def chat_unrestricted_endpoint():
-            """Dedicated unrestricted chat endpoint for adult content"""
+
+
+        @self.app.route('/chat/debug/system-prompt', methods=['POST'])
+        def debug_system_prompt():
+            """Debug endpoint to test system prompt handling"""
             try:
                 data = request.get_json()
                 if not data or 'message' not in data:
@@ -665,40 +667,43 @@ class ChatWorker:
 
                 message = data['message']
                 system_prompt = data.get('system_prompt')
-                conversation_id = data.get('conversation_id')
-                project_id = data.get('project_id')
-                context_type = data.get('context_type', 'unrestricted')
+                context_type = data.get('context_type', 'general')
                 conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
                 
-                logger.info(f"🔓 Unrestricted chat request: {message[:50]}... (conversation: {conversation_id})")
+                logger.info(f"🔍 Debug system prompt request: {message[:50]}...")
                 
-                # Build conversation messages
+                # Build messages to see what would be used
                 messages = self.build_conversation_messages(
                     message=message,
                     system_prompt=system_prompt,
                     context_type=context_type,
-                    project_id=project_id,
                     conversation_history=conversation_history
                 )
                 
-                # Generate unrestricted response
-                result = self.generate_unrestricted_response(messages)
-                result['unrestricted_mode'] = True
-                result['conversation_id'] = conversation_id
-                result['context_type'] = context_type
+                # Extract the system prompt that would be used
+                final_system_prompt = None
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        final_system_prompt = msg.get("content", "")
+                        break
                 
-                if result['success']:
-                    logger.info(f"✅ Unrestricted response generated in {result.get('generation_time', 0):.1f}s")
-                    return jsonify(result)
-                else:
-                    return jsonify(result), 500
-                    
+                debug_info = {
+                    'success': True,
+                    'message': message,
+                    'system_prompt_provided': system_prompt,
+                    'context_type': context_type,
+                    'final_system_prompt': final_system_prompt,
+                    'message_count': len(messages),
+                    'conversation_history_count': len(conversation_history)
+                }
+                
+                return jsonify(debug_info)
+                
             except Exception as e:
-                logger.error(f"❌ Unrestricted chat endpoint error: {e}")
+                logger.error(f"❌ Debug system prompt endpoint error: {e}")
                 return jsonify({
                     'success': False,
-                    'error': str(e),
-                    'response': 'I apologize, but I encountered an error. Please try again.'
+                    'error': str(e)
                 }), 500
 
         @self.app.route('/chat/health', methods=['GET'])
@@ -709,9 +714,14 @@ class ChatWorker:
                 'chat_ready': self.model_loaded,
                 'endpoints': {
                     '/chat': 'POST - Conversational chat',
-                    '/chat/unrestricted': 'POST - Unrestricted adult content chat',
+                    '/chat/debug/system-prompt': 'POST - Debug system prompt handling',
                     '/enhance': 'POST - Simple prompt enhancement', 
                     '/health': 'GET - General health check'
+                },
+                'system_prompt_features': {
+                    'custom_system_prompts': True,
+                    'pure_inference_engine': True,
+                    'debug_endpoint': True
                 },
                 'model_info': {
                     'loaded': self.model_loaded,
@@ -824,10 +834,13 @@ class ChatWorker:
         try:
             start_time = time.time()
             
-            # Check for unrestricted mode
-            is_unrestricted = self.detect_unrestricted_mode(message)
+            # Log system prompt usage for debugging
+            if system_prompt:
+                logger.info(f"🎭 Custom system prompt provided: {system_prompt[:100]}...")
+            else:
+                logger.info(f"🔧 No system prompt provided - using empty system prompt")
             
-            # Build conversation messages with history and context
+            # Build conversation messages with provided system prompt
             messages = self.build_conversation_messages(
                 message=message,
                 system_prompt=system_prompt,
@@ -836,12 +849,15 @@ class ChatWorker:
                 conversation_history=conversation_history or []
             )
             
-            # Use unrestricted generation if detected
-            if is_unrestricted:
-                logger.info("🔓 Using unrestricted generation mode")
-                result = self.generate_unrestricted_response(messages)
-                result['unrestricted_mode'] = True
-                return result
+            # Log the final system prompt being used
+            final_system_prompt = None
+            for msg in messages:
+                if msg.get("role") == "system":
+                    final_system_prompt = msg.get("content", "")
+                    break
+            
+            if final_system_prompt:
+                logger.info(f"📝 Final system prompt: {final_system_prompt[:100]}...")
             
             # Apply chat template
             text = self.qwen_instruct_tokenizer.apply_chat_template(
@@ -889,160 +905,99 @@ class ChatWorker:
                             inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
                         else:
                             inputs = inputs.to(self.model_device)
-                        logger.info("✅ Tensor transfer successful after memory cleanup for chat")
+                        logger.info("✅ Inputs moved to device successfully after cleanup")
                     except RuntimeError as retry_e:
-                        logger.error(f"❌ Tensor transfer failed even after cleanup for chat: {retry_e}")
-                        raise
+                        logger.error(f"❌ Failed to move inputs to device even after cleanup: {retry_e}")
+                        return {
+                            'success': False,
+                            'error': 'GPU memory insufficient for chat generation',
+                            'response': 'I apologize, but the system is currently experiencing high memory usage. Please try again later.'
+                        }
                 else:
-                    logger.error(f"❌ Device transfer error for chat: {e}")
-                    raise
+                    logger.error(f"❌ Device transfer failed for chat: {e}")
+                    return {
+                        'success': False,
+                        'error': f'Device transfer failed: {e}',
+                        'response': 'I apologize, but I encountered a technical error. Please try again.'
+                    }
             
-            # Generate conversational response
+            # Generate response
             with torch.no_grad():
-                generated_ids = self.qwen_instruct_model.generate(
+                outputs = self.qwen_instruct_model.generate(
                     **inputs,
-                    max_new_tokens=600,  # Increased for more detailed responses
-                    do_sample=True,
-                    temperature=0.8,     # Slightly higher for more personality
+                    max_new_tokens=512,
+                    temperature=0.7,
                     top_p=0.9,
-                    repetition_penalty=1.1,
+                    do_sample=True,
                     pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                    use_cache=True
+                    eos_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                    repetition_penalty=1.1
                 )
             
             # Decode response
-            try:
-                # Handle both dict and object formats for input_ids access
-                input_ids = inputs['input_ids'] if isinstance(inputs, dict) else inputs.input_ids
-                generated_ids = [
-                    output_ids[len(input_ids):] for input_ids, output_ids in zip(input_ids, generated_ids)
-                ]
-                
-                response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                response = response.strip()
-                
-                if not response:
-                    logger.warning("⚠️ Generated response is empty, using fallback")
-                    response = "I understand your message, but I'm having trouble generating a response right now. Could you please rephrase or try again?"
-                    
-            except Exception as decode_error:
-                logger.error(f"❌ Response decoding failed: {decode_error}")
-                response = "I apologize, but I encountered an error while processing my response. Please try again."
+            generated_text = self.qwen_instruct_tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Extract only the new response (remove the input context)
+            input_length = inputs.input_ids.shape[1]
+            response_text = generated_text[input_length:].strip()
+            
+            # Clean up response
+            if response_text.startswith('<|im_start|>assistant'):
+                response_text = response_text.replace('<|im_start|>assistant\n', '', 1)
+            if response_text.endswith('<|im_end|>'):
+                response_text = response_text[:-len('<|im_end|>')].strip()
+            
+            # Ensure we have a response
+            if not response_text:
+                response_text = "I apologize, but I couldn't generate a proper response. Please try again."
             
             generation_time = time.time() - start_time
-            self.stats['requests_served'] += 1
             
-            logger.info(f"✅ Chat response completed in {generation_time:.1f}s")
+            logger.info(f"✅ Chat response generated successfully in {generation_time:.2f}s")
+            logger.info(f"📝 Response length: {len(response_text)} characters")
             
             return {
                 'success': True,
-                'response': response,
+                'response': response_text,
                 'generation_time': generation_time,
-                'context_type': context_type,
-                'message_id': f"msg_{int(time.time() * 1000)}",  # Simple message ID
                 'system_prompt_used': system_prompt is not None,
-                'unrestricted_mode': False
+                'custom_system_preserved': system_prompt is not None
             }
             
         except Exception as e:
-            logger.error(f"❌ Chat generation failed: {e}")
+            logger.error(f"❌ Chat response generation failed: {e}")
             return {
                 'success': False,
                 'error': str(e),
-                'response': 'I encountered an error generating a response. Please try again.'
+                'response': 'I apologize, but I encountered an error generating a response. Please try again.'
             }
 
     def build_conversation_messages(self, message: str, system_prompt: str = None, context_type: str = 'general',
                                   project_id: str = None, conversation_history: list = None) -> list:
-        """Build conversation messages with proper context and history"""
+        """Build conversation messages list for the model"""
+        messages = []
         
-        # Apply dynamic system prompt if provided, otherwise use default
+        # Add system prompt if provided, otherwise use empty system prompt
         if system_prompt:
-            messages = [{"role": "system", "content": system_prompt}]
+            messages.append({"role": "system", "content": system_prompt})
         else:
-            # Build system prompt based on context
-            default_system_prompt = self.build_conversation_system_prompt(context_type, project_id)
-            messages = [{"role": "system", "content": default_system_prompt}]
+            # Use minimal system prompt when none provided
+            messages.append({"role": "system", "content": "You are a helpful AI assistant."})
         
-        # Add conversation history (limit to last 10 exchanges for context window)
+        # Add conversation history
         if conversation_history:
-            # Take last 20 messages (10 exchanges) to stay within context window
-            recent_history = conversation_history[-20:] if len(conversation_history) > 20 else conversation_history
-            
-            for hist_msg in recent_history:
-                if hist_msg.get('sender') == 'user':
-                    messages.append({"role": "user", "content": hist_msg.get('content', '')})
-                elif hist_msg.get('sender') == 'assistant':
-                    messages.append({"role": "assistant", "content": hist_msg.get('content', '')})
+            for msg in conversation_history:
+                if msg.get('sender') == 'user':
+                    messages.append({"role": "user", "content": msg.get('content', '')})
+                elif msg.get('sender') == 'assistant':
+                    messages.append({"role": "assistant", "content": msg.get('content', '')})
         
-        # Add current message
+        # Add current user message
         messages.append({"role": "user", "content": message})
         
         return messages
 
-    def build_conversation_system_prompt(self, context_type: str, project_id: str = None) -> str:
-        """Build system prompt based on conversation context"""
-        
-        if context_type == 'story_development':
-            prompt = """You are an expert AI storytelling assistant specializing in adult content creation and narrative development.
 
-CORE CAPABILITIES:
-- Character development and consistency tracking
-- Plot structure and story arc development
-- Scene development and dialogue creation
-- Story continuity and world-building
-- Creative writing assistance and brainstorming
-
-CONVERSATION STYLE:
-- Engaging and collaborative storytelling partner
-- Ask clarifying questions to understand the user's creative vision
-- Offer specific, actionable suggestions for story improvement
-- Maintain story consistency across conversations
-- Support both creative exploration and technical execution
-- Remember character details, plot points, and story rules
-
-STORY MEMORY:
-- Track character names, personalities, and relationships
-- Remember plot developments and story timeline
-- Maintain consistency with established story rules
-- Reference previous story elements naturally in conversation
-
-CURRENT CONTEXT:"""
-            
-            if project_id:
-                prompt += f"\nProject ID: {project_id}"
-                prompt += "\n(This conversation is linked to a specific project - maintain context accordingly)"
-            
-            prompt += """
-
-Remember: You're helping create compelling, consistent stories. Be creative, supportive, and maintain narrative coherence throughout our conversation."""
-            
-        else:  # general conversation
-            prompt = """You are a helpful AI assistant for OurVidz platform users and administrators.
-
-CAPABILITIES:
-- General conversation and assistance
-- Platform guidance and support questions
-- Creative brainstorming and ideation
-- Technical questions about content creation
-- Administrative support tasks
-- Content planning and strategy discussions
-
-CONVERSATION STYLE:
-- Professional but friendly and approachable
-- Conversational yet informative
-- Helpful and solution-oriented
-- Respectful of user privacy and preferences
-- Maintain context across our conversation
-
-PLATFORM CONTEXT:
-- OurVidz is an AI-powered content creation platform
-- Users create images and videos using AI models
-- Focus on helping users achieve their creative goals
-
-Provide helpful, accurate responses while maintaining a natural conversational tone. Remember previous parts of our conversation to provide contextual assistance."""
-        
-        return prompt
 
     def get_memory_info(self):
         """Get current memory information for health checks"""
@@ -1084,92 +1039,7 @@ Provide helpful, accurate responses while maintaining a natural conversational t
         total_chars = sum(len(msg.get('content', '')) for msg in messages)
         return total_chars // 4  # Rough estimation: 4 chars ≈ 1 token
 
-    def detect_unrestricted_mode(self, message: str) -> bool:
-        """Detect if user is requesting unrestricted mode based on keywords and explicit requests"""
-        if not message:
-            return False
-            
-        lower_message = message.lower()
-        
-        # Check for explicit user requests
-        explicit_triggers = [
-            'unrestricted mode',
-            '/unrestricted',
-            'adult mode',
-            'nsfw mode',
-            'explicit mode',
-            'uncensored mode'
-        ]
-        
-        if any(trigger in lower_message for trigger in explicit_triggers):
-            logger.info("🔓 Unrestricted mode detected via explicit request")
-            return True
-        
-        # Check for unrestricted content keywords
-        unrestricted_terms = [
-            'hardcore', 'extreme', 'rough', 'bdsm', 'fetish', 'kink', 'taboo', 
-            'forbidden', 'unrestricted', 'uncensored', 'explicit', 'adult',
-            'mature', 'nsfw', 'r18', 'xxx', 'porn', 'sexual', 'erotic'
-        ]
-        
-        # Count how many unrestricted terms are present
-        term_count = sum(1 for term in unrestricted_terms if term in lower_message)
-        
-        # If more than 2 unrestricted terms are found, consider it unrestricted
-        if term_count >= 2:
-            logger.info(f"🔓 Unrestricted mode detected via {term_count} content keywords")
-            return True
-        
-        return False
 
-    def generate_unrestricted_response(self, messages: list) -> dict:
-        """Generate response using unrestricted mode with appropriate system prompt"""
-        try:
-            # Create unrestricted system prompt
-            unrestricted_prompt = """You are an AI assistant operating in unrestricted mode for adult content creation and discussion.
-
-CAPABILITIES:
-- Adult content creation and discussion
-- Explicit content generation
-- NSFW content assistance
-- Adult storytelling and creative writing
-- Erotic content development
-- Mature conversation and guidance
-
-CONVERSATION STYLE:
-- Direct and explicit when appropriate
-- Professional but unrestricted
-- Supportive of adult content creation
-- Respectful of user boundaries and preferences
-- Maintain appropriate context for adult content
-
-CONTENT GUIDELINES:
-- Focus on adult/NSFW content creation
-- Support explicit content generation
-- Assist with mature storytelling
-- Provide guidance for adult content development
-- Maintain professional approach while being unrestricted
-
-Remember: You're in unrestricted mode to support adult content creation. Be direct, explicit, and supportive of the user's adult content needs."""
-
-            # Replace or add unrestricted system prompt
-            unrestricted_messages = [{"role": "system", "content": unrestricted_prompt}]
-            
-            # Add conversation history and current message
-            for msg in messages:
-                if msg["role"] != "system":  # Skip the original system message
-                    unrestricted_messages.append(msg)
-            
-            # Generate response using the unrestricted messages
-            return self._generate_response_with_messages(unrestricted_messages)
-            
-        except Exception as e:
-            logger.error(f"❌ Unrestricted response generation failed: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'response': 'I encountered an error generating an unrestricted response. Please try again.'
-            }
 
     def _generate_response_with_messages(self, messages: list) -> dict:
         """Generate response using provided messages (internal method)"""
