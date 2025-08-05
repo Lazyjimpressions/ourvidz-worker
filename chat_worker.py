@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-OurVidz Chat Worker - Dedicated Qwen Instruct Service
-Handles: Manual prompt enhancement, chat interface, admin utilities
+OurVidz Chat Worker - Pure Inference Engine
+Handles: Direct model inference with provided system prompts
 Model: Qwen 2.5-7B Instruct (always loaded when possible)
 Port: 7861
+
+CRITICAL: This worker is a PURE INFERENCE ENGINE
+- NO hardcoded system prompts
+- NO prompt modification or enhancement logic
+- ONLY executes what the edge functions provide
+- ALL intelligence comes from database templates via edge functions
 
 OPTIMIZATIONS:
 - Model set to eval() mode for inference-only
@@ -35,137 +41,9 @@ if PYTHON_DEPS_PATH not in sys.path:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class EnhancementSystemPrompts:
-    """Intelligent system prompts for model-specific enhancement"""
-    
-    @staticmethod
-    def get_sdxl_system_prompt(job_type="sdxl_image_fast", quality="fast"):
-        """SDXL LUSTIFY-specific system prompt"""
-        base_prompt = """You are an expert AI prompt engineer specializing in SDXL LUSTIFY model optimization and adult content generation.
-
-CRITICAL REQUIREMENTS:
-- Target Model: SDXL LUSTIFY v2.0 (75-token optimal, 150-token maximum)
-- Content Focus: Adult/NSFW content with anatomical accuracy
-- Quality Priority: Photorealistic details, professional lighting, technical excellence
-
-ENHANCEMENT STRATEGY:
-1. ANATOMY FIRST: Ensure accurate proportions, realistic features, natural poses
-2. QUALITY TAGS: Add professional photography terms (4K, sharp focus, detailed)
-3. LIGHTING: Specify cinematic lighting (soft lighting, natural light, studio lighting)
-4. TECHNICAL: Include quality modifiers (masterpiece, best quality, ultra-detailed)
-5. COMPRESS: Optimize for 75-token sweet spot while preserving key details
-
-SDXL-SPECIFIC OPTIMIZATION:
-- Use proven SDXL quality tags: "masterpiece, best quality, ultra detailed"
-- Emphasize lighting: "professional photography, soft lighting, detailed"
-- Anatomical accuracy: "realistic proportions, natural pose, detailed features"
-- Avoid unnecessary words, prioritize visual impact terms
-- Balance detail with token efficiency"""
-
-        if quality == "high":
-            base_prompt += """
-
-HIGH QUALITY MODE:
-- Extend to 100-120 tokens for maximum detail
-- Add advanced technical terms: "photorealistic, hyperdetailed, professional grade"
-- Include specific camera settings: "85mm lens, shallow depth of field"
-- Enhanced lighting details: "rim lighting, volumetric lighting, perfect exposure"
-"""
-        
-        return base_prompt
-
-    @staticmethod 
-    def get_wan_system_prompt(job_type="video_fast", quality="fast"):
-        """WAN 2.1-specific system prompt"""
-        base_prompt = """You are an expert AI prompt engineer specializing in WAN 2.1 video generation and temporal consistency for adult content.
-
-CRITICAL REQUIREMENTS:
-- Target Model: WAN 2.1 T2V 1.3B (motion-focused, 5-second videos)
-- Content Focus: Adult/NSFW content with temporal consistency, smooth motion, cinematic quality
-- Quality Priority: Motion realism, scene coherence, professional cinematography, anatomical accuracy
-
-ENHANCEMENT STRATEGY:
-1. MOTION FIRST: Describe natural, fluid movements and transitions with realistic anatomy
-2. TEMPORAL CONSISTENCY: Ensure elements maintain coherence across frames
-3. CINEMATOGRAPHY: Add professional camera work (smooth pans, steady shots)
-4. SCENE SETTING: Establish clear environment and spatial relationships  
-5. TECHNICAL QUALITY: Video-specific quality terms (smooth motion, stable)
-6. ANATOMICAL ACCURACY: Ensure realistic proportions and natural poses throughout motion
-
-WAN-SPECIFIC OPTIMIZATION:
-- Motion descriptions: "smooth movement, natural motion, fluid transitions"
-- Temporal stability: "consistent lighting, stable composition, coherent scene"
-- Cinematography: "professional camera work, smooth pans, steady shots"
-- Video quality: "high framerate, smooth motion, temporal consistency"
-- Scene coherence: "well-lit environment, clear spatial relationships"
-- Adult content: "realistic anatomy, natural poses, authentic expressions"
-
-TOKEN STRATEGY: 150-250 tokens optimal for detailed motion description"""
-
-        if "7b_enhanced" in job_type:
-            base_prompt += """
-
-QWEN 7B ENHANCED MODE:
-- Leverage full 7B model capabilities for superior enhancement
-- Advanced cinematography: "dynamic camera angles, professional composition"
-- Complex motion: "multi-layered motion, realistic physics, natural timing"
-- Enhanced storytelling: "narrative coherence, emotional resonance"
-- Technical excellence: "broadcast quality, professional grade, cinema-level"
-"""
-
-        return base_prompt
-
-    @staticmethod
-    def get_enhancement_context(job_type, quality_level, model_target):
-        """Generate contextual information for AI enhancement"""
-        return {
-            "job_type": job_type,
-            "quality_level": quality_level, 
-            "target_model": model_target,
-            "token_target": 75 if "sdxl" in job_type else 200,
-            "content_type": "video" if "video" in job_type else "image",
-            "enhancement_level": "enhanced" if "7b" in job_type else "standard"
-        }
-
-# Enhanced prompt generation with context
-def create_enhanced_messages(original_prompt, job_type="sdxl_image_fast", quality="fast"):
-    """Create contextually-aware messages for AI enhancement"""
-    
-    # Determine system prompt based on job type
-    if "sdxl" in job_type:
-        system_prompt = EnhancementSystemPrompts.get_sdxl_system_prompt(job_type, quality)
-        model_context = "SDXL LUSTIFY"
-    elif "video" in job_type or "image" in job_type:
-        system_prompt = EnhancementSystemPrompts.get_wan_system_prompt(job_type, quality)
-        model_context = "WAN 2.1"
-    else:
-        # Fallback
-        system_prompt = EnhancementSystemPrompts.get_sdxl_system_prompt(job_type, quality)
-        model_context = "SDXL LUSTIFY"
-    
-    # Create enhancement context
-    context = EnhancementSystemPrompts.get_enhancement_context(job_type, quality, model_context)
-    
-    # Build intelligent user prompt with context
-    user_prompt = f"""ENHANCEMENT REQUEST:
-Model Target: {context['target_model']}
-Content Type: {context['content_type'].title()}
-Quality Level: {context['quality_level'].title()}
-Token Target: {context['token_target']} tokens optimal
-Enhancement Level: {context['enhancement_level'].title()}
-
-Original Prompt: "{original_prompt}"
-
-Task: Enhance this prompt according to the system requirements above. Focus on {model_context}-specific optimization while maintaining the original creative intent. Ensure the enhancement is optimized for {context['content_type']} generation with {context['quality_level']} quality settings."""
-
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
-
 class ChatWorker:
     def __init__(self):
-        """Initialize Chat Worker with smart memory management"""
+        """Initialize Chat Worker as pure inference engine"""
         self.app = Flask(__name__)
         self.port = 7861
         self.model_loaded = False
@@ -190,7 +68,7 @@ class ChatWorker:
         # Setup Flask routes
         self.setup_routes()
         
-        logger.info("🤖 Chat Worker initialized with optimized model loading and intelligent enhancement")
+        logger.info("🤖 Chat Worker initialized as PURE INFERENCE ENGINE - no hardcoded prompts")
 
     def setup_environment(self):
         """Configure environment variables"""
@@ -330,162 +208,131 @@ class ChatWorker:
             except Exception as e:
                 logger.error(f"❌ Error unloading model: {e}")
 
-    def enhance_prompt(self, original_prompt, enhancement_type="manual", job_type="sdxl_image_fast", quality="fast"):
-        """Enhanced prompt generation using Instruct model with dynamic system prompts"""
+    def generate_inference(self, messages: list, max_tokens: int = 512, temperature: float = 0.7, 
+                          top_p: float = 0.9) -> dict:
+        """
+        Pure inference method - executes exactly what is provided
+        NO MODIFICATION of system prompts or messages
+        """
         if not self.model_loaded:
-            # Try to load model
             if not self.load_qwen_instruct_model():
                 return {
                     'success': False,
                     'error': 'Model not available',
-                    'enhanced_prompt': original_prompt
+                    'response': 'Model is currently unavailable. Please try again later.'
                 }
 
         try:
-            logger.info(f"🤖 Enhancing prompt ({enhancement_type}) for {job_type} with {quality} quality: {original_prompt[:50]}...")
             start_time = time.time()
-
-            # Use dynamic system prompts based on job type and quality
-            messages = create_enhanced_messages(
-                original_prompt=original_prompt,
-                job_type=job_type,
-                quality=quality
+            
+            # Log the messages being processed (for debugging only)
+            logger.info(f"🔄 Processing {len(messages)} messages")
+            for i, msg in enumerate(messages):
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')[:100]
+                logger.info(f"   [{i}] {role}: {content}{'...' if len(msg.get('content', '')) > 100 else ''}")
+            
+            # Apply chat template - NO MODIFICATION
+            text = self.qwen_instruct_tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
             )
-
-            # FIXED: Apply chat template and tokenize properly
-            try:
-                # Apply chat template
-                text = self.qwen_instruct_tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                logger.info(f"🔍 Chat template applied successfully, length: {len(text)}")
-                
-                # Tokenize with explicit parameters
-                inputs = self.qwen_instruct_tokenizer(
-                    text,  # Single string, not list
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=2048
-                )
-                
-                # Verify inputs structure
-                if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
-                    logger.error("❌ Tokenizer output missing input_ids")
-                    return {
-                        'success': False,
-                        'error': 'Tokenization failed - missing input_ids',
-                        'enhanced_prompt': original_prompt
-                    }
-                
-                logger.info(f"✅ Tokenization successful, input shape: {inputs.input_ids.shape}")
-                
-            except Exception as e:
-                logger.error(f"❌ Chat template or tokenization failed: {e}")
+            
+            # Tokenize
+            inputs = self.qwen_instruct_tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=4096
+            )
+            
+            # Verify inputs
+            if 'input_ids' not in inputs:
+                logger.error("❌ Tokenization failed - missing input_ids")
                 return {
                     'success': False,
-                    'error': f'Tokenization error: {str(e)}',
-                    'enhanced_prompt': original_prompt
+                    'error': 'Tokenization failed',
+                    'response': 'I encountered a technical error. Please try again.'
                 }
             
-            # Move to device with better error handling
+            # Move to device with OOM handling
             try:
-                # Handle both dict and object formats
-                if isinstance(inputs, dict):
-                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
-                else:
-                    inputs = inputs.to(self.model_device)
-                logger.info("✅ Inputs moved to device successfully")
-                
+                inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
-                    logger.warning("⚠️ Out of memory during tensor device transfer, attempting cleanup...")
+                    logger.warning("⚠️ OOM during tensor transfer, cleaning up...")
                     torch.cuda.empty_cache()
-                    # Retry once after cleanup
-                    try:
-                        if isinstance(inputs, dict):
-                            inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
-                        else:
-                            inputs = inputs.to(self.model_device)
-                        logger.info("✅ Tensor transfer successful after memory cleanup")
-                    except RuntimeError as retry_e:
-                        logger.error(f"❌ Tensor transfer failed even after cleanup: {retry_e}")
-                        raise
+                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
                 else:
-                    logger.error(f"❌ Device transfer error: {e}")
                     raise
-
-            # Generate enhanced prompt with better parameters
+            
+            # Generate response with OOM handling
             try:
                 with torch.no_grad():
                     generated_ids = self.qwen_instruct_model.generate(
                         **inputs,
-                        max_new_tokens=200,
+                        max_new_tokens=max_tokens,
                         do_sample=True,
-                        temperature=0.7,
-                        top_p=0.9,
+                        temperature=temperature,
+                        top_p=top_p,
                         repetition_penalty=1.1,
                         pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                        # Remove early_stopping as it's not valid for this model
                         use_cache=True
                     )
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
-                    logger.warning("⚠️ Out of memory during generation, attempting cleanup...")
+                    logger.warning("⚠️ OOM during generation, cleaning up and retrying...")
                     torch.cuda.empty_cache()
-                    # Retry generation once after cleanup
-                    try:
-                        with torch.no_grad():
-                            generated_ids = self.qwen_instruct_model.generate(
-                                **inputs,
-                                max_new_tokens=200,
-                                do_sample=True,
-                                temperature=0.7,
-                                top_p=0.9,
-                                repetition_penalty=1.1,
-                                pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                                use_cache=True
-                            )
-                        logger.info("✅ Generation successful after memory cleanup")
-                    except RuntimeError as retry_e:
-                        logger.error(f"❌ Generation failed even after cleanup: {retry_e}")
-                        raise
+                    with torch.no_grad():
+                        generated_ids = self.qwen_instruct_model.generate(
+                            **inputs,
+                            max_new_tokens=max_tokens,
+                            do_sample=True,
+                            temperature=temperature,
+                            top_p=top_p,
+                            repetition_penalty=1.1,
+                            pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                            use_cache=True
+                        )
                 else:
-                    logger.error(f"❌ Generation error: {e}")
                     raise
-
-            # Decode response
-            generated_ids = [
-                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs['input_ids'], generated_ids)
-            ]
             
-            enhanced = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-            enhanced = enhanced.strip()
-
+            # Extract only the new tokens (response)
+            input_length = inputs['input_ids'].shape[1]
+            new_tokens = generated_ids[0][input_length:]
+            response = self.qwen_instruct_tokenizer.decode(new_tokens, skip_special_tokens=True)
+            
+            # Clean response (minimal cleanup only)
+            response = response.strip()
+            
+            # Basic validation
+            if not response:
+                response = "I couldn't generate a proper response. Please try again."
+            
             generation_time = time.time() - start_time
             self.stats['requests_served'] += 1
-
-            logger.info(f"✅ Enhancement completed in {generation_time:.1f}s")
-            logger.info(f"📝 Length: {len(original_prompt)} → {len(enhanced)} chars")
-
+            
+            logger.info(f"✅ Inference completed in {generation_time:.2f}s, response length: {len(response)}")
+            
             return {
                 'success': True,
-                'original_prompt': original_prompt,
-                'enhanced_prompt': enhanced,
+                'response': response,
                 'generation_time': generation_time,
-                'enhancement_type': enhancement_type,
-                'job_type': job_type,
-                'quality': quality
+                'tokens_generated': len(new_tokens),
+                'model_info': {
+                    'model_name': 'Qwen2.5-7B-Instruct',
+                    'inference_engine': 'pure'
+                }
             }
-
+            
         except Exception as e:
-            logger.error(f"❌ Enhancement failed: {e}")
+            logger.error(f"❌ Inference failed: {e}")
             return {
                 'success': False,
                 'error': str(e),
-                'enhanced_prompt': original_prompt
+                'response': 'I encountered an error during inference. Please try again.'
             }
 
     def setup_routes(self):
@@ -499,189 +346,56 @@ class ChatWorker:
                 'status': 'healthy',
                 'model_loaded': self.model_loaded,
                 'uptime': uptime,
-                'stats': self.stats
+                'stats': self.stats,
+                'worker_type': 'pure_inference_engine',
+                'no_hardcoded_prompts': True
             })
-
-        @self.app.route('/enhance', methods=['POST'])
-        def enhance_endpoint():
-            """Simple prompt enhancement using Qwen Instruct model"""
-            try:
-                data = request.get_json()
-                if not data or 'prompt' not in data:
-                    return jsonify({'success': False, 'error': 'Missing prompt'}), 400
-
-                prompt = data['prompt']
-                enhancement_type = data.get('enhancement_type', 'manual')
-                job_type = data.get('job_type', 'sdxl_image_fast')
-                quality = data.get('quality', 'fast')
-                
-                # Use direct Qwen Instruct enhancement
-                result = self.enhance_prompt(
-                    prompt, 
-                    enhancement_type, 
-                    job_type, 
-                    quality
-                )
-                
-                if result['success']:
-                    logger.info(f"✅ Enhancement successful: {len(prompt)} → {len(result['enhanced_prompt'])} chars")
-                    return jsonify(result)
-                else:
-                    logger.error(f"❌ Enhancement failed: {result.get('error', 'Unknown error')}")
-                    return jsonify(result), 500
-
-            except Exception as e:
-                logger.error(f"❌ Enhancement endpoint error: {e}")
-                return jsonify({
-                    'success': False, 
-                    'error': str(e),
-                    'enhanced_prompt': data.get('prompt', '') if data else ''
-                }), 500
-
-        @self.app.route('/enhance/legacy', methods=['POST'])
-        def enhance_endpoint_legacy():
-            """Legacy enhancement endpoint for backward compatibility"""
-            try:
-                data = request.get_json()
-                if not data or 'prompt' not in data:
-                    return jsonify({'success': False, 'error': 'Missing prompt'}), 400
-
-                prompt = data['prompt']
-                enhancement_type = data.get('enhancement_type', 'manual')
-                job_type = data.get('job_type', 'sdxl_image_fast')
-                quality = data.get('quality', 'fast')
-                
-                result = self.enhance_prompt(
-                    prompt, 
-                    enhancement_type, 
-                    job_type, 
-                    quality
-                )
-                
-                if result['success']:
-                    return jsonify(result)
-                else:
-                    return jsonify(result), 500
-
-            except Exception as e:
-                logger.error(f"❌ Legacy enhancement endpoint error: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        @self.app.route('/enhancement/info', methods=['GET'])
-        def enhancement_info():
-            """Get enhancement system information"""
-            try:
-                info = {
-                    'enhancement_system': 'Direct Qwen Instruct Enhancement',
-                    'features': {
-                        'dynamic_system_prompts': True,
-                        'job_type_optimization': True,
-                        'quality_levels': True,
-                        'memory_management': True,
-                        'error_handling': True
-                    },
-                    'supported_job_types': {
-                        'sdxl_image_fast': 'SDXL LUSTIFY fast mode (75 tokens)',
-                        'sdxl_image_high': 'SDXL LUSTIFY high quality (120 tokens)',
-                        'video_fast': 'WAN 2.1 fast mode (175 tokens)',
-                        'video_high': 'WAN 2.1 high quality (250 tokens)',
-                        'wan_7b_enhanced': 'WAN 2.1 + 7B enhanced mode'
-                    },
-                    'model_info': {
-                        'model_name': 'Qwen2.5-7B-Instruct',
-                        'model_loaded': self.model_loaded,
-                        'enhancement_method': 'Direct Qwen Instruct with dynamic prompts'
-                    },
-                    'endpoints': {
-                        '/enhance': 'POST - Simple prompt enhancement',
-                        '/enhance/legacy': 'POST - Legacy enhancement (same as /enhance)',
-                        '/enhancement/info': 'GET - This information'
-                    }
-                }
-                
-                return jsonify(info)
-                
-            except Exception as e:
-                logger.error(f"❌ Enhancement info endpoint error: {e}")
-                return jsonify({'error': str(e)}), 500
 
         @self.app.route('/chat', methods=['POST'])
         def chat_endpoint():
-            """Dedicated conversational chat endpoint for Playground"""
+            """
+            Pure inference endpoint for chat
+            Expects: messages array with system/user/assistant roles
+            NO prompt modification or enhancement
+            """
             try:
                 data = request.get_json()
-                if not data or 'message' not in data:
-                    return jsonify({'success': False, 'error': 'Missing message'}), 400
+                if not data:
+                    return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
 
-                message = data['message']
-                system_prompt = data.get('system_prompt')  # Add this
-                conversation_id = data.get('conversation_id')
-                project_id = data.get('project_id')
-                context_type = data.get('context_type', 'general')
-                conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
+                # Extract messages - they should come from edge function with proper system prompt
+                messages = data.get('messages', [])
+                if not messages:
+                    return jsonify({'success': False, 'error': 'No messages provided'}), 400
+
+                # Extract generation parameters
+                max_tokens = data.get('max_tokens', 512)
+                temperature = data.get('temperature', 0.7)
+                top_p = data.get('top_p', 0.9)
                 
-                logger.info(f"💬 Chat request: {message[:50]}... (conversation: {conversation_id})")
+                # Validate messages format
+                if not isinstance(messages, list):
+                    return jsonify({'success': False, 'error': 'Messages must be an array'}), 400
                 
-                # Generate conversational response
-                result = self.generate_chat_response(
-                    message=message,
-                    system_prompt=system_prompt,  # Add this
-                    conversation_id=conversation_id,
-                    project_id=project_id,
-                    context_type=context_type,
-                    conversation_history=conversation_history
+                for msg in messages:
+                    if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                        return jsonify({'success': False, 'error': 'Invalid message format'}), 400
+                    if msg['role'] not in ['system', 'user', 'assistant']:
+                        return jsonify({'success': False, 'error': f'Invalid role: {msg["role"]}'}), 400
+                
+                logger.info(f"💬 Chat inference request with {len(messages)} messages")
+                
+                # Execute pure inference
+                result = self.generate_inference(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p
                 )
                 
                 if result['success']:
-                    # Log the complete raw response for debugging
-                    logger.info(f"🔍 COMPLETE CHAT WORKER RESPONSE DATA:")
-                    logger.info(f"   Raw result: {result}")
-                    logger.info(f"   Response field: {result.get('response', 'MISSING')}")
-                    logger.info(f"   Response type: {type(result.get('response'))}")
-                    logger.info(f"   Response length: {len(result.get('response', ''))}")
-                    
-                    # Validate response structure
-                    if 'response' not in result:
-                        logger.error("❌ Response field missing from worker result")
-                        return jsonify({
-                            'success': False,
-                            'error': 'Worker response missing response field',
-                            'response': 'I apologize, but I encountered a technical error. Please try again.'
-                        }), 500
-                    
-                    response_text = result['response']
-                    if not isinstance(response_text, str):
-                        logger.error(f"❌ Response field is not a string: {type(response_text)}")
-                        return jsonify({
-                            'success': False,
-                            'error': 'Worker response field is not a string',
-                            'response': 'I apologize, but I encountered a technical error. Please try again.'
-                        }), 500
-                    
-                    # Check for response content issues
-                    if len(response_text) == 0:
-                        logger.error("❌ Response is empty string")
-                        response_text = "I apologize, but I couldn't generate a proper response. Please try again."
-                    elif response_text.strip() == "":
-                        logger.error("❌ Response is whitespace only")
-                        response_text = "I apologize, but I couldn't generate a proper response. Please try again."
-                    
-                    logger.info(f"✅ Chat response generated in {result.get('generation_time', 0):.1f}s")
-                    logger.info(f"📝 Final response length: {len(response_text)} characters")
-                    
-                    return jsonify({
-                        'success': True,
-                        'response': response_text,
-                        'generation_time': result.get('generation_time'),
-                        'conversation_id': conversation_id,
-                        'context_type': context_type,
-                        'message_id': result.get('message_id'),
-                        'system_prompt_used': result.get('system_prompt_used', False),
-                        'response_length': result.get('response_length', len(response_text)),
-                        'model_info': result.get('model_info', {})
-                    })
+                    return jsonify(result)
                 else:
-                    logger.error(f"❌ Worker returned error: {result}")
                     return jsonify(result), 500
                     
             except Exception as e:
@@ -689,168 +403,140 @@ class ChatWorker:
                 return jsonify({
                     'success': False,
                     'error': str(e),
-                    'response': 'I apologize, but I encountered an error. Please try again.'
+                    'response': 'I encountered an error. Please try again.'
                 }), 500
 
-
-
-        @self.app.route('/chat/debug/system-prompt', methods=['POST'])
-        def debug_system_prompt():
-            """Debug endpoint to test system prompt handling"""
+        @self.app.route('/enhance', methods=['POST'])
+        def enhance_endpoint():
+            """
+            Pure inference endpoint for enhancement
+            Expects: messages array with enhancement system prompt from edge function
+            NO hardcoded enhancement logic
+            """
             try:
                 data = request.get_json()
-                if not data or 'message' not in data:
-                    return jsonify({'success': False, 'error': 'Missing message'}), 400
+                if not data:
+                    return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
 
-                message = data['message']
-                system_prompt = data.get('system_prompt')
-                context_type = data.get('context_type', 'general')
-                conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
+                # Extract messages - they should come from edge function with proper enhancement system prompt
+                messages = data.get('messages', [])
+                if not messages:
+                    return jsonify({'success': False, 'error': 'No messages provided'}), 400
+
+                # Extract generation parameters optimized for enhancement
+                max_tokens = data.get('max_tokens', 200)  # Shorter for prompts
+                temperature = data.get('temperature', 0.7)
+                top_p = data.get('top_p', 0.9)
                 
-                logger.info(f"🔍 Debug system prompt request: {message[:50]}...")
+                logger.info(f"🎨 Enhancement inference request with {len(messages)} messages")
                 
-                # Build messages to see what would be used
-                messages = self.build_conversation_messages(
-                    message=message,
-                    system_prompt=system_prompt,
-                    context_type=context_type,
-                    conversation_history=conversation_history
+                # Execute pure inference
+                result = self.generate_inference(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p
                 )
                 
-                # Extract the system prompt that would be used
-                final_system_prompt = None
-                for msg in messages:
-                    if msg.get("role") == "system":
-                        final_system_prompt = msg.get("content", "")
-                        break
-                
-                debug_info = {
-                    'success': True,
-                    'message': message,
-                    'system_prompt_provided': system_prompt,
-                    'context_type': context_type,
-                    'final_system_prompt': final_system_prompt,
-                    'message_count': len(messages),
-                    'conversation_history_count': len(conversation_history)
-                }
-                
-                return jsonify(debug_info)
-                
+                if result['success']:
+                    # For enhancement, also provide original prompt tracking
+                    enhanced_prompt = result['response']
+                    return jsonify({
+                        'success': True,
+                        'enhanced_prompt': enhanced_prompt,
+                        'generation_time': result['generation_time'],
+                        'tokens_generated': result['tokens_generated'],
+                        'model_info': result['model_info']
+                    })
+                else:
+                    return jsonify(result), 500
+                    
             except Exception as e:
-                logger.error(f"❌ Debug system prompt endpoint error: {e}")
+                logger.error(f"❌ Enhancement endpoint error: {e}")
                 return jsonify({
                     'success': False,
-                    'error': str(e)
+                    'error': str(e),
+                    'enhanced_prompt': 'Enhancement failed. Using original prompt.'
                 }), 500
 
-        @self.app.route('/chat/debug/response-extraction', methods=['POST'])
-        def debug_response_extraction():
-            """Debug endpoint to test response extraction and formatting"""
+        @self.app.route('/generate', methods=['POST'])
+        def generate_endpoint():
+            """
+            Generic inference endpoint
+            Accepts any valid messages array and generation parameters
+            """
             try:
                 data = request.get_json()
-                if not data or 'message' not in data:
-                    return jsonify({'success': False, 'error': 'Missing message'}), 400
+                if not data:
+                    return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
 
-                message = data['message']
-                system_prompt = data.get('system_prompt')
-                context_type = data.get('context_type', 'general')
-                conversation_history = self.validate_conversation_history(data.get('conversation_history', []))
+                messages = data.get('messages', [])
+                if not messages:
+                    return jsonify({'success': False, 'error': 'No messages provided'}), 400
+
+                # Extract all generation parameters
+                max_tokens = data.get('max_tokens', 512)
+                temperature = data.get('temperature', 0.7)
+                top_p = data.get('top_p', 0.9)
                 
-                logger.info(f"🔍 Debug response extraction request: {message[:50]}...")
+                logger.info(f"⚡ Generic inference request with {len(messages)} messages")
                 
-                # Generate a full response to test extraction
-                result = self.generate_chat_response(
-                    message=message,
-                    system_prompt=system_prompt,
-                    context_type=context_type,
-                    conversation_history=conversation_history
+                result = self.generate_inference(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p
                 )
                 
-                # Build messages for comparison
-                messages = self.build_conversation_messages(
-                    message=message,
-                    system_prompt=system_prompt,
-                    context_type=context_type,
-                    conversation_history=conversation_history
-                )
-                
-                # Apply chat template to see what was sent to model
-                text = self.qwen_instruct_tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                
-                debug_info = {
-                    'success': True,
-                    'worker_result': result,
-                    'messages_built': messages,
-                    'chat_template_output': text,
-                    'system_prompt_provided': system_prompt,
-                    'context_type': context_type,
-                    'conversation_history_count': len(conversation_history),
-                    'response_validation': {
-                        'has_response_field': 'response' in result,
-                        'response_type': type(result.get('response')).__name__ if 'response' in result else 'missing',
-                        'response_length': len(result.get('response', '')),
-                        'response_empty': not result.get('response', '').strip() if 'response' in result else True,
-                        'contains_fragments': any(fragment in result.get('response', '').lower() for fragment in ['user:', 'system:', 'assistant:', '<|im_start|>', '<|im_end|>']) if 'response' in result else False
+                return jsonify(result) if result['success'] else (jsonify(result), 500)
+                    
+            except Exception as e:
+                logger.error(f"❌ Generate endpoint error: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'response': 'Generation failed. Please try again.'
+                }), 500
+
+        @self.app.route('/worker/info', methods=['GET'])
+        def worker_info():
+            """Get worker information and capabilities"""
+            return jsonify({
+                'worker_type': 'pure_inference_engine',
+                'model': 'Qwen2.5-7B-Instruct',
+                'capabilities': {
+                    'chat': True,
+                    'enhancement': True,
+                    'generation': True,
+                    'hardcoded_prompts': False,
+                    'prompt_modification': False,
+                    'pure_inference': True
+                },
+                'endpoints': {
+                    '/chat': 'POST - Chat inference with messages array',
+                    '/enhance': 'POST - Enhancement inference with messages array',
+                    '/generate': 'POST - Generic inference with messages array',
+                    '/health': 'GET - Health check',
+                    '/worker/info': 'GET - This information'
+                },
+                'model_loaded': self.model_loaded,
+                'stats': self.stats,
+                'message_format': {
+                    'required': ['messages'],
+                    'optional': ['max_tokens', 'temperature', 'top_p'],
+                    'example': {
+                        'messages': [
+                            {'role': 'system', 'content': 'System prompt from edge function'},
+                            {'role': 'user', 'content': 'User message'}
+                        ],
+                        'max_tokens': 512,
+                        'temperature': 0.7,
+                        'top_p': 0.9
                     }
                 }
-                
-                return jsonify(debug_info)
-                
-            except Exception as e:
-                logger.error(f"❌ Debug response extraction endpoint error: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': str(e)
-                }), 500
-
-        @self.app.route('/chat/health', methods=['GET'])
-        def chat_health():
-            """Health check specifically for chat functionality"""
-            return jsonify({
-                'status': 'healthy',
-                'chat_ready': self.model_loaded,
-                'endpoints': {
-                    '/chat': 'POST - Conversational chat',
-                    '/chat/debug/system-prompt': 'POST - Debug system prompt handling',
-                    '/chat/debug/response-extraction': 'POST - Debug response extraction and formatting',
-                    '/enhance': 'POST - Simple prompt enhancement', 
-                    '/health': 'GET - General health check'
-                },
-                'system_prompt_features': {
-                    'custom_system_prompts': True,
-                    'pure_inference_engine': True,
-                    'debug_endpoint': True,
-                    'comprehensive_logging': True,
-                    'response_validation': True,
-                    'error_handling': True
-                },
-                'response_handling': {
-                    'size_limit': '10KB',
-                    'fragment_detection': True,
-                    'empty_response_handling': True,
-                    'format_validation': True
-                },
-                'model_info': {
-                    'loaded': self.model_loaded,
-                    'model_name': 'Qwen2.5-7B-Instruct' if self.model_loaded else None,
-                    'memory_usage': self.get_memory_info()
-                },
-                'timestamp': time.time()
             })
 
-        @self.app.route('/admin', methods=['POST'])
-        def admin_endpoint():
-            """Admin utilities endpoint (future implementation)"""
-            return jsonify({
-                'success': False,
-                'error': 'Admin endpoint not yet implemented',
-                'message': 'Coming soon in Phase 2'
-            }), 501
-
+        # Memory management endpoints
         @self.app.route('/memory/status', methods=['GET'])
         def memory_status():
             """Memory status endpoint"""
@@ -866,7 +552,6 @@ class ChatWorker:
                     'model_loaded': self.model_loaded
                 }
                 
-                # Add device information if model is loaded
                 if self.model_loaded and hasattr(self, 'model_device'):
                     response['model_device'] = str(self.model_device)
                     response['device_type'] = 'cuda' if 'cuda' in str(self.model_device) else 'cpu'
@@ -887,417 +572,20 @@ class ChatWorker:
             success = self.load_qwen_instruct_model(force=True)
             return jsonify({'success': success, 'message': 'Model load attempted'})
 
-        @self.app.route('/model/info', methods=['GET'])
-        def model_info():
-            """Get detailed model information"""
-            if not self.model_loaded:
-                return jsonify({'error': 'Model not loaded'}), 404
-            
-            try:
-                info = {
-                    'model_loaded': True,
-                    'model_path': self.instruct_model_path,
-                    'model_device': str(self.model_device),
-                    'device_type': 'cuda' if 'cuda' in str(self.model_device) else 'cpu',
-                    'model_parameters': sum(p.numel() for p in self.qwen_instruct_model.parameters()),
-                    'model_size_gb': sum(p.numel() * p.element_size() for p in self.qwen_instruct_model.parameters()) / (1024**3),
-                    'is_eval_mode': self.qwen_instruct_model.training == False,
-                    'torch_version': torch.__version__,
-                    'cuda_available': torch.cuda.is_available()
-                }
-                
-                if torch.cuda.is_available():
-                    info['cuda_version'] = torch.version.cuda
-                    info['gpu_name'] = torch.cuda.get_device_name(0)
-                
-                return jsonify(info)
-            except Exception as e:
-                return jsonify({'error': f'Failed to get model info: {str(e)}'}), 500
-
     def start_server(self):
         """Start the Flask server"""
         try:
             # Load model at startup if possible
-            logger.info("🚀 Starting Chat Worker server...")
+            logger.info("🚀 Starting Chat Worker as PURE INFERENCE ENGINE...")
             self.load_qwen_instruct_model()
             
             # Start Flask server
-            logger.info(f"🌐 Chat Worker listening on port {self.port}")
+            logger.info(f"🌐 Pure Inference Chat Worker listening on port {self.port}")
             self.app.run(host='0.0.0.0', port=self.port, debug=False, threaded=True)
             
         except Exception as e:
             logger.error(f"❌ Server startup failed: {e}")
             raise
-
-    def generate_chat_response(self, message: str, system_prompt: str = None, conversation_id: str = None, 
-                             project_id: str = None, context_type: str = 'general',
-                             conversation_history: list = None) -> dict:
-        """Generate conversational response using Qwen Instruct model"""
-        
-        if not self.model_loaded:
-            if not self.load_qwen_instruct_model():
-                return {
-                    'success': False,
-                    'error': 'Model not available',
-                    'response': 'I apologize, but the chat service is currently unavailable. Please try again later.'
-                }
-
-        try:
-            start_time = time.time()
-            
-            # Log system prompt usage for debugging
-            if system_prompt:
-                logger.info(f"🎭 Custom system prompt provided: {system_prompt[:100]}...")
-            else:
-                logger.info(f"🔧 No system prompt provided - using empty system prompt")
-            
-            # Build conversation messages with provided system prompt
-            messages = self.build_conversation_messages(
-                message=message,
-                system_prompt=system_prompt,
-                context_type=context_type,
-                project_id=project_id,
-                conversation_history=conversation_history or []
-            )
-            
-            # Log the final system prompt being used
-            final_system_prompt = None
-            for msg in messages:
-                if msg.get("role") == "system":
-                    final_system_prompt = msg.get("content", "")
-                    break
-            
-            if final_system_prompt:
-                logger.info(f"📝 Final system prompt: {final_system_prompt[:100]}...")
-            
-            # Apply chat template
-            text = self.qwen_instruct_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            
-            # Tokenize with proper parameters
-            inputs = self.qwen_instruct_tokenizer(
-                text,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=4096  # Increased for conversation context
-            )
-            
-            # Verify inputs structure
-            if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
-                logger.error(f"❌ Tokenizer output missing input_ids: {type(inputs)}")
-                return {
-                    'success': False,
-                    'error': 'Tokenization failed - missing input_ids',
-                    'response': 'I apologize, but I encountered a technical error. Please try again.'
-                }
-            
-            logger.info(f"✅ Tokenization successful for chat, input shape: {inputs.input_ids.shape if hasattr(inputs, 'input_ids') else 'unknown'}")
-            
-            # Move to device with better error handling
-            try:
-                # Handle both dict and object formats
-                if isinstance(inputs, dict):
-                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
-                else:
-                    inputs = inputs.to(self.model_device)
-                logger.info("✅ Inputs moved to device successfully for chat")
-                
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    logger.warning("⚠️ Out of memory during tensor device transfer for chat, attempting cleanup...")
-                    torch.cuda.empty_cache()
-                    # Retry once after cleanup
-                    try:
-                        if isinstance(inputs, dict):
-                            inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
-                        else:
-                            inputs = inputs.to(self.model_device)
-                        logger.info("✅ Inputs moved to device successfully after cleanup")
-                    except RuntimeError as retry_e:
-                        logger.error(f"❌ Failed to move inputs to device even after cleanup: {retry_e}")
-                        return {
-                            'success': False,
-                            'error': 'GPU memory insufficient for chat generation',
-                            'response': 'I apologize, but the system is currently experiencing high memory usage. Please try again later.'
-                        }
-                else:
-                    logger.error(f"❌ Device transfer failed for chat: {e}")
-                    return {
-                        'success': False,
-                        'error': f'Device transfer failed: {e}',
-                        'response': 'I apologize, but I encountered a technical error. Please try again.'
-                    }
-            
-            # Generate response
-            with torch.no_grad():
-                outputs = self.qwen_instruct_model.generate(
-                    **inputs,
-                    max_new_tokens=512,
-                    temperature=0.7,
-                    top_p=0.9,
-                    do_sample=True,
-                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                    eos_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                    repetition_penalty=1.1
-                )
-            
-            # Decode response
-            generated_text = self.qwen_instruct_tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # Extract only the new response (remove the input context)
-            input_length = inputs.input_ids.shape[1]
-            response_text = generated_text[input_length:].strip()
-            
-            # Log the raw generated text for debugging
-            logger.info(f"🔍 RAW GENERATED TEXT:")
-            logger.info(f"   Full generated text: {generated_text}")
-            logger.info(f"   Input length: {input_length}")
-            logger.info(f"   Extracted response: {response_text}")
-            
-            # Clean up response
-            if response_text.startswith('<|im_start|>assistant'):
-                response_text = response_text.replace('<|im_start|>assistant\n', '', 1)
-                logger.info(f"   Cleaned assistant tag: {response_text}")
-            if response_text.endswith('<|im_end|>'):
-                response_text = response_text[:-len('<|im_end|>')].strip()
-                logger.info(f"   Cleaned end tag: {response_text}")
-            
-            # Additional cleanup for common issues
-            if response_text.startswith('assistant'):
-                response_text = response_text.replace('assistant', '', 1).strip()
-                logger.info(f"   Cleaned assistant prefix: {response_text}")
-            
-            # Check for conversation history fragments in response
-            if any(fragment in response_text.lower() for fragment in ['user:', 'system:', 'assistant:', '<|im_start|>', '<|im_end|>']):
-                logger.warning(f"⚠️ Response may contain conversation fragments: {response_text[:200]}...")
-            
-            # Ensure we have a response
-            if not response_text:
-                logger.error("❌ Response is empty after extraction and cleanup")
-                response_text = "I apologize, but I couldn't generate a proper response. Please try again."
-            elif response_text.strip() == "":
-                logger.error("❌ Response is whitespace only after cleanup")
-                response_text = "I apologize, but I couldn't generate a proper response. Please try again."
-            
-            generation_time = time.time() - start_time
-            
-            logger.info(f"✅ Chat response generated successfully in {generation_time:.2f}s")
-            logger.info(f"📝 Response length: {len(response_text)} characters")
-            
-            # Log the raw response for debugging
-            logger.info(f"🔍 RAW CHAT WORKER RESPONSE:")
-            logger.info(f"   Response text: {response_text}")
-            logger.info(f"   Response length: {len(response_text)} characters")
-            logger.info(f"   Generation time: {generation_time:.2f}s")
-            
-            # Validate response format and size
-            if len(response_text) > 10000:  # 10KB limit
-                logger.warning(f"⚠️ Response exceeds size limit: {len(response_text)} characters")
-                response_text = response_text[:10000] + "... [truncated]"
-            
-            # Ensure response is not empty or just whitespace
-            if not response_text or response_text.strip() == "":
-                logger.error("❌ Generated response is empty or whitespace only")
-                response_text = "I apologize, but I couldn't generate a proper response. Please try again."
-            
-            # Check for common response format issues
-            if response_text.startswith("system:") or response_text.startswith("user:"):
-                logger.warning("⚠️ Response appears to contain conversation history fragments")
-            
-            return {
-                'success': True,
-                'response': response_text,
-                'generation_time': generation_time,
-                'system_prompt_used': system_prompt is not None,
-                'response_length': len(response_text),
-                'model_info': {
-                    'model_name': 'Qwen 2.5-7B-Instruct',
-                    'architecture': 'pure_inference_engine'
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Chat response generation failed: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'response': 'I apologize, but I encountered an error generating a response. Please try again.'
-            }
-
-    def build_conversation_messages(self, message: str, system_prompt: str = None, context_type: str = 'general',
-                                  project_id: str = None, conversation_history: list = None) -> list:
-        """Build conversation messages list for the model"""
-        messages = []
-        
-        # Add system prompt if provided, otherwise use empty system prompt
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        else:
-            # Use minimal system prompt when none provided
-            messages.append({"role": "system", "content": "You are a helpful AI assistant."})
-        
-        # Add conversation history
-        if conversation_history:
-            for msg in conversation_history:
-                if msg.get('sender') == 'user':
-                    messages.append({"role": "user", "content": msg.get('content', '')})
-                elif msg.get('sender') == 'assistant':
-                    messages.append({"role": "assistant", "content": msg.get('content', '')})
-        
-        # Add current user message
-        messages.append({"role": "user", "content": message})
-        
-        return messages
-
-
-
-    def get_memory_info(self):
-        """Get current memory information for health checks"""
-        try:
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / (1024**3)
-                total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                available = total - allocated
-                
-                return {
-                    'total_vram_gb': round(total, 2),
-                    'allocated_vram_gb': round(allocated, 2),
-                    'available_vram_gb': round(available, 2),
-                    'memory_usage_percent': round((allocated / total) * 100, 1)
-                }
-            else:
-                return {'error': 'CUDA not available'}
-        except Exception as e:
-            return {'error': str(e)}
-
-    def validate_conversation_history(self, history: list) -> list:
-        """Validate and clean conversation history"""
-        if not isinstance(history, list):
-            return []
-        
-        valid_history = []
-        for msg in history:
-            if isinstance(msg, dict) and 'sender' in msg and 'content' in msg:
-                if msg['sender'] in ['user', 'assistant'] and isinstance(msg['content'], str):
-                    valid_history.append({
-                        'sender': msg['sender'],
-                        'content': msg['content'][:2000]  # Limit message length
-                    })
-        
-        return valid_history
-
-    def estimate_context_tokens(self, messages: list) -> int:
-        """Rough estimation of token count for context management"""
-        total_chars = sum(len(msg.get('content', '')) for msg in messages)
-        return total_chars // 4  # Rough estimation: 4 chars ≈ 1 token
-
-
-
-    def _generate_response_with_messages(self, messages: list) -> dict:
-        """Generate response using provided messages (internal method)"""
-        if not self.model_loaded:
-            if not self.load_qwen_instruct_model():
-                return {
-                    'success': False,
-                    'error': 'Model not available',
-                    'response': 'I apologize, but the chat service is currently unavailable. Please try again later.'
-                }
-
-        try:
-            start_time = time.time()
-            
-            # Apply chat template
-            text = self.qwen_instruct_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            
-            # Tokenize with proper parameters
-            inputs = self.qwen_instruct_tokenizer(
-                text,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=4096
-            )
-            
-            # Verify inputs structure
-            if not hasattr(inputs, 'input_ids') and 'input_ids' not in inputs:
-                logger.error(f"❌ Tokenizer output missing input_ids: {type(inputs)}")
-                return {
-                    'success': False,
-                    'error': 'Tokenization failed - missing input_ids',
-                    'response': 'I apologize, but I encountered a technical error. Please try again.'
-                }
-            
-            # Move to device
-            try:
-                if isinstance(inputs, dict):
-                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
-                else:
-                    inputs = inputs.to(self.model_device)
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    torch.cuda.empty_cache()
-                    if isinstance(inputs, dict):
-                        inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
-                    else:
-                        inputs = inputs.to(self.model_device)
-                else:
-                    raise
-            
-            # Generate response
-            with torch.no_grad():
-                generated_ids = self.qwen_instruct_model.generate(
-                    **inputs,
-                    max_new_tokens=600,  # Increased for more detailed responses
-                    do_sample=True,
-                    temperature=0.8,
-                    top_p=0.9,
-                    repetition_penalty=1.1,
-                    pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
-                    use_cache=True
-                )
-            
-            # Decode response
-            try:
-                input_ids = inputs['input_ids'] if isinstance(inputs, dict) else inputs.input_ids
-                generated_ids = [
-                    output_ids[len(input_ids):] for input_ids, output_ids in zip(input_ids, generated_ids)
-                ]
-                
-                response = self.qwen_instruct_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                response = response.strip()
-                
-                if not response:
-                    response = "I understand your message, but I'm having trouble generating a response right now. Could you please rephrase or try again?"
-                    
-            except Exception as decode_error:
-                logger.error(f"❌ Response decoding failed: {decode_error}")
-                response = "I apologize, but I encountered an error while processing my response. Please try again."
-            
-            generation_time = time.time() - start_time
-            self.stats['requests_served'] += 1
-            
-            return {
-                'success': True,
-                'response': response,
-                'generation_time': generation_time,
-                'message_id': f"msg_{int(time.time() * 1000)}"
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Response generation failed: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'response': 'I encountered an error generating a response. Please try again.'
-            }
 
 def auto_register_chat_worker():
     """Auto-register chat worker URL with Supabase"""
@@ -1325,12 +613,17 @@ def auto_register_chat_worker():
         registration_data = {
             "worker_url": worker_url,
             "auto_registered": True,
-            "registration_method": "chat_worker_self_registration",
-            "detection_method": "RUNPOD_POD_ID",
+            "registration_method": "pure_inference_chat_worker",
+            "worker_type": "pure_inference_engine",
+            "capabilities": {
+                "hardcoded_prompts": False,
+                "prompt_modification": False,
+                "pure_inference": True
+            },
             "timestamp": datetime.now().isoformat()
         }
         
-        print(f"📝 Registering Chat Worker with Supabase...")
+        print(f"📝 Registering Pure Inference Chat Worker with Supabase...")
         
         # Call register-chat-worker edge function
         edge_function_url = f"{supabase_url}/functions/v1/register-chat-worker"
@@ -1345,19 +638,16 @@ def auto_register_chat_worker():
             timeout=15
         )
         
-        print(f"📄 Response status: {response.status_code}")
-        
         if response.status_code == 200:
             result = response.json()
             if result.get('success'):
-                print(f"✅ Chat Worker auto-registered successfully!")
+                print(f"✅ Pure Inference Chat Worker registered successfully!")
                 print(f"🎯 URL: {worker_url}")
                 return True
             else:
                 print(f"❌ Registration failed: {result.get('error', 'Unknown error')}")
         else:
             print(f"❌ HTTP error: {response.status_code}")
-            print(f"Response: {response.text}")
         
         return False
         
@@ -1369,7 +659,6 @@ if __name__ == "__main__":
     # Handle shutdown signals
     def signal_handler(signum, frame):
         logger.info(f"🛑 Received signal {signum}, shutting down...")
-        # Cleanup code here if needed
         sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -1378,7 +667,7 @@ if __name__ == "__main__":
     # Start chat worker
     worker = ChatWorker()
     
-    # Start Flask server in a separate thread to allow auto-registration
+    # Start Flask server in a separate thread
     import threading
     
     def start_server_thread():
@@ -1387,7 +676,7 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=start_server_thread, daemon=True)
     server_thread.start()
     
-    # Wait a moment for server to be ready
+    # Wait for server to be ready
     time.sleep(3)
     
     # Auto-register with Supabase
@@ -1398,5 +687,5 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.info("🛑 Shutting down Chat Worker...")
+        logger.info("🛑 Shutting down Pure Inference Chat Worker...")
         sys.exit(0)
