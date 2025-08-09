@@ -49,17 +49,39 @@ class ChatWorker:
         self.model_loaded = False
         self.loading_lock = threading.Lock()
         
-        # Model paths - using verified working paths
-        self.instruct_model_path = "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28"
+        # Model paths - allow env override; verified defaults
+        self.instruct_model_path = os.getenv(
+            'QWEN_INSTRUCT_PATH',
+            "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28"
+        )
+        self.base_model_path = os.getenv(
+            'QWEN_BASE_PATH',
+            "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
+        )
+
+        # Instruct (safety-tuned) model
         self.qwen_instruct_model = None
         self.qwen_instruct_tokenizer = None
+        self.instruct_model_device = None
+
+        # Base (no extra safety) model
+        self.qwen_base_model = None
+        self.qwen_base_tokenizer = None
+        self.base_model_device = None
+
+        # Active model tracking
+        self.active_model_type = 'instruct'  # one of: 'instruct' | 'base'
+        self.sfw_filters_enabled_by_default = False
         
         # Performance tracking
         self.stats = {
             'requests_served': 0,
             'model_loads': 0,
             'model_unloads': 0,
-            'startup_time': time.time()
+            'startup_time': time.time(),
+            'sfw_requests': 0,
+            'base_model_uses': 0,
+            'instruct_model_uses': 0
         }
         
         # Setup environment
@@ -85,6 +107,26 @@ class ChatWorker:
             os.environ[key] = value
         
         logger.info("✅ Environment configured")
+
+    def apply_sfw_filters(self, text: str) -> str:
+        """Apply minimal SFW redaction when explicitly requested by the user.
+        Keeps semantics but masks explicit terms to meet SFW mode requirements."""
+        try:
+            if not text:
+                return text
+            redactions = [
+                'sex', 'sexual', 'explicit', 'porn', 'pornographic', 'nsfw',
+                'cum', 'orgasm', 'anal', 'vagina', 'penis', 'breast', 'boobs',
+                'blowjob', 'handjob', 'fuck', 'fucking', 'suck', 'lick', 'moan',
+                'nude', 'naked'
+            ]
+            sanitized = text
+            for term in redactions:
+                for variant in (term, term.capitalize(), term.upper()):
+                    sanitized = sanitized.replace(variant, '▇▇')
+            return sanitized
+        except Exception:
+            return text
 
     def log_gpu_memory(self):
         """Log current GPU memory usage"""
@@ -144,7 +186,7 @@ class ChatWorker:
                 )
                 
                 # Store the actual device for consistent tensor operations
-                self.model_device = next(self.qwen_instruct_model.parameters()).device
+                self.instruct_model_device = next(self.qwen_instruct_model.parameters()).device
                 
                 # Set model to evaluation mode (disable dropout, etc.)
                 self.qwen_instruct_model.eval()
@@ -163,10 +205,11 @@ class ChatWorker:
                 logger.info("🔍 Validating model with test inference...")
                 test_input = self.qwen_instruct_tokenizer(["test"], return_tensors="pt")
                 with torch.no_grad():
-                    _ = self.qwen_instruct_model(**test_input.to(self.model_device))
+                    _ = self.qwen_instruct_model(**test_input.to(self.instruct_model_device))
                 logger.info("✅ Model validation successful")
 
                 load_time = time.time() - load_start
+                # Mark as loaded
                 self.model_loaded = True
                 self.stats['model_loads'] += 1
                 
@@ -178,13 +221,14 @@ class ChatWorker:
                 logger.error(f"❌ Failed to load Qwen Instruct: {e}")
                 self.qwen_instruct_model = None
                 self.qwen_instruct_tokenizer = None
-                self.model_loaded = False
+                # Keep model_loaded reflecting if base is present
+                self.model_loaded = self.qwen_base_model is not None
                 return False
 
     def unload_qwen_instruct_model(self):
         """Unload Qwen Instruct model to free memory"""
         with self.loading_lock:
-            if not self.model_loaded:
+            if self.qwen_instruct_model is None:
                 logger.info("ℹ️ Qwen Instruct already unloaded")
                 return
 
@@ -198,7 +242,8 @@ class ChatWorker:
                 
                 self.qwen_instruct_model = None
                 self.qwen_instruct_tokenizer = None
-                self.model_loaded = False
+                # Reflect global state
+                self.model_loaded = self.qwen_base_model is not None
                 self.stats['model_unloads'] += 1
                 
                 torch.cuda.empty_cache()
@@ -208,19 +253,132 @@ class ChatWorker:
             except Exception as e:
                 logger.error(f"❌ Error unloading model: {e}")
 
+    def load_qwen_base_model(self, force=False):
+        """Load Qwen 2.5-7B Base model (reduced safety filtering)."""
+        with self.loading_lock:
+            if self.qwen_base_model is not None and not force:
+                logger.info("✅ Qwen Base already loaded")
+                return True
+
+            if not os.path.exists(self.base_model_path):
+                logger.error(f"❌ Base model not found: {self.base_model_path}")
+                return False
+
+            if not self.check_memory_available(15):
+                logger.warning("⚠️ Insufficient VRAM for Qwen Base model")
+                return False
+
+            try:
+                logger.info("🔄 Loading Qwen 2.5-7B Base model...")
+                load_start = time.time()
+
+                # Load tokenizer
+                self.qwen_base_tokenizer = AutoTokenizer.from_pretrained(
+                    self.base_model_path,
+                    trust_remote_code=True,
+                    local_files_only=True
+                )
+
+                # Ensure pad token exists for base models
+                if self.qwen_base_tokenizer.pad_token is None:
+                    self.qwen_base_tokenizer.pad_token = self.qwen_base_tokenizer.eos_token
+
+                # Load model
+                self.qwen_base_model = AutoModelForCausalLM.from_pretrained(
+                    self.base_model_path,
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                    trust_remote_code=True,
+                    local_files_only=True
+                )
+
+                self.qwen_base_model.eval()
+                self.base_model_device = next(self.qwen_base_model.parameters()).device
+
+                torch.cuda.empty_cache()
+
+                try:
+                    self.qwen_base_model = torch.compile(self.qwen_base_model)
+                    logger.info("✅ PyTorch 2.0 compilation applied (base)")
+                except Exception as e:
+                    logger.info(f"ℹ️ PyTorch 2.0 compilation not available (base): {e}")
+
+                # Simple validation
+                logger.info("🔍 Validating base model with test inference...")
+                test_input = self.qwen_base_tokenizer(["test"], return_tensors="pt")
+                with torch.no_grad():
+                    _ = self.qwen_base_model(**test_input.to(self.base_model_device))
+                logger.info("✅ Base model validation successful")
+
+                load_time = time.time() - load_start
+                self.model_loaded = True
+                self.stats['model_loads'] += 1
+                logger.info(f"✅ Qwen Base loaded in {load_time:.1f}s")
+                self.log_gpu_memory()
+                return True
+
+            except Exception as e:
+                logger.error(f"❌ Failed to load Qwen Base: {e}")
+                self.qwen_base_model = None
+                self.qwen_base_tokenizer = None
+                # Reflect instruct state
+                self.model_loaded = self.qwen_instruct_model is not None
+                return False
+
+    def unload_qwen_base_model(self):
+        """Unload Qwen Base model to free memory."""
+        with self.loading_lock:
+            if self.qwen_base_model is None:
+                logger.info("ℹ️ Qwen Base already unloaded")
+                return
+
+            try:
+                logger.info("🗑️ Unloading Qwen Base model...")
+                del self.qwen_base_model
+                del self.qwen_base_tokenizer
+                self.qwen_base_model = None
+                self.qwen_base_tokenizer = None
+                self.model_loaded = self.qwen_instruct_model is not None
+                self.stats['model_unloads'] += 1
+                torch.cuda.empty_cache()
+                logger.info("✅ Qwen Base unloaded")
+                self.log_gpu_memory()
+            except Exception as e:
+                logger.error(f"❌ Error unloading base model: {e}")
+
     def generate_inference(self, messages: list, max_tokens: int = 512, temperature: float = 0.7, 
-                          top_p: float = 0.9) -> dict:
+                          top_p: float = 0.9, use_base_model: bool = False) -> dict:
         """
         Pure inference method - executes exactly what is provided
         NO MODIFICATION of system prompts or messages
         """
-        if not self.model_loaded:
-            if not self.load_qwen_instruct_model():
-                return {
-                    'success': False,
-                    'error': 'Model not available',
-                    'response': 'Model is currently unavailable. Please try again later.'
-                }
+        # Ensure requested model is available
+        if use_base_model:
+            if self.qwen_base_model is None:
+                if not self.load_qwen_base_model():
+                    return {
+                        'success': False,
+                        'error': 'Base model not available',
+                        'response': 'Model is currently unavailable. Please try again later.'
+                    }
+            self.active_model_type = 'base'
+            self.stats['base_model_uses'] += 1
+            model = self.qwen_base_model
+            tokenizer = self.qwen_base_tokenizer
+            device = self.base_model_device
+        else:
+            if self.qwen_instruct_model is None:
+                if not self.load_qwen_instruct_model():
+                    return {
+                        'success': False,
+                        'error': 'Instruct model not available',
+                        'response': 'Model is currently unavailable. Please try again later.'
+                    }
+            self.active_model_type = 'instruct'
+            self.stats['instruct_model_uses'] += 1
+            model = self.qwen_instruct_model
+            tokenizer = self.qwen_instruct_tokenizer
+            device = self.instruct_model_device
 
         try:
             start_time = time.time()
@@ -232,15 +390,25 @@ class ChatWorker:
                 content = msg.get('content', '')[:100]
                 logger.info(f"   [{i}] {role}: {content}{'...' if len(msg.get('content', '')) > 100 else ''}")
             
-            # Apply chat template - NO MODIFICATION
-            text = self.qwen_instruct_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
+            # Apply chat template if available; otherwise, minimal, role-preserving fallback
+            try:
+                text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+            except Exception:
+                logger.info("ℹ️ Chat template unavailable for selected tokenizer - using fallback formatting")
+                parts = []
+                for m in messages:
+                    role = m.get('role', 'user')
+                    content = m.get('content', '')
+                    parts.append(f"{role}: {content}")
+                parts.append("assistant:")
+                text = "\n".join(parts)
             
             # Tokenize
-            inputs = self.qwen_instruct_tokenizer(
+            inputs = tokenizer(
                 text,
                 return_tensors="pt",
                 padding=True,
@@ -259,26 +427,26 @@ class ChatWorker:
             
             # Move to device with OOM handling
             try:
-                inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                inputs = {k: v.to(device) for k, v in inputs.items()}
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
                     logger.warning("⚠️ OOM during tensor transfer, cleaning up...")
                     torch.cuda.empty_cache()
-                    inputs = {k: v.to(self.model_device) for k, v in inputs.items()}
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
                 else:
                     raise
             
             # Generate response with OOM handling
             try:
                 with torch.no_grad():
-                    generated_ids = self.qwen_instruct_model.generate(
+                    generated_ids = model.generate(
                         **inputs,
                         max_new_tokens=max_tokens,
                         do_sample=True,
                         temperature=temperature,
                         top_p=top_p,
                         repetition_penalty=1.1,
-                        pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                        pad_token_id=tokenizer.eos_token_id,
                         use_cache=True
                     )
             except RuntimeError as e:
@@ -286,14 +454,14 @@ class ChatWorker:
                     logger.warning("⚠️ OOM during generation, cleaning up and retrying...")
                     torch.cuda.empty_cache()
                     with torch.no_grad():
-                        generated_ids = self.qwen_instruct_model.generate(
+                        generated_ids = model.generate(
                             **inputs,
                             max_new_tokens=max_tokens,
                             do_sample=True,
                             temperature=temperature,
                             top_p=top_p,
                             repetition_penalty=1.1,
-                            pad_token_id=self.qwen_instruct_tokenizer.eos_token_id,
+                            pad_token_id=tokenizer.eos_token_id,
                             use_cache=True
                         )
                 else:
@@ -302,7 +470,7 @@ class ChatWorker:
             # Extract only the new tokens (response)
             input_length = inputs['input_ids'].shape[1]
             new_tokens = generated_ids[0][input_length:]
-            response = self.qwen_instruct_tokenizer.decode(new_tokens, skip_special_tokens=True)
+            response = tokenizer.decode(new_tokens, skip_special_tokens=True)
             
             # Clean response (minimal cleanup only)
             response = response.strip()
@@ -322,8 +490,9 @@ class ChatWorker:
                 'generation_time': generation_time,
                 'tokens_generated': len(new_tokens),
                 'model_info': {
-                    'model_name': 'Qwen2.5-7B-Instruct',
-                    'inference_engine': 'pure'
+                    'model_name': 'Qwen2.5-7B-Base' if use_base_model else 'Qwen2.5-7B-Instruct',
+                    'inference_engine': 'pure',
+                    'active_model_type': self.active_model_type
                 }
             }
             
@@ -372,6 +541,16 @@ class ChatWorker:
                 max_tokens = data.get('max_tokens', 512)
                 temperature = data.get('temperature', 0.7)
                 top_p = data.get('top_p', 0.9)
+
+                # SFW mode is opt-in; default is unrestricted
+                sfw_mode = bool(data.get('sfw_mode', False))
+                if sfw_mode:
+                    self.stats['sfw_requests'] += 1
+
+                # Explicit model override (default instruct)
+                requested_model = str(data.get('model', 'qwen_instruct')).lower()
+                use_base = requested_model == 'qwen_base'
+                logger.info(f"🧩 Model selection → base={use_base} (requested_model={requested_model}), sfw_mode={sfw_mode}")
                 
                 # Validate messages format
                 if not isinstance(messages, list):
@@ -390,8 +569,16 @@ class ChatWorker:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    top_p=top_p
+                    top_p=top_p,
+                    use_base_model=use_base
                 )
+
+                # Apply SFW filtering only if explicitly requested
+                if result.get('success') and sfw_mode:
+                    result['response'] = self.apply_sfw_filters(result['response'])
+                    result['sfw_mode'] = True
+                    if 'model_info' in result:
+                        result['model_info']['sfw_mode'] = True
                 
                 if result['success']:
                     return jsonify(result)
@@ -427,6 +614,13 @@ class ChatWorker:
                 max_tokens = data.get('max_tokens', 200)  # Shorter for prompts
                 temperature = data.get('temperature', 0.7)
                 top_p = data.get('top_p', 0.9)
+
+                # Optional SFW and explicit model override
+                sfw_mode = bool(data.get('sfw_mode', False))
+                if sfw_mode:
+                    self.stats['sfw_requests'] += 1
+                requested_model = str(data.get('model', 'qwen_instruct')).lower()
+                use_base = requested_model == 'qwen_base'
                 
                 logger.info(f"🎨 Enhancement inference request with {len(messages)} messages")
                 
@@ -435,18 +629,21 @@ class ChatWorker:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    top_p=top_p
+                    top_p=top_p,
+                    use_base_model=use_base
                 )
                 
                 if result['success']:
                     # For enhancement, also provide original prompt tracking
                     enhanced_prompt = result['response']
+                    if sfw_mode:
+                        enhanced_prompt = self.apply_sfw_filters(enhanced_prompt)
                     return jsonify({
                         'success': True,
                         'enhanced_prompt': enhanced_prompt,
                         'generation_time': result['generation_time'],
                         'tokens_generated': result['tokens_generated'],
-                        'model_info': result['model_info']
+                        'model_info': {**result['model_info'], 'sfw_mode': sfw_mode}
                     })
                 else:
                     return jsonify(result), 500
@@ -478,6 +675,13 @@ class ChatWorker:
                 max_tokens = data.get('max_tokens', 512)
                 temperature = data.get('temperature', 0.7)
                 top_p = data.get('top_p', 0.9)
+
+                # Optional SFW and explicit model override
+                sfw_mode = bool(data.get('sfw_mode', False))
+                if sfw_mode:
+                    self.stats['sfw_requests'] += 1
+                requested_model = str(data.get('model', 'qwen_instruct')).lower()
+                use_base = requested_model == 'qwen_base'
                 
                 logger.info(f"⚡ Generic inference request with {len(messages)} messages")
                 
@@ -485,9 +689,16 @@ class ChatWorker:
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    top_p=top_p
+                    top_p=top_p,
+                    use_base_model=use_base
                 )
                 
+                if result.get('success') and sfw_mode:
+                    result['response'] = self.apply_sfw_filters(result['response'])
+                    result['sfw_mode'] = True
+                    if 'model_info' in result:
+                        result['model_info']['sfw_mode'] = True
+
                 return jsonify(result) if result['success'] else (jsonify(result), 500)
                     
             except Exception as e:
@@ -512,18 +723,28 @@ class ChatWorker:
                     'prompt_modification': False,
                     'pure_inference': True
                 },
+                'models_loaded': {
+                    'instruct_loaded': self.qwen_instruct_model is not None,
+                    'base_loaded': self.qwen_base_model is not None,
+                    'active_model_type': self.active_model_type
+                },
+                'model_paths': {
+                    'instruct': self.instruct_model_path,
+                    'base': self.base_model_path
+                },
                 'endpoints': {
                     '/chat': 'POST - Chat inference with messages array',
                     '/enhance': 'POST - Enhancement inference with messages array',
                     '/generate': 'POST - Generic inference with messages array',
                     '/health': 'GET - Health check',
-                    '/worker/info': 'GET - This information'
+                    '/worker/info': 'GET - This information',
+                    '/debug/model': 'GET - Current model/debug status'
                 },
                 'model_loaded': self.model_loaded,
                 'stats': self.stats,
                 'message_format': {
                     'required': ['messages'],
-                    'optional': ['max_tokens', 'temperature', 'top_p'],
+                    'optional': ['max_tokens', 'temperature', 'top_p', 'sfw_mode', 'model'],
                     'example': {
                         'messages': [
                             {'role': 'system', 'content': 'System prompt from edge function'},
@@ -531,9 +752,30 @@ class ChatWorker:
                         ],
                         'max_tokens': 512,
                         'temperature': 0.7,
-                        'top_p': 0.9
+                        'top_p': 0.9,
+                        'sfw_mode': False,
+                        'model': 'qwen_instruct'
                     }
                 }
+            })
+
+        # Debug endpoint
+        @self.app.route('/debug/model', methods=['GET'])
+        def debug_model():
+            """Return current model selection and NSFW-related diagnostics."""
+            return jsonify({
+                'active_model_type': self.active_model_type,
+                'instruct_loaded': self.qwen_instruct_model is not None,
+                'base_loaded': self.qwen_base_model is not None,
+                'paths': {
+                    'instruct': self.instruct_model_path,
+                    'base': self.base_model_path
+                },
+                'devices': {
+                    'instruct': str(self.instruct_model_device) if self.qwen_instruct_model is not None else None,
+                    'base': str(self.base_model_device) if self.qwen_base_model is not None else None
+                },
+                'stats': self.stats
             })
 
         # Memory management endpoints
@@ -549,12 +791,15 @@ class ChatWorker:
                     'total_vram': total,
                     'allocated_vram': allocated,
                     'available_vram': available,
-                    'model_loaded': self.model_loaded
+                    'model_loaded': self.model_loaded,
+                    'instruct_loaded': self.qwen_instruct_model is not None,
+                    'base_loaded': self.qwen_base_model is not None
                 }
                 
-                if self.model_loaded and hasattr(self, 'model_device'):
-                    response['model_device'] = str(self.model_device)
-                    response['device_type'] = 'cuda' if 'cuda' in str(self.model_device) else 'cpu'
+                if self.qwen_instruct_model is not None and self.instruct_model_device is not None:
+                    response['instruct_device'] = str(self.instruct_model_device)
+                if self.qwen_base_model is not None and self.base_model_device is not None:
+                    response['base_device'] = str(self.base_model_device)
                 
                 return jsonify(response)
             else:
@@ -563,19 +808,27 @@ class ChatWorker:
         @self.app.route('/memory/unload', methods=['POST'])
         def force_unload():
             """Force unload model (for memory management)"""
-            self.unload_qwen_instruct_model()
-            return jsonify({'success': True, 'message': 'Model unloaded'})
+            which = request.args.get('which', 'all')
+            if which in ('instruct', 'all'):
+                self.unload_qwen_instruct_model()
+            if which in ('base', 'all'):
+                self.unload_qwen_base_model()
+            return jsonify({'success': True, 'message': f"Unload executed for: {which}"})
 
         @self.app.route('/memory/load', methods=['POST'])
         def force_load():
             """Force load model"""
-            success = self.load_qwen_instruct_model(force=True)
-            return jsonify({'success': success, 'message': 'Model load attempted'})
+            which = request.args.get('which', 'instruct')
+            if which == 'base':
+                success = self.load_qwen_base_model(force=True)
+            else:
+                success = self.load_qwen_instruct_model(force=True)
+            return jsonify({'success': success, 'message': f'{which} model load attempted'})
 
     def start_server(self):
         """Start the Flask server"""
         try:
-            # Load model at startup if possible
+            # Load instruct model at startup if possible
             logger.info("🚀 Starting Chat Worker as PURE INFERENCE ENGINE...")
             self.load_qwen_instruct_model()
             
