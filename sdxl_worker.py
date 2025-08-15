@@ -680,46 +680,69 @@ class LustifySDXLWorker:
         
         return successful_uploads
 
-    def upload_to_supabase(self, file_path, storage_path):
-        """Upload image to Supabase storage with proper Content-Type"""
-        try:
-            # Verify file exists before upload
-            if not Path(file_path).exists():
-                logger.error(f"❌ File does not exist: {file_path}")
-                return None
-                
-            # Get file size for verification
-            file_size = Path(file_path).stat().st_size
+def upload_to_supabase_storage(bucket, path, file_data):
+    """Upload file data to Supabase storage bucket"""
+    try:
+        supabase_url = os.environ.get('SUPABASE_URL')
+        supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
+        
+        if not supabase_url or not supabase_service_key:
+            logger.error("❌ Missing Supabase credentials")
+            return None
+        
+        headers = {
+            'Authorization': f"Bearer {supabase_service_key}",
+            'Content-Type': 'application/octet-stream',
+            'x-upsert': 'true'
+        }
+        
+        response = requests.post(
+            f"{supabase_url}/storage/v1/object/{bucket}/{path}",
+            data=file_data,
+            headers=headers,
+            timeout=60
+        )
+        
+        if response.status_code in [200, 201]:
+            return path
+        else:
+            logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
+            return None
             
-            # Use proper binary upload with explicit Content-Type
-            with open(file_path, 'rb') as file:
-                file_data = file.read()
+    except Exception as e:
+        logger.error(f"❌ Upload error: {e}")
+        return None
+
+    def upload_to_storage(self, images, job_id, user_id, used_seed):
+        """Upload images to workspace-temp bucket only"""
+        uploaded_assets = []
+        
+        for i, image in enumerate(images):
+            # Simple path: workspace-temp/{user_id}/{job_id}/{index}.png
+            storage_path = f"{user_id}/{job_id}/{i}.png"
             
-            headers = {
-                'Authorization': f"Bearer {self.supabase_service_key}",
-                'Content-Type': 'image/png',  # ✅ Explicit PNG content type
-                'x-upsert': 'true'
-            }
+            # Convert image to bytes
+            img_buffer = BytesIO()
+            image.save(img_buffer, format='PNG')
+            img_bytes = img_buffer.getvalue()
             
-            response = requests.post(
-                f"{self.supabase_url}/storage/v1/object/{storage_path}",
-                data=file_data,  # ✅ Raw binary data
-                headers=headers,
-                timeout=60
+            # Upload to workspace-temp bucket
+            upload_result = upload_to_supabase_storage(
+                bucket='workspace-temp',
+                path=storage_path,
+                file_data=img_bytes
             )
             
-            if response.status_code in [200, 201]:
-                # Return relative path within bucket
-                path_parts = storage_path.split('/', 1)
-                relative_path = path_parts[1] if len(path_parts) == 2 else storage_path
-                return relative_path
-            else:
-                logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"❌ Upload error: {e}")
-            return None
+            if upload_result:
+                uploaded_assets.append({
+                    'temp_storage_path': storage_path,
+                    'file_size_bytes': len(img_bytes),
+                    'mime_type': 'image/png',
+                    'generation_seed': used_seed + i,  # Each image gets seed + index
+                    'asset_index': i
+                })
+        
+        return uploaded_assets
 
     def process_job(self, job_data):
         """Process a single SDXL job with CONSISTENT payload structure"""
@@ -863,23 +886,22 @@ class LustifySDXLWorker:
             if not images:
                 raise Exception("Image generation failed")
             
-            # Upload all images
-            job_config = self.job_configs[job_type]
-            upload_urls = self.upload_images_batch(images, job_id, user_id, job_config)
+            # Upload all images to workspace-temp bucket
+            uploaded_assets = self.upload_to_storage(images, job_id, user_id, used_seed)
             
-            if not upload_urls:
+            if not uploaded_assets:
                 raise Exception("All image uploads failed")
             
             total_time = time.time() - start_time
             logger.info(f"✅ SDXL job {job_id} completed in {total_time:.1f}s")
-            logger.info(f"📁 Generated {len(upload_urls)} images")
+            logger.info(f"📁 Generated {len(uploaded_assets)} images")
             logger.info(f"🌱 Seed used: {used_seed}")
             
             # Metadata Fix: Avoid dumping tensors in metadata
             callback_metadata = {
                 'seed': used_seed,
                 'generation_time': total_time,
-                'num_images': len(upload_urls),
+                'num_images': len(uploaded_assets),
                 'job_type': job_type,
                 'original_prompt': original_prompt if original_prompt else prompt,
                 'final_prompt': '[Compel conditioning tensors]' if isinstance(final_prompt, dict) and 'prompt_embeds' in final_prompt else str(final_prompt),
@@ -891,7 +913,7 @@ class LustifySDXLWorker:
             }
             
             # CONSISTENT: Notify completion with standardized parameter names and metadata
-            self.notify_completion(job_id, 'completed', assets=upload_urls, metadata=callback_metadata)
+            self.notify_completion(job_id, 'completed', assets=uploaded_assets, metadata=callback_metadata)
             
         except Exception as e:
             error_msg = str(e)

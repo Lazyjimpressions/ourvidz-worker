@@ -2454,12 +2454,9 @@ Enhanced prompt:"""
             if not is_valid:
                 raise Exception(f"Generated file failed final validation: {validation_msg}")
             
-            # Upload with proper storage path (user-scoped)
-            file_extension = final_config['file_extension']
-            storage_path = f"{job_type}/{user_id}/{video_id}.{file_extension}"
-            
-            print(f"📤 Uploading validated {final_config['content_type']} file to: {storage_path}")
-            relative_path = self.upload_to_supabase(output_file, storage_path)
+            # Upload to workspace-temp bucket
+            print(f"📤 Uploading validated {final_config['content_type']} file to workspace-temp bucket")
+            uploaded_assets = self.upload_video(output_file, job_id, user_id)
             
             # Cleanup temp file
             try:
@@ -2482,10 +2479,10 @@ Enhanced prompt:"""
             }
             
             # CONSISTENT: Success callback with standardized parameters and metadata
-            self.notify_completion(job_id, 'completed', assets=[relative_path], metadata=callback_metadata)
+            self.notify_completion(job_id, 'completed', assets=uploaded_assets, metadata=callback_metadata)
             print(f"🎉 Job {job_id} completed successfully in {total_time:.1f}s")
-            print(f"📁 Output: {relative_path}")
-            print(f"✅ File type: {final_config['content_type']} (.{file_extension})")
+            print(f"📁 Output: {len(uploaded_assets)} assets uploaded")
+            print(f"✅ File type: {final_config['content_type']}")
             if final_config['content_type'] == 'video':
                 effective_fps = 16.67  # Confirmed from successful generation: 100 frames = 6 seconds
                 duration = final_config['frame_num'] / effective_fps
@@ -2597,6 +2594,78 @@ Enhanced prompt:"""
                 sleep_time = min(30, 5 * consecutive_errors)
                 print(f"⏳ Waiting {sleep_time}s before retry...")
                 time.sleep(sleep_time)
+
+def upload_to_supabase_storage(bucket, path, file_data):
+    """Upload file data to Supabase storage bucket"""
+    try:
+        supabase_url = os.environ.get('SUPABASE_URL')
+        supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
+        
+        if not supabase_url or not supabase_service_key:
+            print("❌ Missing Supabase credentials")
+            return None
+        
+        headers = {
+            'Authorization': f"Bearer {supabase_service_key}",
+            'Content-Type': 'application/octet-stream',
+            'x-upsert': 'true'
+        }
+        
+        response = requests.post(
+            f"{supabase_url}/storage/v1/object/{bucket}/{path}",
+            data=file_data,
+            headers=headers,
+            timeout=180
+        )
+        
+        if response.status_code in [200, 201]:
+            return path
+        else:
+            print(f"❌ Upload failed: {response.status_code} - {response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Upload error: {e}")
+        return None
+
+    def upload_video(self, video_path, job_id, user_id):
+        """Upload video to workspace-temp bucket only"""
+        # Simple path: workspace-temp/{user_id}/{job_id}/0.mp4
+        storage_path = f"{user_id}/{job_id}/0.mp4"
+        
+        # Upload to workspace-temp bucket
+        with open(video_path, 'rb') as video_file:
+            upload_result = upload_to_supabase_storage(
+                bucket='workspace-temp',
+                path=storage_path,
+                file_data=video_file.read()
+            )
+        
+        if upload_result:
+            return [{
+                'temp_storage_path': storage_path,
+                'file_size_bytes': os.path.getsize(video_path),
+                'mime_type': 'video/mp4',
+                'generation_seed': getattr(self, 'generation_seed', 0),  # Default to 0 if not set
+                'asset_index': 0,
+                'duration_seconds': self.get_video_duration(video_path)
+            }]
+        else:
+            return []
+
+    def get_video_duration(self, video_path):
+        """Get video duration in seconds"""
+        try:
+            # Simple duration calculation based on frame count and FPS
+            # WAN 1.3B generates at ~16.67 FPS
+            # For now, return a default duration based on file size estimation
+            file_size = os.path.getsize(video_path)
+            # Rough estimation: 1MB ≈ 1 second for MP4
+            estimated_duration = file_size / (1024 * 1024)
+            return max(1.0, estimated_duration)  # Minimum 1 second
+        except Exception as e:
+            print(f"⚠️ Could not determine video duration: {e}")
+            return 5.0  # Default 5 seconds for WAN videos
 
 # Flask server for frontend enhancement API
 if FLASK_AVAILABLE:
