@@ -35,7 +35,8 @@ OurVidz Worker is a **pure inference GPU-accelerated AI content generation syste
   - Two quality tiers: fast (15 steps) and high (25 steps)
   - Optimized for speed: 3-8s per image
   - Memory-efficient with attention slicing and xformers
-  - Proper PNG Content-Type headers for uploads
+  - **Enhanced error handling** - Comprehensive traceback logging and upload progress tracking
+  - **Correct callback format** - Uses `url` field for asset paths as expected by edge functions
   - **Reference image support** with style, composition, and character modes
   - **No business logic** - All parameters provided by edge function
 - **Job Types**: `sdxl_image_fast`, `sdxl_image_high`

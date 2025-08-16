@@ -67,6 +67,8 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **Batch generation**: 1, 3, or 6 images per request
 - **Two quality tiers**: Fast (15 steps) and High (25 steps)
 - **Reference image support**: Style, composition, and character modes
+- **Enhanced error handling**: Comprehensive traceback logging and upload progress tracking
+- **Correct callback format**: Uses `url` field for asset paths as expected by edge functions
 - **Performance**: 30-42s total (3-8s per image)
 
 #### **Enhanced Chat Worker**

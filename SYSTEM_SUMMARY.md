@@ -37,6 +37,8 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 - ✅ **Reference Image Support:** Style, composition, character modes
 - ✅ **NSFW Optimization:** Zero content restrictions
 - ✅ **Memory Efficient:** Attention slicing + xformers
+- ✅ **Enhanced Error Handling:** Comprehensive traceback logging
+- ✅ **Correct Callback Format:** Uses `url` field for asset paths
 
 **API Endpoints:**
 - `GET /health` - Worker health check
