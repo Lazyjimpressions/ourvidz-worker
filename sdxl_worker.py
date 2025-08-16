@@ -682,8 +682,8 @@ class LustifySDXLWorker:
         
         return successful_uploads
 
-    def upload_to_supabase_storage(self, bucket, path, file_data):
-        """Upload file data to Supabase storage bucket"""
+    def upload_to_supabase_storage(self, bucket, path, file_data, content_type='image/png'):
+        """Upload file data to Supabase storage bucket with correct Content-Type"""
         try:
             supabase_url = os.environ.get('SUPABASE_URL')
             supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
@@ -694,7 +694,7 @@ class LustifySDXLWorker:
             
             headers = {
                 'Authorization': f"Bearer {supabase_service_key}",
-                'Content-Type': 'application/octet-stream',
+                'Content-Type': content_type,  # ✅ Use correct Content-Type for PNG
                 'x-upsert': 'true'
             }
             
@@ -725,20 +725,22 @@ class LustifySDXLWorker:
             storage_path = f"{user_id}/{job_id}/{i}.png"
             logger.info(f"📤 Uploading image {i} to workspace-temp/{storage_path}")
             
-            # Convert image to bytes
+            # Convert image to bytes with PNG optimization
             img_buffer = BytesIO()
-            image.save(img_buffer, format='PNG')
+            image.save(img_buffer, format='PNG', optimize=True)  # ✅ Optimize PNG
+            img_buffer.seek(0)  # ✅ Reset buffer position
             img_bytes = img_buffer.getvalue()
             
-            # Upload to workspace-temp bucket
+            # Upload to workspace-temp bucket with correct Content-Type
             upload_result = self.upload_to_supabase_storage(
                 bucket='workspace-temp',
                 path=storage_path,
-                file_data=img_bytes
+                file_data=img_bytes,
+                content_type='image/png'  # ✅ Explicitly set PNG Content-Type
             )
             
             if upload_result:
-                logger.info(f"✅ Successfully uploaded image {i} to workspace-temp/{storage_path}")
+                logger.info(f"✅ Successfully uploaded image {i} to workspace-temp/{storage_path} (Content-Type: image/png)")
                 uploaded_assets.append({
                     'type': 'image',
                     'url': storage_path,  # ✅ Use 'url' field as expected by edge function
@@ -757,6 +759,7 @@ class LustifySDXLWorker:
             else:
                 logger.error(f"❌ Failed to upload image {i} to workspace-temp/{storage_path}")
         
+        logger.info(f"📤 Upload complete: {len(uploaded_assets)}/{len(images)} images uploaded successfully")
         return uploaded_assets
 
     def process_job(self, job_data):
