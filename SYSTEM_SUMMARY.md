@@ -7,13 +7,16 @@
 
 ## 🎯 **System Overview**
 
-OurVidz Worker is a **triple-worker AI content generation system** optimized for RTX 6000 ADA (48GB VRAM) with comprehensive NSFW support, batch processing, and intelligent memory management.
+OurVidz Worker is a **pure inference triple-worker AI content generation system** optimized for RTX 6000 ADA (48GB VRAM). Workers execute exactly what's provided by edge functions - all intelligence lives in the edge function layer.
+
+### **Architecture Philosophy**
+**"Workers are dumb execution engines. All intelligence lives in the edge function."**
 
 ### **Core Capabilities**
-- **14 Job Types** across 3 specialized workers
+- **14 Job Types** across 3 pure inference workers
 - **Batch Image Generation** (1, 3, or 6 images per request)
 - **5 Reference Frame Modes** for video generation
-- **AI Prompt Enhancement** with Qwen 2.5-7B Instruct
+- **Pure Enhancement Inference** with Qwen 2.5-7B models
 - **Zero Content Restrictions** with anatomical accuracy
 - **Smart Memory Management** with emergency handling
 
@@ -41,22 +44,22 @@ OurVidz Worker is a **triple-worker AI content generation system** optimized for
 
 ---
 
-### **💬 Enhanced Chat Worker** (`chat_worker.py`)
+### **💬 Chat Worker** (`chat_worker.py`)
 **Port:** 7861 (dedicated)  
-**Model:** Qwen 2.5-7B Instruct
+**Models:** Qwen 2.5-7B Instruct + Base
 
 **Job Types:**
-- `chat_enhance` - Simple prompt enhancement (1-3s)
-- `chat_conversation` - AI conversation (5-15s)
-- `chat_unrestricted` - NSFW chat (5-15s)
+- `chat_enhance` - Pure enhancement inference (1-3s)
+- `chat_conversation` - Pure chat inference (5-15s)
+- `chat_unrestricted` - Pure NSFW inference (5-15s)
 - `admin_utilities` - System management (<1s)
 
 **Key Features:**
-- ✅ **Dynamic System Prompts:** Custom prompts per conversation
-- ✅ **Unrestricted Mode:** Automatic adult content detection
+- ✅ **Pure Inference:** Executes exactly what's provided
+- ✅ **No Hardcoded Prompts:** All prompts from edge function
+- ✅ **Dual Model Support:** Instruct and Base models
 - ✅ **Memory Management:** Smart loading/unloading
 - ✅ **PyTorch 2.0 Compilation:** Performance optimization
-- ✅ **OOM Error Handling:** Comprehensive retry logic
 
 **API Endpoints:**
 - `POST /chat` - Standard chat conversation
@@ -69,7 +72,7 @@ OurVidz Worker is a **triple-worker AI content generation system** optimized for
 
 ---
 
-### **🎬 Enhanced WAN Worker** (`wan_worker.py`)
+### **🎬 WAN Worker** (`wan_worker.py`)
 **Port:** 7860 (shared with SDXL)  
 **Models:** WAN 2.1 T2V 1.3B + Qwen 2.5-7B Base
 
@@ -78,11 +81,11 @@ OurVidz Worker is a **triple-worker AI content generation system** optimized for
 - **Enhanced:** `image7b_fast_enhanced` (85-100s), `image7b_high_enhanced` (100-240s), `video7b_fast_enhanced` (195-240s), `video7b_high_enhanced` (240+s)
 
 **Key Features:**
+- ✅ **Pure Inference:** Executes exactly what's provided
 - ✅ **5 Reference Frame Modes:** none, single, start, end, both
-- ✅ **AI Enhancement:** Qwen 7B Base prompt improvement
+- ✅ **Internal Auto-Enhancement:** Qwen Base for enhanced job types
 - ✅ **Thread-Safe Timeouts:** Concurrent.futures implementation
 - ✅ **Memory Management:** Model unloading capabilities
-- ✅ **Flask API Integration:** Frontend enhancement endpoints
 
 **API Endpoints:**
 - `GET /health` - Worker health check
@@ -282,7 +285,7 @@ HF_TOKEN=                  # HuggingFace token (optional)
 - **SYSTEM_SUMMARY.md** - This file (Frontend API reference)
 - **WORKER_API.md** - Detailed API specifications and examples
 - **CODEBASE_INDEX.md** - Comprehensive system architecture
-- **CHAT_WORKER_CONSOLIDATED.md** - Chat worker features and NSFW optimization
+- **Configuration/CONFIGURATION_APPROACH.md** - Configuration philosophy and edge function requirements
 - **CLEANUP_SUMMARY.md** - Codebase organization and cleanup details
 
 ---

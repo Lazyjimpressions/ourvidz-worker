@@ -4,14 +4,17 @@
 
 ## System Overview
 
-The `ourvidz-worker` repository manages a comprehensive AI content generation system with three specialized workers orchestrated by a central memory management system. This document provides the frontend AI with complete context of all active workers, Python files, APIs, and system architecture.
+The `ourvidz-worker` repository manages a **pure inference AI content generation system** with three specialized workers that execute exactly what's provided by edge functions. This document provides the frontend AI with complete context of all active workers, Python files, APIs, and system architecture.
+
+### Architecture Philosophy
+**"Workers are dumb execution engines. All intelligence lives in the edge function."**
 
 ### Architecture Components
 
-#### Core Workers
-1. **SDXL Worker** (`sdxl_worker.py`) - High-quality image generation using Stable Diffusion XL with batch processing
-2. **Enhanced Chat Worker** (`chat_worker.py`) - AI conversation and intelligent prompt enhancement using Qwen Instruct
-3. **WAN Worker** (`wan_worker.py`) - Video generation and enhanced image processing using WAN 2.1 with comprehensive reference frame support
+#### Core Workers (Pure Inference)
+1. **SDXL Worker** (`sdxl_worker.py`) - Pure image generation using Stable Diffusion XL with batch processing
+2. **Chat Worker** (`chat_worker.py`) - Pure inference for chat and enhancement using Qwen models
+3. **WAN Worker** (`wan_worker.py`) - Pure video generation using WAN 2.1 with reference frame support
 
 #### System Management
 - **Triple Orchestrator** (`dual_orchestrator.py`) - Central job distribution and worker coordination
@@ -28,9 +31,13 @@ The `ourvidz-worker` repository manages a comprehensive AI content generation sy
 ```
 ourvidz-worker/
 ├── Core Workers/
-│   ├── sdxl_worker.py          # SDXL image generation worker
-│   ├── chat_worker.py          # Enhanced chat and prompt enhancement
-│   └── wan_worker.py           # WAN video and image processing
+│   ├── sdxl_worker.py          # Pure SDXL image generation
+│   ├── chat_worker.py          # Pure chat and enhancement inference
+│   └── wan_worker.py           # Pure WAN video generation
+├── Configuration/
+│   ├── worker_configs.py       # Worker configuration templates
+│   ├── validation_schemas.py   # Request validation schemas
+│   └── CONFIGURATION_APPROACH.md # Configuration philosophy
 ├── System Management/
 │   ├── dual_orchestrator.py    # Central job orchestrator
 │   ├── memory_manager.py       # VRAM and worker management
@@ -49,10 +56,10 @@ ourvidz-worker/
     └── [Historical documentation and test files]
 ```
 
-## Enhanced Chat Worker
+## Chat Worker (Pure Inference)
 
 ### Overview
-The Enhanced Chat Worker provides AI conversation capabilities and intelligent prompt enhancement with NSFW optimization, dynamic system prompts, and performance optimization using Qwen 2.5-7B Instruct.
+The Chat Worker provides **pure inference** for AI conversation and prompt enhancement using Qwen 2.5-7B models. All system prompts and enhancement logic are provided by the edge function - the worker executes exactly what's requested.
 
 ### API Endpoints
 
@@ -92,30 +99,40 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 
 #### Enhancement Endpoints
 
-**POST /enhance** - Simple Prompt Enhancement
+**POST /enhance** - Pure Enhancement Inference
 ```json
 {
-  "prompt": "Original prompt",
-  "config": {
-    "job_type": "sdxl_image_fast|sdxl_image_high|image_fast|image_high|video_fast|video_high",
-    "quality": "high|medium|low"
-  },
-  "metadata": {
-    "nsfw_optimization": true,
-    "anatomical_accuracy": true
-  }
+  "messages": [
+    {
+      "role": "system",
+      "content": "Enhancement system prompt from edge function"
+    },
+    {
+      "role": "user", 
+      "content": "Original prompt to enhance"
+    }
+  ],
+  "max_tokens": 200,
+  "temperature": 0.7,
+  "model": "qwen_instruct|qwen_base"
 }
 ```
 
-**GET /enhancement/info** - Enhancement System Info
+**GET /enhancement/info** - Pure Inference Info
 ```json
 {
-  "enhancement_system": "Direct Qwen Instruct Enhancement",
-  "supported_job_types": ["sdxl_image_fast", "sdxl_image_high", "image_fast", "image_high", "video_fast", "video_high"],
+  "worker_type": "pure_inference_engine",
+  "models_available": ["qwen_instruct", "qwen_base"],
+  "capabilities": {
+    "chat_conversation": true,
+    "prompt_enhancement": true,
+    "no_hardcoded_prompts": true,
+    "pure_inference": true
+  },
   "model_info": {
-    "model_name": "Qwen2.5-7B-Instruct",
-    "model_loaded": true,
-    "enhancement_method": "Direct Qwen Instruct with dynamic prompts"
+    "instruct_model": "Qwen2.5-7B-Instruct",
+    "base_model": "Qwen2.5-7B-Base",
+    "enhancement_method": "Pure inference with edge function prompts"
   }
 }
 ```
@@ -144,30 +161,31 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 }
 ```
 
-### Enhanced Chat Job Payload
+### Chat Worker Pure Inference Payload
 ```json
 {
-  "worker_id": "chat_worker_001",
-  "job_id": "chat_job_123",
-  "prompt": "User input",
-  "config": {
-    "system_prompt": "Custom system prompt",
-    "job_type": "chat_conversation|chat_enhance|chat_unrestricted|admin_utilities",
-    "quality": "high|medium|low"
-  },
-  "metadata": {
-    "unrestricted_mode": false,
-    "nsfw_optimization": true,
-    "user_id": "user_123",
-    "session_id": "session_456"
-  }
+  "messages": [
+    {
+      "role": "system",
+      "content": "System prompt from edge function"
+    },
+    {
+      "role": "user",
+      "content": "User input"
+    }
+  ],
+  "max_tokens": 512,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "model": "qwen_instruct|qwen_base",
+  "sfw_mode": false
 }
 ```
 
-## SDXL Worker
+## SDXL Worker (Pure Inference)
 
 ### Overview
-High-quality image generation using Stable Diffusion XL with NSFW optimization, anatomical accuracy focus, and batch processing support (1, 3, or 6 images per request).
+Pure image generation using Stable Diffusion XL with batch processing support (1, 3, or 6 images per request). Receives complete parameters from edge function and executes exactly what's provided.
 
 ### API Endpoints
 
@@ -190,35 +208,35 @@ High-quality image generation using Stable Diffusion XL with NSFW optimization, 
 }
 ```
 
-### SDXL Job Payload
+### SDXL Pure Inference Payload
 ```json
 {
-  "worker_id": "sdxl_worker_001",
-  "job_id": "sdxl_job_123",
-  "prompt": "Enhanced prompt",
+  "id": "sdxl_job_123",
+  "type": "sdxl_image_fast|sdxl_image_high",
+  "prompt": "Complete prompt from edge function",
+  "user_id": "user_123",
   "config": {
-    "job_type": "sdxl_image_fast|sdxl_image_high",
-    "width": 1024,
-    "height": 1024,
-    "steps": 15,
-    "guidance_scale": 7.5,
-    "seed": 42,
-    "negative_prompt": "Optional negative prompt",
-    "batch_size": 1
+    "num_images": 1|3|6,
+    "steps": 10-50,
+    "guidance_scale": 1.0-20.0,
+    "resolution": "1024x1024",
+    "seed": 0-2147483647,
+    "negative_prompt": "Optional negative prompt"
   },
   "metadata": {
-    "nsfw_optimization": true,
-    "anatomical_accuracy": true,
-    "user_id": "user_123",
-    "reference_image_url": "Optional reference image"
-  }
+    "reference_image_url": "Optional reference image URL",
+    "reference_strength": 0.0-1.0,
+    "reference_type": "style|composition|character"
+  },
+  "compel_enabled": boolean,
+  "compel_weights": "Optional Compel weights"
 }
 ```
 
-## WAN Worker
+## WAN Worker (Pure Inference)
 
 ### Overview
-Video generation and enhanced image processing using WAN 2.1 with comprehensive reference frame support (5 modes), AI prompt enhancement, and NSFW optimization.
+Pure video generation using WAN 2.1 with comprehensive reference frame support (5 modes). Receives complete parameters from edge function and executes exactly what's provided. Includes internal auto-enhancement for enhanced job types.
 
 ### API Endpoints
 
@@ -243,7 +261,7 @@ Video generation and enhanced image processing using WAN 2.1 with comprehensive 
 }
 ```
 
-**POST /enhance** - Prompt Enhancement
+**POST /enhance** - Internal Enhancement (WAN Auto-Enhancement)
 ```json
 {
   "prompt": "Original prompt",
@@ -253,28 +271,28 @@ Video generation and enhanced image processing using WAN 2.1 with comprehensive 
 }
 ```
 
-### WAN Job Payload
+### WAN Pure Inference Payload
 ```json
 {
-  "worker_id": "wan_worker_001",
-  "job_id": "wan_job_123",
-  "prompt": "Enhanced prompt",
+  "id": "wan_job_123",
+  "type": "image_fast|image_high|video_fast|video_high|image7b_fast_enhanced|image7b_high_enhanced|video7b_fast_enhanced|video7b_high_enhanced",
+  "prompt": "Complete prompt from edge function",
+  "user_id": "user_123",
   "config": {
-    "job_type": "image_fast|image_high|video_fast|video_high|image7b_fast_enhanced|image7b_high_enhanced|video7b_fast_enhanced|video7b_high_enhanced",
     "width": 480,
     "height": 832,
-    "frames": 83,
+    "frames": 1-83,
+    "fps": 8-24,
     "reference_mode": "none|single|start|end|both",
-    "reference_image": "base64_encoded_image",
-    "fps": 24
+    "image": "Optional single reference",
+    "first_frame": "Optional start reference",
+    "last_frame": "Optional end reference"
   },
   "metadata": {
-    "nsfw_optimization": true,
-    "anatomical_accuracy": true,
-    "user_id": "user_123",
-    "reference_image_url": "Optional reference image URL",
-    "start_reference_url": "Optional start frame URL",
-    "end_reference_url": "Optional end frame URL"
+    "reference_image_url": "Fallback reference URL",
+    "start_reference_url": "Fallback start URL",
+    "end_reference_url": "Fallback end URL",
+    "reference_strength": 0.0-1.0
   }
 }
 ```
@@ -546,5 +564,42 @@ memory = requests.get("http://memory-manager:8001/memory/status")
 - **`CODEBASE_INDEX.md`**: Comprehensive system architecture and component overview
 - **`CHAT_WORKER_CONSOLIDATED.md`**: Enhanced chat worker features and NSFW optimization
 - **`CLEANUP_SUMMARY.md`**: Codebase cleanup and organization summary
+
+## Edge Function Requirements Summary
+
+### **Pure Inference Architecture**
+All workers are designed as pure inference engines. The edge function must provide:
+
+#### **SDXL Worker Requirements**
+- **Complete Parameters:** All generation parameters (steps, guidance_scale, batch_size, etc.)
+- **Enhanced Prompts:** Pre-enhanced prompts from Chat Worker
+- **Reference Images:** Downloaded and processed reference images
+- **User Validation:** Permissions and content restrictions
+- **Parameter Conversion:** Frontend presets → worker parameters
+
+#### **Chat Worker Requirements**
+- **System Prompts:** Complete system prompts for all contexts
+- **Message Arrays:** Properly formatted message arrays
+- **Model Selection:** Base vs Instruct model choice
+- **User Validation:** Chat permissions and restrictions
+- **Enhancement Context:** Target model and enhancement type
+
+#### **WAN Worker Requirements**
+- **Complete Parameters:** All video generation parameters
+- **Enhanced Prompts:** Pre-enhanced prompts from Chat Worker
+- **Reference Frames:** Downloaded and processed reference images
+- **User Validation:** Video generation permissions
+- **Parameter Conversion:** Frontend presets → worker parameters
+
+### **Frontend Integration**
+- **Parameter Validation:** Validate all parameters before sending to edge function
+- **Callback Processing:** Handle different asset types appropriately
+- **Error Handling:** Implement retry logic for transient failures
+- **Progress Tracking:** Display processing time and queue position
+
+### **Configuration Files**
+- **Configuration/CONFIGURATION_APPROACH.md** - Complete edge function requirements and validation rules
+- **Configuration/worker_configs.py** - Worker configuration templates
+- **Configuration/validation_schemas.py** - Request validation schemas
 
 This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns after the August 16, 2025 cleanup. 
