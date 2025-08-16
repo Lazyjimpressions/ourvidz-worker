@@ -56,6 +56,7 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 ## 📚 Documentation
 
 ### **📋 API Reference**
+- **[SYSTEM_SUMMARY.md](./SYSTEM_SUMMARY.md)** - Frontend API reference for current system structure and capabilities
 - **[WORKER_API.md](./WORKER_API.md)** - Complete API specifications, job types, and reference frame support
 - **[CODEBASE_INDEX.md](./CODEBASE_INDEX.md)** - System architecture and component overview
 - **[CHAT_WORKER_CONSOLIDATED.md](./CHAT_WORKER_CONSOLIDATED.md)** - Enhanced chat worker features and NSFW optimization
