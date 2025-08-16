@@ -66,8 +66,10 @@ import torch
 import gc
 import io
 import sys
+import traceback  # ADD: Traceback for better error logging
 import compel  # ADD: Compel library for proper prompt weighting
 from compel import Compel  # ADD: Compel processor
+from io import BytesIO  # ADD: BytesIO for image serialization
 sys.path.append('/workspace/python_deps/lib/python3.11/site-packages')
 from pathlib import Path
 from PIL import Image
@@ -711,15 +713,17 @@ class LustifySDXLWorker:
                 
         except Exception as e:
             logger.error(f"❌ Upload error: {e}")
+            logger.error(f"❌ Upload traceback: {traceback.format_exc()}")
             return None
 
-    def upload_to_storage(self, images, job_id, user_id, used_seed):
+    def upload_to_storage(self, images, job_id, user_id, used_seed, job_type):
         """Upload images to workspace-temp bucket only"""
         uploaded_assets = []
         
         for i, image in enumerate(images):
             # Simple path: workspace-temp/{user_id}/{job_id}/{index}.png
             storage_path = f"{user_id}/{job_id}/{i}.png"
+            logger.info(f"📤 Uploading image {i} to workspace-temp/{storage_path}")
             
             # Convert image to bytes
             img_buffer = BytesIO()
@@ -734,13 +738,24 @@ class LustifySDXLWorker:
             )
             
             if upload_result:
+                logger.info(f"✅ Successfully uploaded image {i} to workspace-temp/{storage_path}")
                 uploaded_assets.append({
-                    'temp_storage_path': storage_path,
-                    'file_size_bytes': len(img_bytes),
-                    'mime_type': 'image/png',
-                    'generation_seed': used_seed + i,  # Each image gets seed + index
-                    'asset_index': i
+                    'type': 'image',
+                    'url': storage_path,  # ✅ Use 'url' field as expected by edge function
+                    'metadata': {
+                        'width': image.width,
+                        'height': image.height,
+                        'format': 'png',
+                        'batch_size': len(images),
+                        'steps': self.job_configs[job_type]['num_inference_steps'],
+                        'guidance_scale': self.job_configs[job_type]['guidance_scale'],
+                        'seed': used_seed + i,  # Each image gets seed + index
+                        'file_size_bytes': len(img_bytes),
+                        'asset_index': i
+                    }
                 })
+            else:
+                logger.error(f"❌ Failed to upload image {i} to workspace-temp/{storage_path}")
         
         return uploaded_assets
 
@@ -887,7 +902,7 @@ class LustifySDXLWorker:
                 raise Exception("Image generation failed")
             
             # Upload all images to workspace-temp bucket
-            uploaded_assets = self.upload_to_storage(images, job_id, user_id, used_seed)
+            uploaded_assets = self.upload_to_storage(images, job_id, user_id, used_seed, job_type)
             
             if not uploaded_assets:
                 raise Exception("All image uploads failed")
@@ -918,6 +933,7 @@ class LustifySDXLWorker:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"❌ SDXL job {job_id} failed: {error_msg}")
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
             
             # Prepare error metadata
             error_metadata = {
