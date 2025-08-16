@@ -93,17 +93,27 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - WAN: 30GB (Load on demand)
 - **Status**: ✅ **ACTIVE - Production System**
 
-## Setup and Configuration
-
-### 🔧 Setup Script (`setup.sh`)
-**Purpose**: Automated environment setup and dependency installation
+### 🔧 Worker Registration (`worker_registration.py`) - **ACTIVE**
+**Purpose**: Automatic worker registration and URL management for RunPod deployment
 - **Key Features**:
-  - PyTorch 2.4.1+cu124 installation
-  - Diffusers ecosystem setup
-  - WAN 2.1 repository cloning
-  - SDXL model download
-  - Comprehensive dependency validation
-- **Dependencies**: CUDA 12.4, Python 3.11
+  - Automatic RunPod URL detection and registration
+  - Worker heartbeat monitoring
+  - Supabase integration for worker status tracking
+  - Graceful shutdown handling
+  - URL validation and health checks
+- **Status**: ✅ **ACTIVE - Production System**
+
+### 🎬 WAN Generation Script (`wan_generate.py`) - **ACTIVE**
+**Purpose**: Core WAN 2.1 generation script used by WAN worker
+- **Features**:
+  - Direct WAN 2.1 T2V 1.3B model integration
+  - Command-line interface for video generation
+  - Support for all reference frame modes
+  - Quality tier configuration
+  - Performance optimization
+- **Status**: ✅ **ACTIVE - Production System**
+
+## Setup and Configuration
 
 ### 🚀 Startup Script (`startup.sh`)
 **Purpose**: Production startup with triple worker system validation
@@ -150,12 +160,13 @@ HF_TOKEN=                  # Optional HuggingFace token
 ├── ourvidz-worker/            # Worker repository
 │   ├── wan_generate.py        # WAN generation script
 │   ├── sdxl_worker.py         # SDXL worker
-│   ├── chat_worker.py         # Chat worker (NEW)
+│   ├── chat_worker.py         # Chat worker
 │   ├── wan_worker.py          # WAN worker
 │   ├── dual_orchestrator.py   # Main orchestrator
-│   ├── memory_manager.py      # Memory management (NEW)
+│   ├── memory_manager.py      # Memory management
+│   ├── worker_registration.py # Worker registration
 │   ├── startup.sh             # Production startup script
-│   └── setup.sh               # Environment setup script
+│   └── archive/               # Archived documentation and test files
 └── python_deps/               # Persistent Python dependencies
 ```
 
@@ -270,6 +281,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Legacy versions removed for cleaner codebase
 - Continuous optimization for production stability
 - **Latest**: Triple worker system with Chat worker and Memory Manager
+- **August 16, 2025**: Codebase cleanup and documentation consolidation
 
 ### 🎯 Key Improvements
 - 2.6x performance improvement in optimized worker
@@ -284,19 +296,19 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Thread-safe timeouts** - Concurrent.futures implementation
 - **Emergency memory management** - Critical situation handling
 - **Zero content restrictions** - Full NSFW optimization with anatomical accuracy
+- **Codebase cleanup** - Archived unused documentation and test files
 
 ### 🔧 Technical Debt
-- Legacy files removed for cleaner maintenance
-- Environment setup complexity (addressed in setup.sh)
+- Legacy files archived for cleaner maintenance
+- Environment setup complexity (addressed in startup.sh)
 - Performance optimization opportunities identified
 - **Documentation consolidated** - Single source of truth in WORKER_API.md
 
 ## Usage Instructions
 
 ### 🚀 **PRODUCTION STARTUP**
-1. Run `setup.sh` for automated environment setup
-2. Configure environment variables
-3. **Start production system**: `./startup.sh`
+1. Configure environment variables
+2. **Start production system**: `./startup.sh`
    - This starts all three workers (SDXL, Chat, WAN) in priority order
    - Automatic monitoring and restart capabilities
    - Production-ready with comprehensive logging
@@ -322,6 +334,8 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Chat Worker**: Qwen Instruct service for prompt enhancement and chat
 - **Enhanced WAN Worker**: Video generation with AI enhancement and comprehensive reference frame support
 - **Memory Manager**: Smart VRAM allocation and coordination
+- **Worker Registration**: Automatic RunPod URL management
+- **WAN Generation Script**: Core WAN 2.1 integration
 
 ### 📊 **Testing Status**
 - **SDXL Jobs**: ✅ Both job types tested and working
@@ -342,6 +356,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **✅ Error Recovery**: Robust error handling and fallback mechanisms
 - **✅ Performance Monitoring**: Comprehensive metrics and logging
 - **✅ Zero Content Restrictions**: Full NSFW optimization with anatomical accuracy
+- **✅ Auto-Registration**: Automatic RunPod URL management
 
 ### 📋 **Reference Frame Support Matrix**
 | **Reference Mode** | **Config Parameter** | **Metadata Fallback** | **WAN Parameters** | **Use Case** |
@@ -372,6 +387,32 @@ HF_TOKEN=                  # Optional HuggingFace token
 | **Memory Management** | Smart loading/unloading | Resource optimization |
 | **Error Handling** | Comprehensive OOM handling | System stability |
 
+## 📁 **ARCHIVE CONTENTS**
+
+The `archive/` directory contains historical documentation and test files that are no longer actively used:
+
+### 📚 **Archived Documentation**
+- `ARCHITECTURAL_CLEANUP_SUMMARY.md` - Historical architectural changes
+- `CHAT_WORKER_PURE_INFERENCE_OVERHAUL.md` - Chat worker development history
+- `COMPREHENSIVE_CHANGES_VERIFICATION.md` - Change verification documentation
+- `DOCUMENTATION_UPDATE_SUMMARY.md` - Documentation consolidation history
+- `FINAL_UPDATE_SUMMARY.md` - Final update documentation
+- `FRONTEND_SYSTEM_CHANGES_SUMMARY.md` - Frontend integration history
+- `SDXL_WORKER_RUN_METHOD_FIX.md` - SDXL worker fixes
+- `SYSTEM_PROMPT_FIXES_SUMMARY.md` - System prompt optimization history
+
+### 🧪 **Archived Test Files**
+- `test_response_extraction.py` - Response extraction testing
+- `simple_verification.py` - Simple verification tests
+- `verify_fixes.py` - Fix verification tests
+- `test_system_prompt_fixes.py` - System prompt testing
+- `chat_worker_validator.py` - Chat worker validation (empty)
+- `comprehensive_test.sh` - Comprehensive testing script (empty)
+- `quick_health_check.sh` - Health check script (empty)
+- `README.md` - Testing documentation (empty)
+
 This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **enhanced chat service with NSFW optimization**, and **smart memory management**. The current architecture uses a **triple-worker orchestration pattern** for optimal resource utilization and reliability.
 
-**📋 For complete API specifications and implementation details, see [WORKER_API.md](./WORKER_API.md)** 
+**📋 For complete API specifications and implementation details, see [WORKER_API.md](./WORKER_API.md)**
+
+**📅 Last Updated: August 16, 2025** 

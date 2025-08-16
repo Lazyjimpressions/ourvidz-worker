@@ -1,6 +1,6 @@
 # Worker API Documentation
 
-**Last Updated:** July 30, 2025
+**Last Updated:** August 16, 2025
 
 ## System Overview
 
@@ -9,12 +9,12 @@ The `ourvidz-worker` repository manages a comprehensive AI content generation sy
 ### Architecture Components
 
 #### Core Workers
-1. **SDXL Worker** (`sdxl_worker.py`) - High-quality image generation using Stable Diffusion XL
+1. **SDXL Worker** (`sdxl_worker.py`) - High-quality image generation using Stable Diffusion XL with batch processing
 2. **Enhanced Chat Worker** (`chat_worker.py`) - AI conversation and intelligent prompt enhancement using Qwen Instruct
-3. **WAN Worker** (`wan_worker.py`) - Video generation and enhanced image processing using WAN 2.1
+3. **WAN Worker** (`wan_worker.py`) - Video generation and enhanced image processing using WAN 2.1 with comprehensive reference frame support
 
 #### System Management
-- **Dual Orchestrator** (`dual_orchestrator.py`) - Central job distribution and worker coordination
+- **Triple Orchestrator** (`dual_orchestrator.py`) - Central job distribution and worker coordination
 - **Memory Manager** (`memory_manager.py`) - Intelligent VRAM management and worker coordination
 - **Worker Registration** (`worker_registration.py`) - Dynamic worker discovery and registration
 
@@ -37,22 +37,22 @@ ourvidz-worker/
 │   └── worker_registration.py  # Dynamic worker registration
 ├── Infrastructure/
 │   ├── startup.sh              # System startup script
+│   ├── wan_generate.py         # WAN generation utilities
 │   └── requirements.txt        # Python dependencies
-├── Testing/
-│   ├── chat_worker_validator.py
-│   ├── comprehensive_test.sh
-│   └── quick_health_check.sh
-└── Documentation/
-    ├── README.md
-    ├── WORKER_API.md           # This file
-    ├── CODEBASE_INDEX.md
-    └── CHAT_WORKER_CONSOLIDATED.md
+├── Documentation/
+│   ├── README.md
+│   ├── WORKER_API.md           # This file
+│   ├── CODEBASE_INDEX.md
+│   ├── CHAT_WORKER_CONSOLIDATED.md
+│   └── CLEANUP_SUMMARY.md
+└── Archive/
+    └── [Historical documentation and test files]
 ```
 
 ## Enhanced Chat Worker
 
 ### Overview
-The Enhanced Chat Worker provides AI conversation capabilities and intelligent prompt enhancement with NSFW optimization, dynamic system prompts, and performance optimization.
+The Enhanced Chat Worker provides AI conversation capabilities and intelligent prompt enhancement with NSFW optimization, dynamic system prompts, and performance optimization using Qwen 2.5-7B Instruct.
 
 ### API Endpoints
 
@@ -97,7 +97,7 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 {
   "prompt": "Original prompt",
   "config": {
-    "job_type": "sdxl_lustify|wan_2.1_video",
+    "job_type": "sdxl_image_fast|sdxl_image_high|image_fast|image_high|video_fast|video_high",
     "quality": "high|medium|low"
   },
   "metadata": {
@@ -111,12 +111,36 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 ```json
 {
   "enhancement_system": "Direct Qwen Instruct Enhancement",
-  "supported_job_types": ["sdxl_image_fast", "sdxl_image_high", "video_fast", "video_high"],
+  "supported_job_types": ["sdxl_image_fast", "sdxl_image_high", "image_fast", "image_high", "video_fast", "video_high"],
   "model_info": {
     "model_name": "Qwen2.5-7B-Instruct",
     "model_loaded": true,
     "enhancement_method": "Direct Qwen Instruct with dynamic prompts"
   }
+}
+```
+
+**GET /memory/status** - Memory Status
+```json
+{
+  "model_loaded": true,
+  "memory_usage": "15GB",
+  "device": "cuda:0",
+  "compilation_status": "compiled"
+}
+```
+
+**POST /memory/load** - Load Model
+```json
+{
+  "force": false
+}
+```
+
+**POST /memory/unload** - Unload Model
+```json
+{
+  "force": false
 }
 ```
 
@@ -128,7 +152,7 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
   "prompt": "User input",
   "config": {
     "system_prompt": "Custom system prompt",
-    "job_type": "chat_conversation|chat_enhance|chat_unrestricted",
+    "job_type": "chat_conversation|chat_enhance|chat_unrestricted|admin_utilities",
     "quality": "high|medium|low"
   },
   "metadata": {
@@ -143,25 +167,26 @@ The Enhanced Chat Worker provides AI conversation capabilities and intelligent p
 ## SDXL Worker
 
 ### Overview
-High-quality image generation using Stable Diffusion XL with NSFW optimization and anatomical accuracy focus.
+High-quality image generation using Stable Diffusion XL with NSFW optimization, anatomical accuracy focus, and batch processing support (1, 3, or 6 images per request).
 
 ### API Endpoints
 
-**POST /sdxl/generate** - Image Generation
+**GET /health** - Health Check
 ```json
 {
-  "prompt": "Enhanced prompt",
-  "config": {
-    "width": 1024,
-    "height": 1024,
-    "steps": 30,
-    "guidance_scale": 7.5,
-    "seed": 42
-  },
-  "metadata": {
-    "nsfw_optimization": true,
-    "anatomical_accuracy": true
-  }
+  "status": "healthy",
+  "model_loaded": true,
+  "device": "cuda:0"
+}
+```
+
+**GET /status** - Worker Status
+```json
+{
+  "worker_type": "sdxl",
+  "model": "lustifySDXLNSFWSFW_v20.safetensors",
+  "batch_support": [1, 3, 6],
+  "quality_tiers": ["fast", "high"]
 }
 ```
 
@@ -172,17 +197,20 @@ High-quality image generation using Stable Diffusion XL with NSFW optimization a
   "job_id": "sdxl_job_123",
   "prompt": "Enhanced prompt",
   "config": {
+    "job_type": "sdxl_image_fast|sdxl_image_high",
     "width": 1024,
     "height": 1024,
-    "steps": 30,
+    "steps": 15,
     "guidance_scale": 7.5,
     "seed": 42,
-    "negative_prompt": "Optional negative prompt"
+    "negative_prompt": "Optional negative prompt",
+    "batch_size": 1
   },
   "metadata": {
     "nsfw_optimization": true,
     "anatomical_accuracy": true,
-    "user_id": "user_123"
+    "user_id": "user_123",
+    "reference_image_url": "Optional reference image"
   }
 }
 ```
@@ -190,25 +218,37 @@ High-quality image generation using Stable Diffusion XL with NSFW optimization a
 ## WAN Worker
 
 ### Overview
-Video generation and enhanced image processing using WAN 2.1 with reference frame support and NSFW optimization.
+Video generation and enhanced image processing using WAN 2.1 with comprehensive reference frame support (5 modes), AI prompt enhancement, and NSFW optimization.
 
 ### API Endpoints
 
-**POST /wan/generate** - Video/Image Generation
+**GET /health** - Health Check
 ```json
 {
-  "prompt": "Enhanced prompt",
+  "status": "healthy",
+  "wan_model_loaded": true,
+  "qwen_model_loaded": true,
+  "device": "cuda:0"
+}
+```
+
+**GET /debug/env** - Environment Debug
+```json
+{
+  "wan_generate_path": "/workspace/ourvidz-worker/wan_generate.py",
+  "model_paths": {
+    "wan": "/workspace/models/wan2.1-t2v-1.3b",
+    "qwen": "/workspace/models/huggingface_cache"
+  }
+}
+```
+
+**POST /enhance** - Prompt Enhancement
+```json
+{
+  "prompt": "Original prompt",
   "config": {
-    "job_type": "video|image",
-    "width": 1024,
-    "height": 1024,
-    "frames": 24,
-    "reference_mode": "none|single|start|end|both",
-    "reference_image": "base64_encoded_image"
-  },
-  "metadata": {
-    "nsfw_optimization": true,
-    "anatomical_accuracy": true
+    "job_type": "image_fast|image_high|video_fast|video_high"
   }
 }
 ```
@@ -220,10 +260,10 @@ Video generation and enhanced image processing using WAN 2.1 with reference fram
   "job_id": "wan_job_123",
   "prompt": "Enhanced prompt",
   "config": {
-    "job_type": "video|image",
-    "width": 1024,
-    "height": 1024,
-    "frames": 24,
+    "job_type": "image_fast|image_high|video_fast|video_high|image7b_fast_enhanced|image7b_high_enhanced|video7b_fast_enhanced|video7b_high_enhanced",
+    "width": 480,
+    "height": 832,
+    "frames": 83,
     "reference_mode": "none|single|start|end|both",
     "reference_image": "base64_encoded_image",
     "fps": 24
@@ -231,15 +271,27 @@ Video generation and enhanced image processing using WAN 2.1 with reference fram
   "metadata": {
     "nsfw_optimization": true,
     "anatomical_accuracy": true,
-    "user_id": "user_123"
+    "user_id": "user_123",
+    "reference_image_url": "Optional reference image URL",
+    "start_reference_url": "Optional start frame URL",
+    "end_reference_url": "Optional end frame URL"
   }
 }
 ```
 
+### Reference Frame Support
+| **Reference Mode** | **Config Parameter** | **Metadata Fallback** | **WAN Parameters** | **Use Case** |
+|-------------------|---------------------|----------------------|-------------------|--------------|
+| **None** | No parameters | No parameters | None | Standard T2V |
+| **Single** | `config.image` | `metadata.reference_image_url` | `--image ref.png` | I2V-style |
+| **Start** | `config.first_frame` | `metadata.start_reference_url` | `--first_frame start.png` | Start frame |
+| **End** | `config.last_frame` | `metadata.end_reference_url` | `--last_frame end.png` | End frame |
+| **Both** | `config.first_frame` + `config.last_frame` | `metadata.start_reference_url` + `metadata.end_reference_url` | `--first_frame start.png --last_frame end.png` | Transition |
+
 ## Memory Manager
 
 ### Overview
-Intelligent VRAM management with pressure detection, emergency unloading, and predictive loading.
+Intelligent VRAM management with pressure detection, emergency unloading, and predictive loading for the triple worker system.
 
 ### API Endpoints
 
@@ -256,41 +308,61 @@ Intelligent VRAM management with pressure detection, emergency unloading, and pr
     "sdxl_worker": "loaded",
     "chat_worker": "loaded",
     "wan_worker": "unloaded"
+  },
+  "memory_allocation": {
+    "sdxl": "10GB (always loaded)",
+    "chat": "15GB (load when possible)",
+    "wan": "30GB (load on demand)"
   }
 }
 ```
 
-**POST /memory/unload** - Unload Worker
+**POST /emergency/operation** - Emergency Memory Operations
 ```json
 {
-  "worker_id": "sdxl_worker_001",
+  "operation": "force_unload|predictive_load|pressure_check",
+  "target_worker": "chat_worker|wan_worker",
   "force": false
 }
 ```
 
-**POST /memory/load** - Load Worker
+**GET /memory/report** - Comprehensive Memory Report
 ```json
 {
-  "worker_id": "sdxl_worker_001",
-  "priority": "high"
+  "pressure_level": "medium",
+  "available_vram": 6144,
+  "worker_status": {
+    "sdxl": {"loaded": true, "memory": 10240},
+    "chat": {"loaded": true, "memory": 15360},
+    "wan": {"loaded": false, "memory": 0}
+  },
+  "recommendations": ["unload_chat_for_wan", "monitor_pressure"]
 }
 ```
 
-## Dual Orchestrator
+## Triple Orchestrator
 
 ### Overview
-Central job distribution system that routes jobs to appropriate workers based on job type and current system load.
+Central job distribution system that routes jobs to appropriate workers based on job type and current system load, managing SDXL, Chat, and WAN workers concurrently.
 
 ### Job Types
 
-| Job Type | Worker | Description |
-|----------|--------|-------------|
-| `sdxl_generate` | SDXL | Image generation |
-| `chat_conversation` | Chat | AI conversation |
-| `chat_enhance` | Chat | Prompt enhancement |
-| `chat_unrestricted` | Chat | NSFW chat |
-| `wan_video` | WAN | Video generation |
-| `wan_image` | WAN | Enhanced image generation |
+| Job Type | Worker | Description | Performance |
+|----------|--------|-------------|-------------|
+| `sdxl_image_fast` | SDXL | Fast image generation (15 steps) | 30s total |
+| `sdxl_image_high` | SDXL | High-quality image generation (25 steps) | 42s total |
+| `chat_enhance` | Chat | Simple prompt enhancement | 1-3s |
+| `chat_conversation` | Chat | AI conversation | 5-15s |
+| `chat_unrestricted` | Chat | NSFW chat | 5-15s |
+| `admin_utilities` | Chat | System management | <1s |
+| `image_fast` | WAN | Fast image generation | 25-40s |
+| `image_high` | WAN | High-quality image generation | 40-100s |
+| `video_fast` | WAN | Fast video generation | 135-180s |
+| `video_high` | WAN | High-quality video generation | 180-240s |
+| `image7b_fast_enhanced` | WAN | Fast enhanced image | 85-100s |
+| `image7b_high_enhanced` | WAN | High enhanced image | 100-240s |
+| `video7b_fast_enhanced` | WAN | Fast enhanced video | 195-240s |
+| `video7b_high_enhanced` | WAN | High enhanced video | 240+s |
 
 ## Callback Payload Format
 
@@ -308,7 +380,8 @@ All workers use a standardized callback format for job status updates:
       "metadata": {
         "width": 1024,
         "height": 1024,
-        "format": "png"
+        "format": "png",
+        "batch_size": 1
       }
     }
   ],
@@ -318,7 +391,9 @@ All workers use a standardized callback format for job status updates:
     "system_prompt_used": "Custom system prompt",
     "nsfw_optimization": true,
     "processing_time": 15.2,
-    "vram_used": 8192
+    "vram_used": 8192,
+    "reference_mode": "none",
+    "batch_size": 1
   },
   "error": {
     "code": "OOM_ERROR",
@@ -333,48 +408,58 @@ All workers use a standardized callback format for job status updates:
 ### Chat Enhancement
 - **Direct Enhancement:** 1-3 seconds
 - **New Requests:** 5-15 seconds
+- **Memory Management:** Smart loading/unloading
 
 ### Chat Conversation
 - **Standard Mode:** 2-5 seconds
 - **Unrestricted Mode:** 3-7 seconds
+- **Model Compilation:** PyTorch 2.0 optimization
 
 ### SDXL Generation
-- **1024x1024:** 15-30 seconds
-- **512x512:** 8-15 seconds
+- **Fast (15 steps):** 30s total (3-8s per image)
+- **High (25 steps):** 42s total (5-10s per image)
+- **Batch Support:** 1, 3, or 6 images per request
 
 ### WAN Generation
-- **Video (24 frames):** 60-120 seconds
-- **Image:** 20-40 seconds
+- **Fast Images:** 25-40s
+- **High Images:** 40-100s
+- **Fast Videos:** 135-180s
+- **High Videos:** 180-240s
+- **Enhanced Variants:** +60-120s for AI enhancement
 
 ## System Configuration
 
 ### Environment Variables
 ```bash
-REDIS_URL=redis://localhost:6379
-WORKER_PORT=8000
-MEMORY_MANAGER_PORT=8001
-ORCHESTRATOR_PORT=8002
-MODEL_CACHE_DIR=/models
-ASSET_CACHE_DIR=/assets
+SUPABASE_URL=              # Supabase database URL
+SUPABASE_SERVICE_KEY=      # Supabase service key
+UPSTASH_REDIS_REST_URL=    # Redis queue URL
+UPSTASH_REDIS_REST_TOKEN=  # Redis authentication token
+WAN_WORKER_API_KEY=        # API key for WAN worker authentication
+HF_TOKEN=                  # Optional HuggingFace token
 ```
 
 ### Worker Configuration
 ```json
 {
   "sdxl_worker": {
-    "model_path": "/models/sdxl",
-    "max_batch_size": 1,
+    "model_path": "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors",
+    "max_batch_size": 6,
     "enable_xformers": true,
-    "attention_slicing": "auto"
+    "attention_slicing": "auto",
+    "port": 7860
   },
   "chat_worker": {
-    "primary_model": "/models/qwen-instruct",
-    "max_tokens": 2048
+    "primary_model": "Qwen2.5-7B-Instruct",
+    "max_tokens": 2048,
+    "port": 7861,
+    "compilation": true
   },
   "wan_worker": {
-    "model_path": "/models/wan-2.1",
-    "max_frames": 48,
-    "reference_modes": ["none", "single", "start", "end", "both"]
+    "model_path": "/workspace/models/wan2.1-t2v-1.3b",
+    "max_frames": 83,
+    "reference_modes": ["none", "single", "start", "end", "both"],
+    "port": 7860
   }
 }
 ```
@@ -387,11 +472,13 @@ ASSET_CACHE_DIR=/assets
 - `INVALID_PROMPT` - Prompt validation failed
 - `WORKER_UNAVAILABLE` - Worker not loaded
 - `TIMEOUT_ERROR` - Request timeout
+- `REFERENCE_FRAME_ERROR` - Reference frame processing failed
 
 ### Retry Logic
 - **OOM Errors:** Automatic retry with memory cleanup
 - **Network Errors:** 3 retries with exponential backoff
 - **Model Errors:** Single retry with model reload
+- **Reference Frame Errors:** Graceful fallback to standard generation
 
 ## Security and NSFW Features
 
@@ -400,12 +487,14 @@ ASSET_CACHE_DIR=/assets
 - **Anatomical Accuracy:** Professional quality standards
 - **Adult Content Support:** Explicit support across all workers
 - **Unrestricted Mode:** Dedicated endpoints for adult content
+- **Dynamic System Prompts:** Context-aware NSFW handling
 
 ### Security Features
 - **Input Validation:** Comprehensive prompt validation
 - **Rate Limiting:** Per-user and per-endpoint limits
 - **Authentication:** Optional API key support
 - **Logging:** Comprehensive audit trails
+- **Memory Safety:** Emergency memory management
 
 ## Integration Guide
 
@@ -414,13 +503,14 @@ ASSET_CACHE_DIR=/assets
 2. **Status Monitoring:** Poll callback endpoint for job status
 3. **Asset Retrieval:** Download generated assets from callback URLs
 4. **Error Handling:** Implement retry logic for transient errors
+5. **Memory Management:** Monitor memory status for optimal performance
 
 ### API Client Example
 ```python
 import requests
 
 # Submit chat job
-response = requests.post("http://worker:8000/chat", json={
+response = requests.post("http://worker:7861/chat", json={
     "prompt": "User message",
     "config": {"job_type": "chat_conversation"},
     "metadata": {"user_id": "user_123"}
@@ -429,28 +519,32 @@ response = requests.post("http://worker:8000/chat", json={
 # Monitor job status
 job_id = response.json()["job_id"]
 status = requests.get(f"http://orchestrator:8002/job/{job_id}")
+
+# Check memory status
+memory = requests.get("http://memory-manager:8001/memory/status")
 ```
 
 ## Python Files Overview
 
 ### Core Worker Files
-- **`sdxl_worker.py`**: SDXL image generation with NSFW optimization
-- **`chat_worker.py`**: Enhanced chat and prompt enhancement system
-- **`wan_worker.py`**: WAN video and image processing with reference frames
+- **`sdxl_worker.py`**: SDXL image generation with batch processing and NSFW optimization
+- **`chat_worker.py`**: Enhanced chat and prompt enhancement system with Qwen Instruct
+- **`wan_worker.py`**: WAN video and image processing with comprehensive reference frame support
 
 ### System Management Files
-- **`dual_orchestrator.py`**: Central job distribution and coordination
+- **`dual_orchestrator.py`**: Central job distribution and triple worker coordination
 - **`memory_manager.py`**: Intelligent VRAM management and worker coordination
-- **`worker_registration.py`**: Dynamic worker discovery and registration
+- **`worker_registration.py`**: Dynamic worker discovery and RunPod URL registration
 
 ### Infrastructure Files
 - **`startup.sh`**: System startup and initialization script
 - **`requirements.txt`**: Python dependencies and versions
-- **`wan_generate.py`**: WAN generation utilities
+- **`wan_generate.py`**: WAN generation utilities and command-line interface
 
-### Testing Files
-- **`testing/chat_worker_validator.py`**: Chat worker validation tests
-- **`testing/comprehensive_test.sh`**: Comprehensive system testing
-- **`testing/quick_health_check.sh`**: Quick health check script
+### Documentation Files
+- **`README.md`**: Project overview and quick start guide
+- **`CODEBASE_INDEX.md`**: Comprehensive system architecture and component overview
+- **`CHAT_WORKER_CONSOLIDATED.md`**: Enhanced chat worker features and NSFW optimization
+- **`CLEANUP_SUMMARY.md`**: Codebase cleanup and organization summary
 
-This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns. 
+This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns after the August 16, 2025 cleanup. 

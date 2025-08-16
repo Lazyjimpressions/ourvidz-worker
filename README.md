@@ -9,7 +9,7 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 
 - **Production-ready**: Triple worker orchestration (SDXL + Chat + WAN 1.3B)
 - **Comprehensive reference frame support**: 5 reference modes for video generation
-- **Batch image & video generation**: 13 job types, NSFW-capable
+- **Batch image & video generation**: 14 job types, NSFW-capable
 - **Smart memory management**: Intelligent VRAM allocation and emergency handling
 - **Enhanced chat service**: Qwen Instruct with dynamic prompts and unrestricted mode
 - **NSFW optimization**: Zero content restrictions with anatomical accuracy focus
@@ -27,16 +27,10 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
    cd ourvidz-worker
    ```
 
-2. **Set up the environment**
-   ```bash
-   ./setup.sh
-   # or manually install dependencies as per requirements.txt
-   ```
+2. **Configure environment variables**
+   - See the [Environment Configuration](#environment-configuration) section below
 
-3. **Configure environment variables**
-   - See `.env.example` or the [Deployment Guide](docs/DEPLOYMENT.md#🔑-environment-configuration)
-
-4. **Start the production system**
+3. **Start the production system**
    ```bash
    ./startup.sh
    ```
@@ -110,10 +104,11 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **Job Queue System**: Redis-based job distribution
 - **Storage Integration**: Supabase storage for generated content
 - **Error Handling**: Comprehensive error recovery and fallback mechanisms
+- **Auto-Registration**: Automatic RunPod URL management
 
 ### **📊 Job Types**
 - **SDXL**: `sdxl_image_fast`, `sdxl_image_high`
-- **Chat**: `chat_enhance`, `chat_conversation`, `admin_utilities`
+- **Chat**: `chat_enhance`, `chat_conversation`, `chat_unrestricted`, `admin_utilities`
 - **WAN Standard**: `image_fast`, `image_high`, `video_fast`, `video_high`
 - **WAN Enhanced**: `image7b_fast_enhanced`, `image7b_high_enhanced`, `video7b_fast_enhanced`, `video7b_high_enhanced`
 
@@ -138,6 +133,43 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 
 ---
 
+## 🔑 Environment Configuration
+
+### **Required Environment Variables**
+```bash
+SUPABASE_URL=              # Supabase database URL
+SUPABASE_SERVICE_KEY=      # Supabase service key
+UPSTASH_REDIS_REST_URL=    # Redis queue URL
+UPSTASH_REDIS_REST_TOKEN=  # Redis authentication token
+WAN_WORKER_API_KEY=        # API key for WAN worker authentication
+HF_TOKEN=                  # Optional HuggingFace token
+```
+
+### **Directory Structure**
+```
+/workspace/
+├── models/
+│   ├── sdxl-lustify/          # SDXL model files
+│   ├── wan2.1-t2v-1.3b/       # WAN 1.3B model
+│   └── huggingface_cache/     # HF model cache
+│       ├── models--Qwen--Qwen2.5-7B/           # Qwen Base model
+│       └── models--Qwen--Qwen2.5-7B-Instruct/  # Qwen Instruct model
+├── Wan2.1/                    # WAN 2.1 source code
+├── ourvidz-worker/            # Worker repository
+│   ├── wan_generate.py        # WAN generation script
+│   ├── sdxl_worker.py         # SDXL worker
+│   ├── chat_worker.py         # Chat worker
+│   ├── wan_worker.py          # WAN worker
+│   ├── dual_orchestrator.py   # Main orchestrator
+│   ├── memory_manager.py      # Memory management
+│   ├── worker_registration.py # Worker registration
+│   ├── startup.sh             # Production startup script
+│   └── archive/               # Archived documentation and test files
+└── python_deps/               # Persistent Python dependencies
+```
+
+---
+
 ## 🤝 Contributing & Support
 - For issues, feature requests, or contributions, please open a GitHub issue or pull request.
 - For business or technical questions, contact the maintainer.
@@ -145,4 +177,4 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 ---
 
 **© 2025 OurVidz.com. All rights reserved.**  
-**Last Updated:** July 30, 2025
+**Last Updated:** August 16, 2025
