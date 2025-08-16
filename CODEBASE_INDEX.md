@@ -1,7 +1,10 @@
 # OurVidz Worker Codebase Index
 
 ## Overview
-OurVidz Worker is a GPU-accelerated AI content generation system designed for RunPod deployment. It supports multiple AI models for image and video generation with different quality tiers and performance characteristics.
+OurVidz Worker is a **pure inference GPU-accelerated AI content generation system** designed for RunPod deployment. Workers execute exactly what's provided by edge functions - all intelligence lives in the edge function layer. It supports multiple AI models for image and video generation with different quality tiers and performance characteristics.
+
+### Architecture Philosophy
+**"Workers are dumb execution engines. All intelligence lives in the edge function."**
 
 **📋 For detailed API specifications, see [WORKER_API.md](./WORKER_API.md)**
 
@@ -24,28 +27,29 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
 - **Status**: ✅ **ACTIVE - Production System**
 
 ### 🎨 SDXL Worker (`sdxl_worker.py`) - **ACTIVE**
-**Purpose**: Fast image generation using LUSTIFY SDXL model
+**Purpose**: Pure image generation using LUSTIFY SDXL model
 - **Model**: `lustifySDXLNSFWSFW_v20.safetensors`
 - **Features**:
+  - **Pure inference engine** - Executes exactly what's provided by edge function
   - **Batch generation (1, 3, or 6 images per request)** - Major UX improvement
   - Two quality tiers: fast (15 steps) and high (25 steps)
   - Optimized for speed: 3-8s per image
   - Memory-efficient with attention slicing and xformers
   - Proper PNG Content-Type headers for uploads
   - **Reference image support** with style, composition, and character modes
+  - **No business logic** - All parameters provided by edge function
 - **Job Types**: `sdxl_image_fast`, `sdxl_image_high`
 - **Output**: PNG images, 1024x1024 resolution
 - **Port**: 7860 (shared with WAN worker)
 - **Status**: ✅ **ACTIVE - Production System**
 
-### 💬 Enhanced Chat Worker (`chat_worker.py`) - **ACTIVE**
-**Purpose**: Advanced Qwen Instruct service with dynamic prompts, unrestricted mode, and NSFW optimization
-- **Model**: Qwen 2.5-7B Instruct
+### 💬 Chat Worker (`chat_worker.py`) - **ACTIVE**
+**Purpose**: Pure inference for AI conversation and prompt enhancement using Qwen models
+- **Models**: Qwen 2.5-7B Instruct + Base
 - **Features**:
-  - **Dynamic system prompts** with custom prompts per conversation
-  - **Unrestricted mode detection** for automatic adult content handling
-  - **Simple prompt enhancement** using direct Qwen Instruct model
-  - **NSFW optimization** with zero content restrictions and anatomical accuracy
+  - **Pure inference engine** - Executes exactly what's provided by edge function
+  - **No hardcoded prompts** - All system prompts from edge function
+  - **Dual model support** - Instruct and Base models for different enhancement styles
   - **Memory management** with smart loading/unloading
   - **PyTorch 2.0 compilation** for performance optimization
   - **Comprehensive OOM error handling** with retry logic
@@ -57,13 +61,14 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
 - **Port**: 7861 (dedicated)
 - **Status**: ✅ **ACTIVE - Production System**
 
-### 🎬 Enhanced WAN Worker (`wan_worker.py`) - **ACTIVE**
-**Purpose**: Video and image generation with AI prompt enhancement and comprehensive reference frame support
+### 🎬 WAN Worker (`wan_worker.py`) - **ACTIVE**
+**Purpose**: Pure video generation using WAN 2.1 with comprehensive reference frame support
 - **Models**: 
   - WAN 2.1 T2V 1.3B for video generation
-  - Qwen 2.5-7B Base for prompt enhancement
+  - Qwen 2.5-7B Base for internal auto-enhancement
 - **Features**:
-  - **AI-powered prompt enhancement** using Qwen 7B Base
+  - **Pure inference engine** - Executes exactly what's provided by edge function
+  - **Internal auto-enhancement** using Qwen Base for enhanced job types
   - **Comprehensive reference frame support** - All 5 modes (none, single, start, end, both)
   - Multiple quality tiers for both images and videos
   - Enhanced variants with automatic prompt improvement
@@ -113,6 +118,19 @@ OurVidz Worker is a GPU-accelerated AI content generation system designed for Ru
   - Performance optimization
 - **Status**: ✅ **ACTIVE - Production System**
 
+### 🔧 Configuration Files - **ACTIVE**
+**Purpose**: Pure inference architecture configuration and validation
+- **Files**:
+  - `Configuration/worker_configs.py` - Worker configuration templates
+  - `Configuration/validation_schemas.py` - Request validation schemas
+  - `Configuration/CONFIGURATION_APPROACH.md` - Configuration philosophy and edge function requirements
+- **Features**:
+  - **Pure inference templates** - Worker configuration for edge function validation
+  - **Parameter validation** - Comprehensive validation rules for all workers
+  - **Edge function requirements** - Complete specifications for frontend integration
+  - **Naming conventions** - Standardized job IDs, asset URLs, and metadata keys
+- **Status**: ✅ **ACTIVE - Production System**
+
 ## Setup and Configuration
 
 ### 🚀 Startup Script (`startup.sh`)
@@ -158,14 +176,27 @@ HF_TOKEN=                  # Optional HuggingFace token
 │       └── models--Qwen--Qwen2.5-7B-Instruct/  # Qwen Instruct model
 ├── Wan2.1/                    # WAN 2.1 source code
 ├── ourvidz-worker/            # Worker repository
-│   ├── wan_generate.py        # WAN generation script
-│   ├── sdxl_worker.py         # SDXL worker
-│   ├── chat_worker.py         # Chat worker
-│   ├── wan_worker.py          # WAN worker
-│   ├── dual_orchestrator.py   # Main orchestrator
-│   ├── memory_manager.py      # Memory management
-│   ├── worker_registration.py # Worker registration
-│   ├── startup.sh             # Production startup script
+│   ├── Core Workers/
+│   │   ├── sdxl_worker.py     # Pure SDXL image generation
+│   │   ├── chat_worker.py     # Pure chat and enhancement inference
+│   │   └── wan_worker.py      # Pure WAN video generation
+│   ├── Configuration/
+│   │   ├── worker_configs.py  # Worker configuration templates
+│   │   ├── validation_schemas.py # Request validation schemas
+│   │   └── CONFIGURATION_APPROACH.md # Configuration philosophy
+│   ├── System Management/
+│   │   ├── dual_orchestrator.py   # Main orchestrator
+│   │   ├── memory_manager.py      # Memory management
+│   │   └── worker_registration.py # Worker registration
+│   ├── Infrastructure/
+│   │   ├── wan_generate.py    # WAN generation script
+│   │   ├── startup.sh         # Production startup script
+│   │   └── requirements.txt   # Python dependencies
+│   ├── Documentation/
+│   │   ├── README.md
+│   │   ├── WORKER_API.md      # Detailed API specifications
+│   │   ├── CODEBASE_INDEX.md  # This file
+│   │   └── SYSTEM_SUMMARY.md  # Frontend API reference
 │   └── archive/               # Archived documentation and test files
 └── python_deps/               # Persistent Python dependencies
 ```
@@ -180,12 +211,12 @@ HF_TOKEN=                  # Optional HuggingFace token
 | `sdxl_image_fast` | Fast | 15 | 30s | 1024x1024 | Quick preview (1,3,6 images) |
 | `sdxl_image_high` | High | 25 | 42s | 1024x1024 | Final quality (1,3,6 images) |
 
-#### Enhanced Chat Jobs
+#### Chat Jobs (Pure Inference)
 | Job Type | Purpose | Model | Time | Features |
 |----------|---------|-------|------|----------|
-| `chat_enhance` | Simple prompt enhancement | Qwen Instruct | 1-3s | Direct Qwen Instruct enhancement, NSFW optimization |
-| `chat_conversation` | Dynamic chat interface | Qwen Instruct | 5-15s | Custom system prompts, unrestricted mode detection |
-| `chat_unrestricted` | Dedicated NSFW chat | Qwen Instruct | 5-15s | Adult content optimization, anatomical accuracy |
+| `chat_enhance` | Pure enhancement inference | Qwen Instruct/Base | 1-3s | Pure inference with edge function prompts |
+| `chat_conversation` | Pure chat inference | Qwen Instruct | 5-15s | Pure inference with edge function system prompts |
+| `chat_unrestricted` | Pure NSFW inference | Qwen Instruct | 5-15s | Pure inference for adult content |
 | `admin_utilities` | System management | N/A | <1s | Memory status, enhancement info |
 
 #### WAN Jobs
@@ -201,13 +232,15 @@ HF_TOKEN=                  # Optional HuggingFace token
 | `video7b_high_enhanced` | High Enhanced | 50 | 83 | 240+s | 480x832 | Yes | ✅ All 5 modes |
 
 ### 🔄 Processing Pipeline
-1. **Job Polling**: Workers poll Redis queue for new jobs
-2. **Memory Management**: Memory manager coordinates resource allocation
-3. **Reference Frame Detection**: WAN worker detects reference frame mode (none, single, start, end, both)
-4. **Model Loading**: Load appropriate model based on job type
-5. **Content Generation**: Execute generation with optimized parameters and reference frames
-6. **File Upload**: Upload generated content to Supabase storage
-7. **Completion Notification**: Notify job completion via Redis with comprehensive metadata
+1. **Edge Function Processing**: Edge function validates user permissions, enhances prompts, and converts frontend presets to worker parameters
+2. **Job Submission**: Edge function sends complete job data to appropriate worker
+3. **Pure Inference Execution**: Worker executes exactly what's provided without business logic
+4. **Memory Management**: Memory manager coordinates resource allocation
+5. **Reference Frame Processing**: WAN worker processes reference frames based on provided parameters
+6. **Model Loading**: Load appropriate model based on job type
+7. **Content Generation**: Execute generation with provided parameters and reference frames
+8. **File Upload**: Upload generated content to Supabase storage
+9. **Completion Notification**: Notify job completion via Redis with comprehensive metadata
 
 ## Performance Characteristics
 
@@ -228,11 +261,12 @@ HF_TOKEN=                  # Optional HuggingFace token
 ## Error Handling and Monitoring
 
 ### 🛡️ Robustness Features
-- Graceful validation in orchestrator
-- Automatic worker restart on failure
-- Comprehensive error logging
-- Timeout handling (10-15 minute limits)
-- GPU memory monitoring
+- **Pure inference architecture**: Workers execute exactly what's provided
+- **Edge function validation**: Comprehensive parameter validation before reaching workers
+- **Graceful validation in orchestrator**: Automatic worker restart on failure
+- **Comprehensive error logging**: Detailed error tracking and reporting
+- **Timeout handling**: 10-15 minute limits with proper error handling
+- **GPU memory monitoring**: Real-time memory pressure detection
 - **Reference frame fallback**: Graceful degradation if reference processing fails
 - **Memory pressure handling**: Emergency memory management
 - **Thread-safe operations**: Concurrent.futures for timeouts
@@ -252,12 +286,11 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Health**: `GET /health`
 - **Status**: `GET /status`
 
-### 💬 Enhanced Chat Worker (Port 7861)
+### 💬 Chat Worker (Port 7861)
 - **Health**: `GET /health`
 - **Chat**: `POST /chat`
 - **Unrestricted Chat**: `POST /chat/unrestricted`
 - **Enhance**: `POST /enhance`
-- **Legacy Enhance**: `POST /enhance/legacy`
 - **Enhancement Info**: `GET /enhancement/info`
 - **Memory Status**: `GET /memory/status`
 - **Model Info**: `GET /model/info`
@@ -267,7 +300,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 ### 🎬 WAN Worker (Port 7860)
 - **Health**: `GET /health`
 - **Debug**: `GET /debug/env`
-- **Enhance**: `POST /enhance`
+- **Enhance**: `POST /enhance` (Internal auto-enhancement)
 
 ### 🧠 Memory Manager
 - **Status**: `GET /memory/status`
@@ -281,15 +314,18 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Legacy versions removed for cleaner codebase
 - Continuous optimization for production stability
 - **Latest**: Triple worker system with Chat worker and Memory Manager
-- **August 16, 2025**: Codebase cleanup and documentation consolidation
+- **August 16, 2025**: Codebase cleanup, documentation consolidation, and pure inference architecture implementation
 
 ### 🎯 Key Improvements
-- 2.6x performance improvement in optimized worker
-- Batch generation for better UX (1, 3, or 6 images)
-- AI prompt enhancement integration
-- Triple worker orchestration for concurrent processing
+- **Pure inference architecture** - Workers execute exactly what's provided by edge functions
+- **Edge function intelligence** - All business logic centralized in edge function layer
+- **Configuration system** - Comprehensive worker configuration and validation templates
+- **2.6x performance improvement** in optimized worker
+- **Batch generation** for better UX (1, 3, or 6 images)
+- **AI prompt enhancement integration** - Chat Worker provides pure enhancement inference
+- **Triple worker orchestration** for concurrent processing
 - **Comprehensive reference frame support** - All 5 modes implemented
-- **Enhanced chat worker** - Dynamic prompts, unrestricted mode, NSFW optimization
+- **Enhanced chat worker** - Pure inference with dual model support (Instruct + Base)
 - **Simplified enhancement system** - Direct Qwen Instruct enhancement
 - **Memory management** - OOM handling with retry logic
 - **Memory manager** - Smart VRAM allocation and coordination
@@ -303,6 +339,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Environment setup complexity (addressed in startup.sh)
 - Performance optimization opportunities identified
 - **Documentation consolidated** - Single source of truth in WORKER_API.md
+- **Configuration standardization** - Pure inference templates and validation schemas implemented
 
 ## Usage Instructions
 
@@ -330,12 +367,13 @@ HF_TOKEN=                  # Optional HuggingFace token
 
 ### ✅ **Active Components**
 - **Triple Orchestrator**: Main production controller
-- **SDXL Worker**: Fast image generation with batch support and reference images
-- **Chat Worker**: Qwen Instruct service for prompt enhancement and chat
-- **Enhanced WAN Worker**: Video generation with AI enhancement and comprehensive reference frame support
+- **SDXL Worker**: Pure image generation with batch support and reference images
+- **Chat Worker**: Pure inference service for prompt enhancement and chat with dual model support
+- **WAN Worker**: Pure video generation with internal auto-enhancement and comprehensive reference frame support
 - **Memory Manager**: Smart VRAM allocation and coordination
 - **Worker Registration**: Automatic RunPod URL management
 - **WAN Generation Script**: Core WAN 2.1 integration
+- **Configuration System**: Pure inference templates and validation schemas
 
 ### 📊 **Testing Status**
 - **SDXL Jobs**: ✅ Both job types tested and working
@@ -349,8 +387,11 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **✅ 14 Job Types**: All job types operational (including new chat_unrestricted)
 - **✅ 5 Reference Modes**: Complete reference frame support (none, single, start, end, both)
 - **✅ Batch Processing**: SDXL supports 1, 3, or 6 images
-- **✅ AI Enhancement**: WAN enhanced variants with Qwen 7B
-- **✅ Enhanced Chat Service**: Dynamic prompts, unrestricted mode, NSFW optimization
+- **✅ Pure Inference Architecture**: Workers execute exactly what's provided by edge functions
+- **✅ Edge Function Intelligence**: All business logic centralized in edge function layer
+- **✅ Configuration System**: Comprehensive worker configuration and validation templates
+- **✅ AI Enhancement**: WAN enhanced variants with Qwen Base internal auto-enhancement
+- **✅ Pure Chat Service**: Pure inference with dual model support (Instruct + Base)
 - **✅ Simple Enhancement**: Direct Qwen Instruct enhancement
 - **✅ Memory Management**: Smart VRAM allocation and emergency handling
 - **✅ Error Recovery**: Robust error handling and fallback mechanisms
@@ -376,16 +417,15 @@ HF_TOKEN=                  # Optional HuggingFace token
 | **Intelligent Fallback** | Selective vs nuclear unloading | Memory pressure handling |
 | **Worker Coordination** | HTTP-based memory management | Cross-worker communication |
 
-### 💬 **Enhanced Chat Worker Features**
+### 💬 **Chat Worker Features (Pure Inference)**
 | **Feature** | **Description** | **Use Case** |
 |-------------|----------------|--------------|
-| **Dynamic System Prompts** | Custom prompts per conversation | Context-aware responses |
-| **Unrestricted Mode** | Automatic adult content detection | NSFW content creation |
-| **Simple Enhancement** | Direct Qwen Instruct enhancement | High-quality prompt enhancement |
-| **NSFW Optimization** | Zero content restrictions | Unrestricted adult content |
-| **Anatomical Accuracy** | Realistic proportions and poses | Professional quality output |
+| **Pure Inference Engine** | Executes exactly what's provided | Edge function control |
+| **No Hardcoded Prompts** | All prompts from edge function | Maximum flexibility |
+| **Dual Model Support** | Instruct and Base models | Different enhancement styles |
 | **Memory Management** | Smart loading/unloading | Resource optimization |
 | **Error Handling** | Comprehensive OOM handling | System stability |
+| **PyTorch 2.0 Compilation** | Performance optimization | Faster inference |
 
 ## 📁 **ARCHIVE CONTENTS**
 
@@ -411,8 +451,10 @@ The `archive/` directory contains historical documentation and test files that a
 - `quick_health_check.sh` - Health check script (empty)
 - `README.md` - Testing documentation (empty)
 
-This codebase represents a **production-ready AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **enhanced chat service with NSFW optimization**, and **smart memory management**. The current architecture uses a **triple-worker orchestration pattern** for optimal resource utilization and reliability.
+This codebase represents a **production-ready pure inference AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **pure inference chat service with dual model support**, **smart memory management**, and **edge function intelligence**. The current architecture uses a **triple-worker orchestration pattern** with **pure inference workers** for optimal resource utilization and reliability.
 
 **📋 For complete API specifications and implementation details, see [WORKER_API.md](./WORKER_API.md)**
+
+**📋 For configuration philosophy and edge function requirements, see [Configuration/CONFIGURATION_APPROACH.md](./Configuration/CONFIGURATION_APPROACH.md)**
 
 **📅 Last Updated: August 16, 2025** 
