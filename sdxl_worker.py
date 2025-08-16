@@ -680,38 +680,38 @@ class LustifySDXLWorker:
         
         return successful_uploads
 
-def upload_to_supabase_storage(bucket, path, file_data):
-    """Upload file data to Supabase storage bucket"""
-    try:
-        supabase_url = os.environ.get('SUPABASE_URL')
-        supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
-        
-        if not supabase_url or not supabase_service_key:
-            logger.error("❌ Missing Supabase credentials")
-            return None
-        
-        headers = {
-            'Authorization': f"Bearer {supabase_service_key}",
-            'Content-Type': 'application/octet-stream',
-            'x-upsert': 'true'
-        }
-        
-        response = requests.post(
-            f"{supabase_url}/storage/v1/object/{bucket}/{path}",
-            data=file_data,
-            headers=headers,
-            timeout=60
-        )
-        
-        if response.status_code in [200, 201]:
-            return path
-        else:
-            logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
-            return None
+    def upload_to_supabase_storage(self, bucket, path, file_data):
+        """Upload file data to Supabase storage bucket"""
+        try:
+            supabase_url = os.environ.get('SUPABASE_URL')
+            supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
             
-    except Exception as e:
-        logger.error(f"❌ Upload error: {e}")
-        return None
+            if not supabase_url or not supabase_service_key:
+                logger.error("❌ Missing Supabase credentials")
+                return None
+            
+            headers = {
+                'Authorization': f"Bearer {supabase_service_key}",
+                'Content-Type': 'application/octet-stream',
+                'x-upsert': 'true'
+            }
+            
+            response = requests.post(
+                f"{supabase_url}/storage/v1/object/{bucket}/{path}",
+                data=file_data,
+                headers=headers,
+                timeout=60
+            )
+            
+            if response.status_code in [200, 201]:
+                return path
+            else:
+                logger.error(f"❌ Upload failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Upload error: {e}")
+            return None
 
     def upload_to_storage(self, images, job_id, user_id, used_seed):
         """Upload images to workspace-temp bucket only"""
@@ -727,7 +727,7 @@ def upload_to_supabase_storage(bucket, path, file_data):
             img_bytes = img_buffer.getvalue()
             
             # Upload to workspace-temp bucket
-            upload_result = upload_to_supabase_storage(
+            upload_result = self.upload_to_supabase_storage(
                 bucket='workspace-temp',
                 path=storage_path,
                 file_data=img_bytes
@@ -994,7 +994,7 @@ def upload_to_supabase_storage(bucket, path, file_data):
         return None
 
     def run(self):
-        """Main SDXL worker loop"""
+        """Main SDXL worker loop - handles both direct execution and module import"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
         logger.info("⚡ Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         logger.info("📬 Polling sdxl_queue for sdxl_image_fast, sdxl_image_high")
@@ -1032,6 +1032,21 @@ def upload_to_supabase_storage(bucket, path, file_data):
                 torch.cuda.empty_cache()
                 gc.collect()
             logger.info("✅ SDXL Worker cleanup complete")
+
+    def start(self):
+        """Alternative start method for compatibility with different startup scripts"""
+        logger.info("🚀 Starting SDXL Worker via start() method...")
+        return self.run()
+
+    def serve(self):
+        """Alternative serve method for compatibility with different startup scripts"""
+        logger.info("🚀 Starting SDXL Worker via serve() method...")
+        return self.run()
+
+    def launch(self):
+        """Alternative launch method for compatibility with different startup scripts"""
+        logger.info("🚀 Starting SDXL Worker via launch() method...")
+        return self.run()
 
     def test_compel_integration(self):
         """Test Compel integration with proper library integration"""
@@ -1087,7 +1102,9 @@ def upload_to_supabase_storage(bucket, path, file_data):
         
         logger.info("🧪 Compel integration test completed")
 
-if __name__ == "__main__":
+
+def main():
+    """Main entry point for SDXL worker - handles both direct execution and module import"""
     logger.info("🚀 Starting LUSTIFY SDXL Worker - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE + SDXL COMPEL LIBRARY INTEGRATION")
     
     # Check for test mode
@@ -1121,3 +1138,6 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"❌ SDXL Worker startup failed: {e}")
             exit(1)
+
+if __name__ == "__main__":
+    main()
