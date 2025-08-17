@@ -2595,62 +2595,70 @@ Enhanced prompt:"""
                 print(f"⏳ Waiting {sleep_time}s before retry...")
                 time.sleep(sleep_time)
 
-def upload_to_supabase_storage(bucket, path, file_data):
-    """Upload file data to Supabase storage bucket"""
-    try:
-        supabase_url = os.environ.get('SUPABASE_URL')
-        supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
-        
-        if not supabase_url or not supabase_service_key:
-            print("❌ Missing Supabase credentials")
-            return None
-        
-        headers = {
-            'Authorization': f"Bearer {supabase_service_key}",
-            'Content-Type': 'application/octet-stream',
-            'x-upsert': 'true'
-        }
-        
-        response = requests.post(
-            f"{supabase_url}/storage/v1/object/{bucket}/{path}",
-            data=file_data,
-            headers=headers,
-            timeout=180
-        )
-        
-        if response.status_code in [200, 201]:
-            return path
-        else:
-            print(f"❌ Upload failed: {response.status_code} - {response.text}")
-            return None
+    def upload_to_supabase_storage(self, bucket, path, file_data, content_type='video/mp4'):
+        """Upload file data to Supabase storage bucket with correct Content-Type"""
+        try:
+            supabase_url = os.environ.get('SUPABASE_URL')
+            supabase_service_key = os.environ.get('SUPABASE_SERVICE_KEY')
             
-    except Exception as e:
-        print(f"❌ Upload error: {e}")
-        return None
+            if not supabase_url or not supabase_service_key:
+                print("❌ Missing Supabase credentials")
+                return None
+            
+            headers = {
+                'Authorization': f"Bearer {supabase_service_key}",
+                'Content-Type': content_type,  # ✅ Use correct Content-Type for video
+                'x-upsert': 'true'
+            }
+            
+            response = requests.post(
+                f"{supabase_url}/storage/v1/object/{bucket}/{path}",
+                data=file_data,
+                headers=headers,
+                timeout=180
+            )
+            
+            if response.status_code in [200, 201]:
+                return path
+            else:
+                print(f"❌ Upload failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Upload error: {e}")
+            return None
 
     def upload_video(self, video_path, job_id, user_id):
         """Upload video to workspace-temp bucket only"""
         # Simple path: workspace-temp/{user_id}/{job_id}/0.mp4
         storage_path = f"{user_id}/{job_id}/0.mp4"
+        print(f"📤 Uploading video to workspace-temp/{storage_path}")
         
-        # Upload to workspace-temp bucket
+        # Upload to workspace-temp bucket with correct Content-Type
         with open(video_path, 'rb') as video_file:
-            upload_result = upload_to_supabase_storage(
+            video_data = video_file.read()
+            upload_result = self.upload_to_supabase_storage(
                 bucket='workspace-temp',
                 path=storage_path,
-                file_data=video_file.read()
+                file_data=video_data,
+                content_type='video/mp4'  # ✅ Explicitly set video Content-Type
             )
         
         if upload_result:
+            print(f"✅ Successfully uploaded video to workspace-temp/{storage_path} (Content-Type: video/mp4)")
             return [{
-                'temp_storage_path': storage_path,
-                'file_size_bytes': os.path.getsize(video_path),
-                'mime_type': 'video/mp4',
-                'generation_seed': getattr(self, 'generation_seed', 0),  # Default to 0 if not set
-                'asset_index': 0,
-                'duration_seconds': self.get_video_duration(video_path)
+                'type': 'video',
+                'url': storage_path,  # ✅ Use 'url' field as expected by edge function
+                'metadata': {
+                    'file_size_bytes': os.path.getsize(video_path),
+                    'format': 'mp4',
+                    'duration_seconds': self.get_video_duration(video_path),
+                    'generation_seed': getattr(self, 'generation_seed', 0),  # Default to 0 if not set
+                    'asset_index': 0
+                }
             }]
         else:
+            print(f"❌ Failed to upload video to workspace-temp/{storage_path}")
             return []
 
     def get_video_duration(self, video_path):
