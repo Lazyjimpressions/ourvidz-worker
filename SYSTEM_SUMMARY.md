@@ -1,6 +1,6 @@
 # OurVidz Worker System Summary
 
-**Last Updated:** August 16, 2025  
+**Last Updated:** August 18, 2025  
 **Purpose:** Frontend API reference for current system structure and capabilities
 
 ---
@@ -16,6 +16,8 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 - **14 Job Types** across 3 pure inference workers
 - **Batch Image Generation** (1, 3, or 6 images per request)
 - **5 Reference Frame Modes** for video generation
+- **I2I Pipeline** with parameter clamping and two modes
+- **Thumbnail Generation** for images and videos
 - **Pure Enhancement Inference** with Qwen 2.5-7B models
 - **Zero Content Restrictions** with anatomical accuracy
 - **Smart Memory Management** with emergency handling
@@ -34,11 +36,22 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 
 **Key Features:**
 - ✅ **Batch Processing:** 1, 3, or 6 images per request
+- ✅ **I2I Pipeline:** First-class support using StableDiffusionXLImg2ImgPipeline
+- ✅ **Two I2I Modes:**
+  - **Promptless Exact Copy:** `denoise_strength ≤ 0.05`, `guidance_scale = 1.0`, `steps = 6-10`
+  - **Reference Modify:** `denoise_strength = 0.10-0.25`, `guidance_scale = 4-7`, `steps = 15-30`
+- ✅ **Parameter Clamping:** Worker-side guards ensure consistent behavior
+- ✅ **Thumbnail Generation:** 256px WEBP thumbnails for each image
 - ✅ **Reference Image Support:** Style, composition, character modes
 - ✅ **NSFW Optimization:** Zero content restrictions
 - ✅ **Memory Efficient:** Attention slicing + xformers
 - ✅ **Enhanced Error Handling:** Comprehensive traceback logging
 - ✅ **Correct Callback Format:** Uses `url` field for asset paths
+
+**Performance:**
+- **Standard Generation:** 30-42s total (3-8s per image)
+- **I2I Processing:** +2-5s for reference image processing
+- **Thumbnail Generation:** +0.5-1s per image
 
 **API Endpoints:**
 - `GET /health` - Worker health check
@@ -85,9 +98,15 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 **Key Features:**
 - ✅ **Pure Inference:** Executes exactly what's provided
 - ✅ **5 Reference Frame Modes:** none, single, start, end, both
+- ✅ **I2I Pipeline:** `denoise_strength` parameter replaces `reference_strength` for consistency
+- ✅ **Video Thumbnail Generation:** Mid-frame extraction for better representation, 256px WEBP format
 - ✅ **Internal Auto-Enhancement:** Qwen Base for enhanced job types
 - ✅ **Thread-Safe Timeouts:** Concurrent.futures implementation
 - ✅ **Memory Management:** Model unloading capabilities
+
+**Performance:**
+- **Standard Generation:** 25-240s depending on job type and quality
+- **Video Thumbnail Generation:** +1-2s per video (mid-frame extraction)
 
 **API Endpoints:**
 - `GET /health` - Worker health check
@@ -158,12 +177,21 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 - **Performance optimization:** Thread-safe operations
 
 ### **📦 Dependencies** (`requirements.txt`)
-**Core Dependencies:**
-- PyTorch 2.4.1+cu124 ecosystem
-- Diffusers 0.31.0, Transformers 4.45.2
-- xformers 0.0.28.post2 (memory optimization)
-- Flask (API endpoints)
-- psutil (system monitoring)
+**Purpose**: Python dependencies with specific versions for stable operation
+- **Key Dependencies**:
+  - PyTorch 2.4.1+cu124 (stable version)
+  - Diffusers 0.31.0 (SDXL support)
+  - Transformers 4.45.2 (Qwen models)
+  - Flask 3.0.2 (HTTP APIs)
+  - **OpenCV-Python 4.10.0.84** (video processing and thumbnail generation)
+  - Pillow 10.4.0 (image processing and thumbnail generation)
+  - WAN 2.1 dependencies (easydict, av, decord, etc.)
+
+**Dependency Management**:
+- **Path**: `/workspace/python_deps/lib/python3.11/site-packages/`
+- **Environment**: `PYTHONPATH` set in `startup.sh`
+- **Persistence**: Pre-installed in `/workspace` volume, survives pod restarts
+- **OpenCV-Python**: Available at `/workspace/python_deps/lib/python3.11/site-packages/cv2/`
 
 ---
 
@@ -171,20 +199,71 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 
 | **Worker** | **Job Type** | **Quality** | **Time** | **Features** |
 |------------|--------------|-------------|----------|--------------|
-| **SDXL** | `sdxl_image_fast` | Fast (15 steps) | 30s | Batch: 1,3,6 images |
-| **SDXL** | `sdxl_image_high` | High (25 steps) | 42s | Batch: 1,3,6 images |
+| **SDXL** | `sdxl_image_fast` | Fast (15 steps) | 30s | Batch: 1,3,6 images, I2I, Thumbnails |
+| **SDXL** | `sdxl_image_high` | High (25 steps) | 42s | Batch: 1,3,6 images, I2I, Thumbnails |
 | **Chat** | `chat_enhance` | Standard | 1-3s | Direct Qwen enhancement |
 | **Chat** | `chat_conversation` | Standard | 5-15s | Dynamic prompts |
 | **Chat** | `chat_unrestricted` | NSFW | 5-15s | Adult content optimized |
 | **Chat** | `admin_utilities` | System | <1s | Memory management |
-| **WAN** | `image_fast` | Fast | 25-40s | Reference frames |
-| **WAN** | `image_high` | High | 40-100s | Reference frames |
-| **WAN** | `video_fast` | Fast | 135-180s | Reference frames |
-| **WAN** | `video_high` | High | 180-240s | Reference frames |
-| **WAN** | `image7b_fast_enhanced` | Fast Enhanced | 85-100s | AI enhancement |
-| **WAN** | `image7b_high_enhanced` | High Enhanced | 100-240s | AI enhancement |
-| **WAN** | `video7b_fast_enhanced` | Fast Enhanced | 195-240s | AI enhancement |
-| **WAN** | `video7b_high_enhanced` | High Enhanced | 240+s | AI enhancement |
+| **WAN** | `image_fast` | Fast | 25-40s | Reference frames, I2I, Thumbnails |
+| **WAN** | `image_high` | High | 40-100s | Reference frames, I2I, Thumbnails |
+| **WAN** | `video_fast` | Fast | 135-180s | Reference frames, I2I, Thumbnails |
+| **WAN** | `video_high` | High | 180-240s | Reference frames, I2I, Thumbnails |
+| **WAN** | `image7b_fast_enhanced` | Fast Enhanced | 85-100s | AI enhancement, I2I, Thumbnails |
+| **WAN** | `image7b_high_enhanced` | High Enhanced | 100-240s | AI enhancement, I2I, Thumbnails |
+| **WAN** | `video7b_fast_enhanced` | Fast Enhanced | 195-240s | AI enhancement, I2I, Thumbnails |
+| **WAN** | `video7b_high_enhanced` | High Enhanced | 240+s | AI enhancement, I2I, Thumbnails |
+
+---
+
+## 🔄 **I2I Pipeline Support**
+
+### **SDXL I2I Pipeline**
+- **Pipeline:** StableDiffusionXLImg2ImgPipeline
+- **Parameter:** `denoise_strength` (0.0-1.0)
+- **Backward Compatibility:** `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
+
+### **I2I Generation Modes**
+
+#### **Promptless Exact Copy Mode**
+- **Trigger:** `exact_copy_mode: true` with empty prompt
+- **Parameters:**
+  - `denoise_strength`: Clamped to ≤ 0.05
+  - `guidance_scale`: Fixed at 1.0
+  - `steps`: 6-10 (based on denoise_strength)
+  - `negative_prompt`: Omitted
+- **Use Case:** Upload reference image for exact copy with minimal modification
+
+#### **Reference Modify Mode**
+- **Trigger:** `exact_copy_mode: false` or not specified
+- **Parameters:**
+  - `denoise_strength`: Clamped to 0.10-0.25
+  - `guidance_scale`: Clamped to 4-7
+  - `steps`: Clamped to 15-30
+  - `negative_prompt`: Standard quality prompts
+- **Use Case:** Modify reference image with provided prompt
+
+### **WAN I2I Pipeline**
+- **Pipeline:** WAN 2.1 T2V 1.3B with reference frame support
+- **Parameter:** `denoise_strength` (0.0-1.0)
+- **Backward Compatibility:** `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
+
+---
+
+## 🖼️ **Thumbnail Generation**
+
+### **Thumbnail Generation Matrix**
+| **Asset Type** | **Thumbnail Source** | **Format** | **Size** | **Quality** | **Storage** |
+|----------------|---------------------|------------|----------|-------------|-------------|
+| **SDXL Images** | Generated image | WEBP | 256px longest edge | 85 | workspace-temp |
+| **WAN Images** | Generated image | WEBP | 256px longest edge | 85 | workspace-temp |
+| **WAN Videos** | Mid-frame extraction | WEBP | 256px longest edge | 85 | workspace-temp |
+
+### **Thumbnail Features**
+- **256px WEBP Format:** Longest edge 256px, preserve aspect ratio, quality 85
+- **Video Mid-Frame:** Extract middle frame for better representation
+- **Storage:** Both original and thumbnail uploaded to `workspace-temp`
+- **Callback Format:** Includes both `url` and `thumbnail_url` for each asset
 
 ---
 
@@ -228,12 +307,16 @@ HF_TOKEN=                  # HuggingFace token (optional)
 - `WORKER_UNAVAILABLE` - Worker not loaded
 - `TIMEOUT_ERROR` - Request timeout
 - `REFERENCE_FRAME_ERROR` - Reference processing failed
+- `I2I_PIPELINE_ERROR` - Image-to-image pipeline error
+- `THUMBNAIL_GENERATION_ERROR` - Thumbnail generation failed
 
 ### **Recovery Mechanisms**
 - **OOM Errors:** Automatic retry with memory cleanup
 - **Network Errors:** 3 retries with exponential backoff
 - **Model Errors:** Single retry with model reload
 - **Reference Frame Errors:** Graceful fallback to standard generation
+- **I2I Errors:** Fallback to text-to-image generation
+- **Thumbnail Errors:** Continue without thumbnail (non-critical)
 
 ---
 
@@ -260,25 +343,61 @@ HF_TOKEN=                  # HuggingFace token (optional)
 - **Job Submission:** Send to appropriate worker endpoints
 - **Status Monitoring:** Poll callback endpoint for job status
 - **Asset Retrieval:** Download from callback URLs
+- **Thumbnail Display:** Use `thumbnail_url` for grid views and previews
 - **Memory Management:** Monitor memory status for optimization
 - **Error Handling:** Implement retry logic for transient errors
 
-### **Callback Format**
+### **Enhanced Callback Format**
 ```json
 {
   "job_id": "job_123",
   "worker_id": "worker_001",
   "status": "completed|failed|processing",
-  "assets": [{"type": "image|video|text", "url": "..."}],
+  "assets": [
+    {
+      "type": "image|video|text",
+      "url": "workspace-temp/user123/job123/0.png",
+      "thumbnail_url": "workspace-temp/user123/job123/0.thumb.webp",
+      "metadata": {
+        "width": 1024,
+        "height": 1024,
+        "format": "png",
+        "batch_size": 1,
+        "steps": 25,
+        "guidance_scale": 7.5,
+        "seed": 12345,
+        "file_size_bytes": 2048576,
+        "asset_index": 0,
+        "denoise_strength": 0.15,
+        "pipeline": "img2img",
+        "resize_policy": "center_crop",
+        "negative_prompt_used": true
+      }
+    }
+  ],
   "metadata": {
     "enhancement_source": "qwen_instruct",
     "unrestricted_mode": false,
     "processing_time": 15.2,
-    "reference_mode": "none",
-    "batch_size": 1
+    "reference_mode": "single",
+    "batch_size": 1,
+    "exact_copy_mode": false
   }
 }
 ```
+
+### **Enhanced Asset Metadata Fields**
+
+#### **For I2I Jobs (SDXL and WAN)**
+- `denoise_strength`: Float 0.0-1.0 (I2I strength parameter)
+- `pipeline`: String "img2img" (indicates I2I generation)
+- `resize_policy`: String "center_crop" (reference image processing)
+- `negative_prompt_used`: Boolean (whether negative prompts were applied)
+
+#### **For All Assets**
+- `thumbnail_url`: String path to 256px WEBP thumbnail
+- `file_size_bytes`: Integer file size in bytes
+- `asset_index`: Integer 0-based asset index in batch
 
 ---
 
@@ -288,8 +407,9 @@ HF_TOKEN=                  # HuggingFace token (optional)
 - **WORKER_API.md** - Detailed API specifications and examples
 - **CODEBASE_INDEX.md** - Comprehensive system architecture
 - **Configuration/CONFIGURATION_APPROACH.md** - Configuration philosophy and edge function requirements
+- **I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md** - I2I pipeline and thumbnail generation details
 - **CLEANUP_SUMMARY.md** - Codebase organization and cleanup details
 
 ---
 
-**🎯 This summary provides the frontend API with complete context of the current OurVidz Worker system structure, capabilities, and integration patterns.**
+**🎯 This summary provides the frontend API with complete context of the current OurVidz Worker system structure, capabilities, and integration patterns including I2I pipeline and thumbnail generation.**

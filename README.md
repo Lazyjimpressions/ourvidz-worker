@@ -9,6 +9,8 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 
 - **Production-ready**: Triple worker orchestration (SDXL + Chat + WAN 1.3B)
 - **Comprehensive reference frame support**: 5 reference modes for video generation
+- **I2I Pipeline**: First-class Image-to-Image support with parameter clamping and two modes
+- **Thumbnail Generation**: 256px WEBP thumbnails for images and mid-frame thumbnails for videos
 - **Batch image & video generation**: 14 job types, NSFW-capable
 - **Smart memory management**: Intelligent VRAM allocation and emergency handling
 - **Enhanced chat service**: Qwen Instruct with dynamic prompts and unrestricted mode
@@ -60,16 +62,23 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **[WORKER_API.md](./WORKER_API.md)** - Complete API specifications, job types, and reference frame support
 - **[CODEBASE_INDEX.md](./CODEBASE_INDEX.md)** - System architecture and component overview
 - **[CHAT_WORKER_CONSOLIDATED.md](./CHAT_WORKER_CONSOLIDATED.md)** - Enhanced chat worker features and NSFW optimization
+- **[I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md](./I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md)** - I2I pipeline and thumbnail generation details
 
 ### **🎯 Key Features**
 
 #### **SDXL Worker**
 - **Batch generation**: 1, 3, or 6 images per request
 - **Two quality tiers**: Fast (15 steps) and High (25 steps)
+- **I2I Pipeline**: First-class support using StableDiffusionXLImg2ImgPipeline
+- **Two I2I Modes**:
+  - **Promptless Exact Copy**: `denoise_strength ≤ 0.05`, `guidance_scale = 1.0`, `steps = 6-10`
+  - **Reference Modify**: `denoise_strength = 0.10-0.25`, `guidance_scale = 4-7`, `steps = 15-30`
+- **Parameter Clamping**: Worker-side guards ensure consistent behavior
+- **Thumbnail Generation**: 256px WEBP thumbnails for each image
 - **Reference image support**: Style, composition, and character modes
 - **Enhanced error handling**: Comprehensive traceback logging and upload progress tracking
 - **Correct callback format**: Uses `url` field for asset paths as expected by edge functions
-- **Performance**: 30-42s total (3-8s per image)
+- **Performance**: 30-42s total (3-8s per image), +2-5s for I2I, +0.5-1s for thumbnails
 
 #### **Enhanced Chat Worker**
 - **Dynamic system prompts**: Custom prompts for each conversation
@@ -82,14 +91,29 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 #### **WAN 1.3B Worker**
 - **Video generation**: High-quality video with temporal consistency
 - **Comprehensive reference frame support**: All 5 modes (none, single, start, end, both)
+- **I2I Pipeline**: `denoise_strength` parameter replaces `reference_strength` for consistency
+- **Video Thumbnail Generation**: Mid-frame extraction for better representation, 256px WEBP format
 - **AI enhancement**: Qwen 7B Base prompt enhancement for improved quality
-- **Performance**: 25-240s depending on job type and quality
+- **Performance**: 25-240s depending on job type and quality, +1-2s for video thumbnails
 
 #### **Memory Manager**
 - **Smart VRAM allocation**: Priority-based memory management
 - **Emergency handling**: Force unload capabilities for critical situations
 - **Pressure detection**: Real-time memory pressure monitoring
 - **Predictive loading**: Smart preloading based on usage patterns
+
+#### **I2I Pipeline Support Matrix**
+| **Worker** | **Pipeline** | **Modes** | **Parameter** | **Clamping** | **Thumbnails** |
+|------------|--------------|-----------|---------------|--------------|----------------|
+| **SDXL** | StableDiffusionXLImg2ImgPipeline | Exact Copy + Reference Modify | `denoise_strength` | Worker-side guards | 256px WEBP |
+| **WAN** | WAN 2.1 T2V 1.3B | All reference modes | `denoise_strength` | Worker-side guards | Mid-frame WEBP |
+
+#### **Thumbnail Generation Matrix**
+| **Asset Type** | **Thumbnail Source** | **Format** | **Size** | **Quality** | **Storage** |
+|----------------|---------------------|------------|----------|-------------|-------------|
+| **SDXL Images** | Generated image | WEBP | 256px longest edge | 85 | workspace-temp |
+| **WAN Images** | Generated image | WEBP | 256px longest edge | 85 | workspace-temp |
+| **WAN Videos** | Mid-frame extraction | WEBP | 256px longest edge | 85 | workspace-temp |
 
 #### **Reference Frame Support Matrix**
 | **Reference Mode** | **Config Parameter** | **WAN Parameters** | **Use Case** |
@@ -105,7 +129,7 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **Priority-based startup**: SDXL (1) → Chat (2) → WAN (3)
 - **Smart Memory Management**: Intelligent VRAM allocation and coordination
 - **Job Queue System**: Redis-based job distribution
-- **Storage Integration**: Supabase storage for generated content
+- **Storage Integration**: Supabase storage for generated content and thumbnails
 - **Error Handling**: Comprehensive error recovery and fallback mechanisms
 - **Auto-Registration**: Automatic RunPod URL management
 
@@ -137,6 +161,23 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 ---
 
 ## 🔑 Environment Configuration
+
+### **Dependencies**
+All Python dependencies are pre-installed in persistent `/workspace` storage:
+```bash
+/workspace/python_deps/lib/python3.11/site-packages/
+├── cv2/                    # OpenCV-Python 4.10.0.84
+├── torch/                  # PyTorch 2.4.1+cu124
+├── transformers/           # Transformers 4.45.2
+├── diffusers/             # Diffusers 0.31.0
+├── flask/                 # Flask 3.0.2
+└── ... (other packages)
+```
+
+**Environment Setup**:
+- `PYTHONPATH` automatically set in `startup.sh`
+- Dependencies persist across pod restarts
+- OpenCV-Python available for video processing and thumbnail generation
 
 ### **Required Environment Variables**
 ```bash
@@ -180,4 +221,4 @@ HF_TOKEN=                  # Optional HuggingFace token
 ---
 
 **© 2025 OurVidz.com. All rights reserved.**  
-**Last Updated:** August 16, 2025
+**Last Updated:** August 18, 2025

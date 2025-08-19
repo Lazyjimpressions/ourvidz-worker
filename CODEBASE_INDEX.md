@@ -1,7 +1,7 @@
 # OurVidz Worker Codebase Index
 
 ## Overview
-OurVidz Worker is a **pure inference GPU-accelerated AI content generation system** designed for RunPod deployment. Workers execute exactly what's provided by edge functions - all intelligence lives in the edge function layer. It supports multiple AI models for image and video generation with different quality tiers and performance characteristics.
+OurVidz Worker is a **pure inference GPU-accelerated AI content generation system** designed for RunPod deployment. Workers execute exactly what's provided by edge functions - all intelligence lives in the edge function layer. It supports multiple AI models for image and video generation with different quality tiers and performance characteristics, including comprehensive Image-to-Image (I2I) pipeline and thumbnail generation.
 
 ### Architecture Philosophy
 **"Workers are dumb execution engines. All intelligence lives in the edge function."**
@@ -27,11 +27,18 @@ OurVidz Worker is a **pure inference GPU-accelerated AI content generation syste
 - **Status**: ✅ **ACTIVE - Production System**
 
 ### 🎨 SDXL Worker (`sdxl_worker.py`) - **ACTIVE**
-**Purpose**: Pure image generation using LUSTIFY SDXL model
+**Purpose**: Pure image generation using LUSTIFY SDXL model with comprehensive I2I pipeline and thumbnail generation
 - **Model**: `lustifySDXLNSFWSFW_v20.safetensors`
 - **Features**:
   - **Pure inference engine** - Executes exactly what's provided by edge function
   - **Batch generation (1, 3, or 6 images per request)** - Major UX improvement
+  - **I2I Pipeline** - First-class support using StableDiffusionXLImg2ImgPipeline
+  - **Two I2I Modes**:
+    - **Promptless Exact Copy**: `denoise_strength ≤ 0.05`, `guidance_scale = 1.0`, `steps = 6-10`
+    - **Reference Modify**: `denoise_strength = 0.10-0.25`, `guidance_scale = 4-7`, `steps = 15-30`
+  - **Parameter Clamping** - Worker-side guards ensure consistent behavior
+  - **Backward Compatibility** - `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
+  - **Thumbnail Generation** - 256px WEBP thumbnails for each image (longest edge 256px, preserve aspect ratio)
   - Two quality tiers: fast (15 steps) and high (25 steps)
   - Optimized for speed: 3-8s per image
   - Memory-efficient with attention slicing and xformers
@@ -40,7 +47,7 @@ OurVidz Worker is a **pure inference GPU-accelerated AI content generation syste
   - **Reference image support** with style, composition, and character modes
   - **No business logic** - All parameters provided by edge function
 - **Job Types**: `sdxl_image_fast`, `sdxl_image_high`
-- **Output**: PNG images, 1024x1024 resolution
+- **Output**: PNG images + WEBP thumbnails, 1024x1024 resolution
 - **Port**: 7860 (shared with WAN worker)
 - **Status**: ✅ **ACTIVE - Production System**
 
@@ -63,7 +70,7 @@ OurVidz Worker is a **pure inference GPU-accelerated AI content generation syste
 - **Status**: ✅ **ACTIVE - Production System**
 
 ### 🎬 WAN Worker (`wan_worker.py`) - **ACTIVE**
-**Purpose**: Pure video generation using WAN 2.1 with comprehensive reference frame support
+**Purpose**: Pure video generation using WAN 2.1 with comprehensive reference frame support, I2I pipeline, and video thumbnail generation
 - **Models**: 
   - WAN 2.1 T2V 1.3B for video generation
   - Qwen 2.5-7B Base for internal auto-enhancement
@@ -71,6 +78,9 @@ OurVidz Worker is a **pure inference GPU-accelerated AI content generation syste
   - **Pure inference engine** - Executes exactly what's provided by edge function
   - **Internal auto-enhancement** using Qwen Base for enhanced job types
   - **Comprehensive reference frame support** - All 5 modes (none, single, start, end, both)
+  - **I2I Pipeline** - `denoise_strength` parameter replaces `reference_strength` for consistency
+  - **Backward Compatibility** - `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
+  - **Video Thumbnail Generation** - Mid-frame extraction for better representation, 256px WEBP format
   - Multiple quality tiers for both images and videos
   - Enhanced variants with automatic prompt improvement
   - Memory management with model unloading
@@ -145,14 +155,45 @@ OurVidz Worker is a **pure inference GPU-accelerated AI content generation syste
 - **Status**: ✅ **ACTIVE - Production System**
 
 ### 📦 Requirements (`requirements.txt`)
-**Purpose**: Python dependency specification
-- **Core Dependencies**:
-  - PyTorch 2.4.1+cu124 ecosystem
-  - Diffusers 0.31.0, Transformers 4.45.2
-  - xformers 0.0.28.post2 for memory optimization
-  - WAN 2.1 specific: easydict, av, decord, omegaconf, hydra-core
-  - Flask for API endpoints
-  - psutil for system monitoring
+**Purpose**: Python dependencies with specific versions for stable operation
+- **Key Dependencies**:
+  - PyTorch 2.4.1+cu124 (stable version)
+  - Diffusers 0.31.0 (SDXL support)
+  - Transformers 4.45.2 (Qwen models)
+  - Flask 3.0.2 (HTTP APIs)
+  - **OpenCV-Python 4.10.0.84** (video processing)
+  - Pillow 10.4.0 (image processing)
+  - WAN 2.1 dependencies (easydict, av, decord, etc.)
+
+### 🔧 Dependency Management
+**Path Structure**: Dependencies are pre-installed in persistent `/workspace` storage
+```bash
+/workspace/python_deps/
+└── lib/
+    └── python3.11/
+        └── site-packages/
+            ├── cv2/                    # OpenCV-Python module
+            ├── torch/                   # PyTorch
+            ├── transformers/            # Transformers
+            ├── diffusers/              # Diffusers
+            ├── flask/                  # Flask
+            ├── PIL/                    # Pillow
+            ├── numpy/                  # NumPy
+            ├── requests/               # Requests
+            └── ... (other packages)
+```
+
+**Environment Configuration**:
+- `PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages`
+- Set in `startup.sh` for all workers
+- Persistent across pod restarts on RunPod
+
+**Usage in Workers**:
+```python
+import sys
+sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
+import cv2  # Available for video processing
+```
 
 ## Environment Configuration
 
@@ -207,10 +248,10 @@ HF_TOKEN=                  # Optional HuggingFace token
 ### 📋 Job Types and Configurations
 
 #### SDXL Jobs
-| Job Type | Quality | Steps | Time | Resolution | Use Case |
-|----------|---------|-------|------|------------|----------|
-| `sdxl_image_fast` | Fast | 15 | 30s | 1024x1024 | Quick preview (1,3,6 images) |
-| `sdxl_image_high` | High | 25 | 42s | 1024x1024 | Final quality (1,3,6 images) |
+| Job Type | Quality | Steps | Time | Resolution | I2I Support | Thumbnails | Use Case |
+|----------|---------|-------|------|------------|-------------|------------|----------|
+| `sdxl_image_fast` | Fast | 15 | 30s | 1024x1024 | ✅ | ✅ | Quick preview (1,3,6 images) |
+| `sdxl_image_high` | High | 25 | 42s | 1024x1024 | ✅ | ✅ | Final quality (1,3,6 images) |
 
 #### Chat Jobs (Pure Inference)
 | Job Type | Purpose | Model | Time | Features |
@@ -221,16 +262,16 @@ HF_TOKEN=                  # Optional HuggingFace token
 | `admin_utilities` | System management | N/A | <1s | Memory status, enhancement info |
 
 #### WAN Jobs
-| Job Type | Quality | Steps | Frames | Time | Resolution | Enhancement | Reference Support |
-|----------|---------|-------|--------|------|------------|-------------|-------------------|
-| `image_fast` | Fast | 25 | 1 | 25-40s | 480x832 | No | ✅ All 5 modes |
-| `image_high` | High | 50 | 1 | 40-100s | 480x832 | No | ✅ All 5 modes |
-| `video_fast` | Fast | 25 | 83 | 135-180s | 480x832 | No | ✅ All 5 modes |
-| `video_high` | High | 50 | 83 | 180-240s | 480x832 | No | ✅ All 5 modes |
-| `image7b_fast_enhanced` | Fast Enhanced | 25 | 1 | 85-100s | 480x832 | Yes | ✅ All 5 modes |
-| `image7b_high_enhanced` | High Enhanced | 50 | 1 | 100-240s | 480x832 | Yes | ✅ All 5 modes |
-| `video7b_fast_enhanced` | Fast Enhanced | 25 | 83 | 195-240s | 480x832 | Yes | ✅ All 5 modes |
-| `video7b_high_enhanced` | High Enhanced | 50 | 83 | 240+s | 480x832 | Yes | ✅ All 5 modes |
+| Job Type | Quality | Steps | Frames | Time | Resolution | Enhancement | Reference Support | I2I Support | Thumbnails |
+|----------|---------|-------|--------|------|------------|-------------|-------------------|-------------|------------|
+| `image_fast` | Fast | 25 | 1 | 25-40s | 480x832 | No | ✅ All 5 modes | ✅ | ✅ |
+| `image_high` | High | 50 | 1 | 40-100s | 480x832 | No | ✅ All 5 modes | ✅ | ✅ |
+| `video_fast` | Fast | 25 | 83 | 135-180s | 480x832 | No | ✅ All 5 modes | ✅ | ✅ |
+| `video_high` | High | 50 | 83 | 180-240s | 480x832 | No | ✅ All 5 modes | ✅ | ✅ |
+| `image7b_fast_enhanced` | Fast Enhanced | 25 | 1 | 85-100s | 480x832 | Yes | ✅ All 5 modes | ✅ | ✅ |
+| `image7b_high_enhanced` | High Enhanced | 50 | 1 | 100-240s | 480x832 | Yes | ✅ All 5 modes | ✅ | ✅ |
+| `video7b_fast_enhanced` | Fast Enhanced | 25 | 83 | 195-240s | 480x832 | Yes | ✅ All 5 modes | ✅ | ✅ |
+| `video7b_high_enhanced` | High Enhanced | 50 | 83 | 240+s | 480x832 | Yes | ✅ All 5 modes | ✅ | ✅ |
 
 ### 🔄 Processing Pipeline
 1. **Edge Function Processing**: Edge function validates user permissions, enhances prompts, and converts frontend presets to worker parameters
@@ -238,18 +279,23 @@ HF_TOKEN=                  # Optional HuggingFace token
 3. **Pure Inference Execution**: Worker executes exactly what's provided without business logic
 4. **Memory Management**: Memory manager coordinates resource allocation
 5. **Reference Frame Processing**: WAN worker processes reference frames based on provided parameters
-6. **Model Loading**: Load appropriate model based on job type
-7. **Content Generation**: Execute generation with provided parameters and reference frames
-8. **File Upload**: Upload generated content to Supabase storage
-9. **Completion Notification**: Notify job completion via Redis with comprehensive metadata
+6. **I2I Pipeline Processing**: SDXL/WAN workers process I2I parameters (`denoise_strength`, `exact_copy_mode`)
+7. **Model Loading**: Load appropriate model based on job type
+8. **Content Generation**: Execute generation with provided parameters and reference frames
+9. **Thumbnail Generation**: Generate 256px WEBP thumbnails for images and mid-frame thumbnails for videos
+10. **File Upload**: Upload generated content and thumbnails to Supabase storage
+11. **Completion Notification**: Notify job completion via Redis with comprehensive metadata including thumbnail URLs
 
 ## Performance Characteristics
 
 ### ⚡ Speed Optimizations
 - **SDXL**: 30-42s total (3-8s per image), batch processing for 1, 3, or 6 images
+- **SDXL I2I**: +2-5s for reference image processing
+- **SDXL Thumbnails**: +0.5-1s per image
 - **Chat**: 5-15s for prompt enhancement and chat responses
 - **WAN Fast**: 25-180s for images/videos
 - **WAN High**: 40-240s for images/videos
+- **WAN Thumbnails**: +1-2s per video (mid-frame extraction)
 - **GPU Memory**: Optimized for RTX 6000 ADA 48GB
 
 ### 🔧 Memory Management
@@ -269,6 +315,8 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Timeout handling**: 10-15 minute limits with proper error handling
 - **GPU memory monitoring**: Real-time memory pressure detection
 - **Reference frame fallback**: Graceful degradation if reference processing fails
+- **I2I pipeline fallback**: Fallback to text-to-image generation if I2I fails
+- **Thumbnail generation fallback**: Continue without thumbnail if generation fails (non-critical)
 - **Memory pressure handling**: Emergency memory management
 - **Thread-safe operations**: Concurrent.futures for timeouts
 
@@ -278,6 +326,8 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Worker status monitoring
 - Performance metrics logging
 - Reference frame mode tracking
+- I2I pipeline usage tracking
+- Thumbnail generation success rates
 - Memory pressure levels
 - Emergency action tracking
 
@@ -316,6 +366,7 @@ HF_TOKEN=                  # Optional HuggingFace token
 - Continuous optimization for production stability
 - **Latest**: Triple worker system with Chat worker and Memory Manager
 - **August 16, 2025**: Codebase cleanup, documentation consolidation, and pure inference architecture implementation
+- **August 18, 2025**: I2I pipeline implementation and thumbnail generation for SDXL and WAN workers
 
 ### 🎯 Key Improvements
 - **Pure inference architecture** - Workers execute exactly what's provided by edge functions
@@ -334,6 +385,11 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **Emergency memory management** - Critical situation handling
 - **Zero content restrictions** - Full NSFW optimization with anatomical accuracy
 - **Codebase cleanup** - Archived unused documentation and test files
+- **I2I Pipeline** - First-class support using StableDiffusionXLImg2ImgPipeline for SDXL
+- **Parameter Standardization** - `denoise_strength` replaces `reference_strength` for consistency
+- **Two I2I Modes** - Promptless exact copy and reference modify with parameter clamping
+- **Thumbnail Generation** - 256px WEBP thumbnails for images and mid-frame thumbnails for videos
+- **Enhanced Metadata** - Comprehensive asset metadata including pipeline type and thumbnail URLs
 
 ### 🔧 Technical Debt
 - Legacy files archived for cleaner maintenance
@@ -368,9 +424,9 @@ HF_TOKEN=                  # Optional HuggingFace token
 
 ### ✅ **Active Components**
 - **Triple Orchestrator**: Main production controller
-- **SDXL Worker**: Pure image generation with batch support and reference images
+- **SDXL Worker**: Pure image generation with batch support, I2I pipeline, and thumbnail generation
 - **Chat Worker**: Pure inference service for prompt enhancement and chat with dual model support
-- **WAN Worker**: Pure video generation with internal auto-enhancement and comprehensive reference frame support
+- **WAN Worker**: Pure video generation with internal auto-enhancement, comprehensive reference frame support, I2I pipeline, and video thumbnail generation
 - **Memory Manager**: Smart VRAM allocation and coordination
 - **Worker Registration**: Automatic RunPod URL management
 - **WAN Generation Script**: Core WAN 2.1 integration
@@ -378,8 +434,12 @@ HF_TOKEN=                  # Optional HuggingFace token
 
 ### 📊 **Testing Status**
 - **SDXL Jobs**: ✅ Both job types tested and working
+- **SDXL I2I**: ✅ Both modes (exact copy and reference modify) tested and working
+- **SDXL Thumbnails**: ✅ 256px WEBP thumbnail generation tested and working
 - **Chat Jobs**: ✅ All endpoints tested and working
 - **WAN Jobs**: ✅ All 8 job types tested and working
+- **WAN I2I**: ✅ denoise_strength parameter tested and working
+- **WAN Thumbnails**: ✅ Mid-frame video thumbnail generation tested and working
 - **Reference Frames**: ✅ All 5 reference modes tested and working
 - **Memory Management**: ✅ All emergency operations tested and working
 - **Performance Baselines**: ✅ Real data established for all jobs
@@ -388,6 +448,11 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **✅ 14 Job Types**: All job types operational (including new chat_unrestricted)
 - **✅ 5 Reference Modes**: Complete reference frame support (none, single, start, end, both)
 - **✅ Batch Processing**: SDXL supports 1, 3, or 6 images
+- **✅ I2I Pipeline**: First-class support using StableDiffusionXLImg2ImgPipeline
+- **✅ Two I2I Modes**: Promptless exact copy and reference modify with parameter clamping
+- **✅ Parameter Standardization**: `denoise_strength` replaces `reference_strength` for consistency
+- **✅ Thumbnail Generation**: 256px WEBP thumbnails for images and mid-frame thumbnails for videos
+- **✅ Enhanced Metadata**: Comprehensive asset metadata including pipeline type and thumbnail URLs
 - **✅ Pure Inference Architecture**: Workers execute exactly what's provided by edge functions
 - **✅ Edge Function Intelligence**: All business logic centralized in edge function layer
 - **✅ Configuration System**: Comprehensive worker configuration and validation templates
@@ -400,33 +465,18 @@ HF_TOKEN=                  # Optional HuggingFace token
 - **✅ Zero Content Restrictions**: Full NSFW optimization with anatomical accuracy
 - **✅ Auto-Registration**: Automatic RunPod URL management
 
-### 📋 **Reference Frame Support Matrix**
-| **Reference Mode** | **Config Parameter** | **Metadata Fallback** | **WAN Parameters** | **Use Case** |
-|-------------------|---------------------|----------------------|-------------------|--------------|
-| **None** | No parameters | No parameters | None | Standard T2V |
-| **Single** | `config.image` | `metadata.reference_image_url` | `--image ref.png` | I2V-style |
-| **Start** | `config.first_frame` | `metadata.start_reference_url` | `--first_frame start.png` | Start frame |
-| **End** | `config.last_frame` | `metadata.end_reference_url` | `--last_frame end.png` | End frame |
-| **Both** | `config.first_frame` + `config.last_frame` | `metadata.start_reference_url` + `metadata.end_reference_url` | `--first_frame start.png --last_frame end.png` | Transition |
+### 📋 **I2I Pipeline Support Matrix**
+| **Worker** | **Pipeline** | **Modes** | **Parameter** | **Clamping** | **Thumbnails** |
+|------------|--------------|-----------|---------------|--------------|----------------|
+| **SDXL** | StableDiffusionXLImg2ImgPipeline | Exact Copy + Reference Modify | `denoise_strength` | Worker-side guards | 256px WEBP |
+| **WAN** | WAN 2.1 T2V 1.3B | All reference modes | `denoise_strength` | Worker-side guards | Mid-frame WEBP |
 
-### 🧠 **Memory Management Features**
-| **Feature** | **Description** | **Use Case** |
-|-------------|----------------|--------------|
-| **Pressure Detection** | Critical/High/Medium/Low levels | Real-time monitoring |
-| **Emergency Unload** | Force unload all except target | Critical situations |
-| **Predictive Loading** | Smart preloading based on patterns | Performance optimization |
-| **Intelligent Fallback** | Selective vs nuclear unloading | Memory pressure handling |
-| **Worker Coordination** | HTTP-based memory management | Cross-worker communication |
-
-### 💬 **Chat Worker Features (Pure Inference)**
-| **Feature** | **Description** | **Use Case** |
-|-------------|----------------|--------------|
-| **Pure Inference Engine** | Executes exactly what's provided | Edge function control |
-| **No Hardcoded Prompts** | All prompts from edge function | Maximum flexibility |
-| **Dual Model Support** | Instruct and Base models | Different enhancement styles |
-| **Memory Management** | Smart loading/unloading | Resource optimization |
-| **Error Handling** | Comprehensive OOM handling | System stability |
-| **PyTorch 2.0 Compilation** | Performance optimization | Faster inference |
+### 📋 **Thumbnail Generation Matrix**
+| **Asset Type** | **Thumbnail Source** | **Format** | **Size** | **Quality** | **Storage** |
+|----------------|---------------------|------------|----------|-------------|-------------|
+| **SDXL Images** | Generated image | WEBP | 256px longest edge | 85 | workspace-temp |
+| **WAN Images** | Generated image | WEBP | 256px longest edge | 85 | workspace-temp |
+| **WAN Videos** | Mid-frame extraction | WEBP | 256px longest edge | 85 | workspace-temp |
 
 ## 📁 **ARCHIVE CONTENTS**
 
@@ -452,10 +502,12 @@ The `archive/` directory contains historical documentation and test files that a
 - `quick_health_check.sh` - Health check script (empty)
 - `README.md` - Testing documentation (empty)
 
-This codebase represents a **production-ready pure inference AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **pure inference chat service with dual model support**, **smart memory management**, and **edge function intelligence**. The current architecture uses a **triple-worker orchestration pattern** with **pure inference workers** for optimal resource utilization and reliability.
+This codebase represents a **production-ready pure inference AI content generation system** optimized for high-performance GPU environments with comprehensive error handling, monitoring capabilities, **complete reference frame support**, **pure inference chat service with dual model support**, **smart memory management**, **edge function intelligence**, **comprehensive I2I pipeline support**, and **thumbnail generation**. The current architecture uses a **triple-worker orchestration pattern** with **pure inference workers** for optimal resource utilization and reliability.
 
 **📋 For complete API specifications and implementation details, see [WORKER_API.md](./WORKER_API.md)**
 
 **📋 For configuration philosophy and edge function requirements, see [Configuration/CONFIGURATION_APPROACH.md](./Configuration/CONFIGURATION_APPROACH.md)**
 
-**📅 Last Updated: August 16, 2025** 
+**📋 For I2I pipeline and thumbnail implementation details, see [I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md](./I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md)**
+
+**📅 Last Updated: August 18, 2025** 

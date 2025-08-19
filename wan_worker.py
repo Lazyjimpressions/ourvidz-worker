@@ -699,7 +699,7 @@ class EnhancedWanWorker:
         print("🎬 Generating standard video without reference frames")
         return self.generate_content(prompt, job_type)
 
-    def generate_video_with_reference_frame(self, prompt, reference_image, job_type, reference_strength=0.85):
+    def generate_video_with_reference_frame(self, prompt, reference_image, job_type, denoise_strength=0.15):
         """Generate video with single reference frame using WAN 1.3B (I2V-style)"""
         print(f"🎬 Generating video with single reference frame using WAN 1.3B")
         
@@ -708,8 +708,10 @@ class EnhancedWanWorker:
             
         config = self.job_configs[job_type].copy()
         
-        # Adjust guidance scale based on reference strength
+        # Adjust guidance scale based on denoise strength
         base_guide_scale = config['sample_guide_scale']
+        # Convert denoise_strength to reference_strength for guidance adjustment
+        reference_strength = 1.0 - denoise_strength
         adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
         config['sample_guide_scale'] = adjusted_guide_scale
         
@@ -855,7 +857,7 @@ class EnhancedWanWorker:
             except:
                 pass
 
-    def generate_video_with_start_frame(self, prompt, start_reference_image, job_type, reference_strength=0.85):
+    def generate_video_with_start_frame(self, prompt, start_reference_image, job_type, denoise_strength=0.15):
         """Generate video with start frame reference using WAN 1.3B"""
         print(f"🎬 Generating video with start frame reference using WAN 1.3B")
         
@@ -864,8 +866,10 @@ class EnhancedWanWorker:
             
         config = self.job_configs[job_type].copy()
         
-        # Adjust guidance scale based on reference strength
+        # Adjust guidance scale based on denoise strength
         base_guide_scale = config['sample_guide_scale']
+        # Convert denoise_strength to reference_strength for guidance adjustment
+        reference_strength = 1.0 - denoise_strength
         adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
         config['sample_guide_scale'] = adjusted_guide_scale
         
@@ -1011,7 +1015,7 @@ class EnhancedWanWorker:
             except:
                 pass
 
-    def generate_video_with_end_frame(self, prompt, end_reference_image, job_type, reference_strength=0.85):
+    def generate_video_with_end_frame(self, prompt, end_reference_image, job_type, denoise_strength=0.15):
         """Generate video with end frame reference using WAN 1.3B"""
         print(f"🎬 Generating video with end frame reference using WAN 1.3B")
         
@@ -1020,8 +1024,10 @@ class EnhancedWanWorker:
             
         config = self.job_configs[job_type].copy()
         
-        # Adjust guidance scale based on reference strength
+        # Adjust guidance scale based on denoise strength
         base_guide_scale = config['sample_guide_scale']
+        # Convert denoise_strength to reference_strength for guidance adjustment
+        reference_strength = 1.0 - denoise_strength
         adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
         config['sample_guide_scale'] = adjusted_guide_scale
         
@@ -1167,7 +1173,7 @@ class EnhancedWanWorker:
             except:
                 pass
 
-    def generate_video_with_both_frames(self, prompt, start_reference_image, end_reference_image, job_type, reference_strength=0.85):
+    def generate_video_with_both_frames(self, prompt, start_reference_image, end_reference_image, job_type, denoise_strength=0.15):
         """Generate video with both start and end frame references using WAN 1.3B"""
         print(f"🎬 Generating video with both start and end frame references using WAN 1.3B")
         
@@ -1176,8 +1182,10 @@ class EnhancedWanWorker:
             
         config = self.job_configs[job_type].copy()
         
-        # Adjust guidance scale based on reference strength
+        # Adjust guidance scale based on denoise strength
         base_guide_scale = config['sample_guide_scale']
+        # Convert denoise_strength to reference_strength for guidance adjustment
+        reference_strength = 1.0 - denoise_strength
         adjusted_guide_scale = self.adjust_guidance_for_reference_strength(base_guide_scale, reference_strength)
         config['sample_guide_scale'] = adjusted_guide_scale
         
@@ -2279,7 +2287,16 @@ Enhanced prompt:"""
         single_reference_url = config.get('image') or metadata.get('reference_image_url')
         start_reference_url = config.get('first_frame') or metadata.get('start_reference_url')
         end_reference_url = config.get('last_frame') or metadata.get('end_reference_url')
-        reference_strength = metadata.get('reference_strength', 0.5)
+        
+        # Handle denoise_strength parameter (new) with fallback to reference_strength (deprecated)
+        denoise_strength = metadata.get('denoise_strength')
+        if denoise_strength is None:
+            # Fallback to deprecated reference_strength
+            reference_strength = metadata.get('reference_strength', 0.5)
+            denoise_strength = 1.0 - reference_strength  # Convert reference_strength to denoise_strength
+            print(f"⚠️ DEPRECATED: Using reference_strength={reference_strength}, converted to denoise_strength={denoise_strength}")
+        else:
+            print(f"✅ Using denoise_strength: {denoise_strength}")
         
         print(f"🔄 Processing job {job_id} ({job_type}) with CONSISTENT PARAMETERS")
         print(f"📝 Original prompt: {original_prompt}")
@@ -2288,7 +2305,7 @@ Enhanced prompt:"""
         
         # Log reference frame parameters if present (UPDATED API SPEC)
         if single_reference_url or start_reference_url or end_reference_url:
-            print(f"🖼️ Reference frame mode: strength {reference_strength}")
+            print(f"🖼️ Reference frame mode: denoise_strength {denoise_strength}")
             if single_reference_url:
                 print(f"📥 Single reference frame URL (image/reference_image_url): {single_reference_url}")
             if start_reference_url:
@@ -2359,7 +2376,7 @@ Enhanced prompt:"""
                             actual_prompt, 
                             reference_image, 
                             job_type,
-                            reference_strength
+                            denoise_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load single reference image: {e}")
@@ -2382,7 +2399,7 @@ Enhanced prompt:"""
                             start_reference_image, 
                             end_reference_image, 
                             job_type,
-                            reference_strength
+                            denoise_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load both reference images: {e}")
@@ -2403,7 +2420,7 @@ Enhanced prompt:"""
                             actual_prompt, 
                             start_reference_image, 
                             job_type,
-                            reference_strength
+                            denoise_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load start reference image: {e}")
@@ -2424,7 +2441,7 @@ Enhanced prompt:"""
                             actual_prompt, 
                             end_reference_image, 
                             job_type,
-                            reference_strength
+                            denoise_strength
                         )
                     except Exception as e:
                         print(f"❌ Failed to load end reference image: {e}")
@@ -2456,7 +2473,9 @@ Enhanced prompt:"""
             
             # Upload to workspace-temp bucket
             print(f"📤 Uploading validated {final_config['content_type']} file to workspace-temp bucket")
-            uploaded_assets = self.upload_video(output_file, job_id, user_id)
+            # Pass denoise_strength if reference frames were used
+            has_reference_frames = single_reference_url or start_reference_url or end_reference_url
+            uploaded_assets = self.upload_video(output_file, job_id, user_id, denoise_strength=denoise_strength if has_reference_frames else None)
             
             # Cleanup temp file
             try:
@@ -2628,10 +2647,11 @@ Enhanced prompt:"""
             print(f"❌ Upload error: {e}")
             return None
 
-    def upload_video(self, video_path, job_id, user_id):
-        """Upload video to workspace-temp bucket only"""
+    def upload_video(self, video_path, job_id, user_id, denoise_strength=None):
+        """Upload video to workspace-temp bucket with thumbnail"""
         # Simple path: workspace-temp/{user_id}/{job_id}/0.mp4
         storage_path = f"{user_id}/{job_id}/0.mp4"
+        thumbnail_path = f"{user_id}/{job_id}/0.thumb.webp"
         print(f"📤 Uploading video to workspace-temp/{storage_path}")
         
         # Upload to workspace-temp bucket with correct Content-Type
@@ -2644,19 +2664,52 @@ Enhanced prompt:"""
                 content_type='video/mp4'  # ✅ Explicitly set video Content-Type
             )
         
+        # Generate and upload thumbnail if video upload was successful
+        thumbnail_url = None
+        if upload_result:
+            thumbnail_bytes = self.generate_video_thumbnail(video_path)
+            if thumbnail_bytes:
+                thumbnail_upload_result = self.upload_to_supabase_storage(
+                    bucket='workspace-temp',
+                    path=thumbnail_path,
+                    file_data=thumbnail_bytes,
+                    content_type='image/webp'
+                )
+                if thumbnail_upload_result:
+                    thumbnail_url = thumbnail_path
+                    print(f"✅ Successfully uploaded video thumbnail to workspace-temp/{thumbnail_path}")
+                else:
+                    print(f"⚠️ Failed to upload video thumbnail to workspace-temp/{thumbnail_path}")
+        
         if upload_result:
             print(f"✅ Successfully uploaded video to workspace-temp/{storage_path} (Content-Type: video/mp4)")
-            return [{
+            
+            # Build metadata with denoise_strength if provided
+            metadata = {
+                'file_size_bytes': os.path.getsize(video_path),
+                'format': 'mp4',
+                'duration_seconds': self.get_video_duration(video_path),
+                'generation_seed': getattr(self, 'generation_seed', 0),  # Default to 0 if not set
+                'asset_index': 0
+            }
+            
+            # Add I2I-specific metadata if provided
+            if denoise_strength is not None:
+                metadata['denoise_strength'] = denoise_strength
+                metadata['pipeline'] = 'img2img'
+                metadata['resize_policy'] = 'center_crop'
+            
+            asset = {
                 'type': 'video',
                 'url': storage_path,  # ✅ Use 'url' field as expected by edge function
-                'metadata': {
-                    'file_size_bytes': os.path.getsize(video_path),
-                    'format': 'mp4',
-                    'duration_seconds': self.get_video_duration(video_path),
-                    'generation_seed': getattr(self, 'generation_seed', 0),  # Default to 0 if not set
-                    'asset_index': 0
-                }
-            }]
+                'metadata': metadata
+            }
+            
+            # Add thumbnail_url if available
+            if thumbnail_url:
+                asset['thumbnail_url'] = thumbnail_url
+            
+            return [asset]
         else:
             print(f"❌ Failed to upload video to workspace-temp/{storage_path}")
             return []
@@ -2674,6 +2727,60 @@ Enhanced prompt:"""
         except Exception as e:
             print(f"⚠️ Could not determine video duration: {e}")
             return 5.0  # Default 5 seconds for WAN videos
+
+    def generate_video_thumbnail(self, video_path, max_size=256):
+        """Generate a thumbnail from the mid-frame of the video for better representation"""
+        try:
+            import cv2
+            
+            # Open video and get total frame count
+            cap = cv2.VideoCapture(video_path)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            if total_frames <= 0:
+                print(f"❌ Could not determine frame count for video: {video_path}")
+                cap.release()
+                return None
+            
+            # Read mid-frame for better thumbnail representation
+            mid_frame = total_frames // 2
+            cap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                print(f"❌ Could not read first frame from video: {video_path}")
+                return None
+            
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Convert to PIL Image
+            image = Image.fromarray(frame_rgb)
+            
+            # Calculate new size maintaining aspect ratio
+            width, height = image.size
+            if width > height:
+                new_width = max_size
+                new_height = int(height * max_size / width)
+            else:
+                new_height = max_size
+                new_width = int(width * max_size / height)
+            
+            # Resize image
+            thumbnail = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Convert to WEBP format
+            thumbnail_buffer = io.BytesIO()
+            thumbnail.save(thumbnail_buffer, format='WEBP', quality=85, optimize=True)
+            thumbnail_buffer.seek(0)
+            
+            print(f"✅ Generated video thumbnail from mid-frame ({mid_frame}/{total_frames}): {new_width}x{new_height} WEBP")
+            return thumbnail_buffer.getvalue()
+            
+        except Exception as e:
+            print(f"❌ Video thumbnail generation failed: {e}")
+            return None
 
 # Flask server for frontend enhancement API
 if FLASK_AVAILABLE:

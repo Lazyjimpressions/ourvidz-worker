@@ -1,6 +1,6 @@
 # Worker API Documentation
 
-**Last Updated:** August 16, 2025
+**Last Updated:** August 18, 2025
 
 ## System Overview
 
@@ -12,9 +12,9 @@ The `ourvidz-worker` repository manages a **pure inference AI content generation
 ### Architecture Components
 
 #### Core Workers (Pure Inference)
-1. **SDXL Worker** (`sdxl_worker.py`) - Pure image generation using Stable Diffusion XL with batch processing
+1. **SDXL Worker** (`sdxl_worker.py`) - Pure image generation using Stable Diffusion XL with batch processing and I2I pipeline
 2. **Chat Worker** (`chat_worker.py`) - Pure inference for chat and enhancement using Qwen models
-3. **WAN Worker** (`wan_worker.py`) - Pure video generation using WAN 2.1 with reference frame support
+3. **WAN Worker** (`wan_worker.py`) - Pure video generation using WAN 2.1 with reference frame support and I2I pipeline
 
 #### System Management
 - **Triple Orchestrator** (`dual_orchestrator.py`) - Central job distribution and worker coordination
@@ -56,7 +56,45 @@ ourvidz-worker/
     └── [Historical documentation and test files]
 ```
 
-## Chat Worker (Pure Inference)
+## Environment and Dependencies
+
+### **📦 Dependency Management**
+**Path Structure**: Dependencies are pre-installed in persistent `/workspace` storage
+```bash
+/workspace/python_deps/
+└── lib/
+    └── python3.11/
+        └── site-packages/
+            ├── cv2/                    # OpenCV-Python module
+            ├── torch/                   # PyTorch
+            ├── transformers/            # Transformers
+            ├── diffusers/              # Diffusers
+            ├── flask/                  # Flask
+            ├── PIL/                    # Pillow
+            ├── numpy/                  # NumPy
+            ├── requests/               # Requests
+            └── ... (other packages)
+```
+
+**Environment Configuration**:
+- `PYTHONPATH=/workspace/python_deps/lib/python3.11/site-packages`
+- Set in `startup.sh` for all workers
+- Persistent across pod restarts on RunPod
+
+**Key Dependencies**:
+- **OpenCV-Python 4.10.0.84**: Available for video processing and thumbnail generation
+- **PyTorch 2.4.1+cu124**: Stable version for all ML operations
+- **Flask 3.0.2**: HTTP APIs for worker communication
+- **Pillow 10.4.0**: Image processing and thumbnail generation
+
+**Usage in Workers**:
+```python
+import sys
+sys.path.insert(0, "/workspace/python_deps/lib/python3.11/site-packages")
+import cv2  # Available for video processing
+```
+
+## Core Workers (Pure Inference)
 
 ### Overview
 The Chat Worker provides **pure inference** for AI conversation and prompt enhancement using Qwen 2.5-7B models. All system prompts and enhancement logic are provided by the edge function - the worker executes exactly what's requested.
@@ -185,7 +223,20 @@ The Chat Worker provides **pure inference** for AI conversation and prompt enhan
 ## SDXL Worker (Pure Inference)
 
 ### Overview
-Pure image generation using Stable Diffusion XL with batch processing support (1, 3, or 6 images per request). Receives complete parameters from edge function and executes exactly what's provided.
+Pure image generation using Stable Diffusion XL with batch processing support (1, 3, or 6 images per request) and comprehensive Image-to-Image (I2I) pipeline. Receives complete parameters from edge function and executes exactly what's provided.
+
+### I2I Pipeline Features
+- **StableDiffusionXLImg2ImgPipeline**: First-class I2I support using dedicated pipeline
+- **Two Explicit Modes**:
+  - **Promptless Exact Copy**: `denoise_strength ≤ 0.05`, `guidance_scale = 1.0`, `steps = 6-10`, `negative_prompt = ''`
+  - **Reference Modify**: `denoise_strength = 0.10-0.25`, `guidance_scale = 4-7`, `steps = 15-30`
+- **Parameter Clamping**: Worker-side guards ensure consistent behavior
+- **Backward Compatibility**: `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
+
+### Thumbnail Generation
+- **256px WEBP Thumbnails**: Generated for each image (longest edge 256px, preserve aspect ratio)
+- **Storage**: Both original and thumbnail uploaded to `workspace-temp`
+- **Callback Format**: Includes both `url` and `thumbnail_url` for each asset
 
 ### API Endpoints
 
@@ -204,7 +255,9 @@ Pure image generation using Stable Diffusion XL with batch processing support (1
   "worker_type": "sdxl",
   "model": "lustifySDXLNSFWSFW_v20.safetensors",
   "batch_support": [1, 3, 6],
-  "quality_tiers": ["fast", "high"]
+  "quality_tiers": ["fast", "high"],
+  "i2i_pipeline": "StableDiffusionXLImg2ImgPipeline",
+  "thumbnail_generation": true
 }
 ```
 
@@ -225,7 +278,8 @@ Pure image generation using Stable Diffusion XL with batch processing support (1
   },
   "metadata": {
     "reference_image_url": "Optional reference image URL",
-    "reference_strength": 0.0-1.0,
+    "denoise_strength": 0.0-1.0,
+    "exact_copy_mode": false,
     "reference_type": "style|composition|character"
   },
   "compel_enabled": boolean,
@@ -233,10 +287,41 @@ Pure image generation using Stable Diffusion XL with batch processing support (1
 }
 ```
 
+### I2I Generation Modes
+
+#### Promptless Exact Copy Mode
+- **Trigger**: `exact_copy_mode: true` with empty prompt
+- **Parameters**:
+  - `denoise_strength`: Clamped to ≤ 0.05
+  - `guidance_scale`: Fixed at 1.0
+  - `steps`: 6-10 (based on denoise_strength)
+  - `negative_prompt`: Omitted
+- **Use Case**: Upload reference image for exact copy with minimal modification
+
+#### Reference Modify Mode
+- **Trigger**: `exact_copy_mode: false` or not specified
+- **Parameters**:
+  - `denoise_strength`: Clamped to 0.10-0.25
+  - `guidance_scale`: Clamped to 4-7
+  - `steps`: Clamped to 15-30
+  - `negative_prompt`: Standard quality prompts
+- **Use Case**: Modify reference image with provided prompt
+
 ## WAN Worker (Pure Inference)
 
 ### Overview
-Pure video generation using WAN 2.1 with comprehensive reference frame support (5 modes). Receives complete parameters from edge function and executes exactly what's provided. Includes internal auto-enhancement for enhanced job types.
+Pure video generation using WAN 2.1 with comprehensive reference frame support (5 modes) and I2I pipeline. Receives complete parameters from edge function and executes exactly what's provided. Includes internal auto-enhancement for enhanced job types.
+
+### I2I Pipeline Features
+- **denoise_strength Parameter**: Replaces `reference_strength` for consistency
+- **Backward Compatibility**: `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
+- **Parameter Clamping**: Worker-side guards ensure consistent behavior
+
+### Video Thumbnail Generation
+- **Mid-Frame Thumbnails**: Extract middle frame of video for better representation
+- **256px WEBP Format**: Longest edge 256px, preserve aspect ratio, quality 85
+- **Storage**: Both original video and thumbnail uploaded to `workspace-temp`
+- **Callback Format**: Includes both `url` and `thumbnail_url` for each asset
 
 ### API Endpoints
 
@@ -292,7 +377,7 @@ Pure video generation using WAN 2.1 with comprehensive reference frame support (
     "reference_image_url": "Fallback reference URL",
     "start_reference_url": "Fallback start URL",
     "end_reference_url": "Fallback end URL",
-    "reference_strength": 0.0-1.0
+    "denoise_strength": 0.0-1.0
   }
 }
 ```
@@ -384,7 +469,7 @@ Central job distribution system that routes jobs to appropriate workers based on
 
 ## Callback Payload Format
 
-All workers use a standardized callback format for job status updates:
+All workers use a standardized callback format for job status updates with enhanced metadata for I2I and thumbnail support:
 
 ```json
 {
@@ -394,12 +479,22 @@ All workers use a standardized callback format for job status updates:
   "assets": [
     {
       "type": "image|video|text",
-      "url": "https://cdn.example.com/asset.jpg",
+      "url": "workspace-temp/user123/job123/0.png",
+      "thumbnail_url": "workspace-temp/user123/job123/0.thumb.webp",
       "metadata": {
         "width": 1024,
         "height": 1024,
         "format": "png",
-        "batch_size": 1
+        "batch_size": 1,
+        "steps": 25,
+        "guidance_scale": 7.5,
+        "seed": 12345,
+        "file_size_bytes": 2048576,
+        "asset_index": 0,
+        "denoise_strength": 0.15,
+        "pipeline": "img2img",
+        "resize_policy": "center_crop",
+        "negative_prompt_used": true
       }
     }
   ],
@@ -410,8 +505,9 @@ All workers use a standardized callback format for job status updates:
     "nsfw_optimization": true,
     "processing_time": 15.2,
     "vram_used": 8192,
-    "reference_mode": "none",
-    "batch_size": 1
+    "reference_mode": "single",
+    "batch_size": 1,
+    "exact_copy_mode": false
   },
   "error": {
     "code": "OOM_ERROR",
@@ -420,6 +516,19 @@ All workers use a standardized callback format for job status updates:
   }
 }
 ```
+
+### Enhanced Asset Metadata Fields
+
+#### For I2I Jobs (SDXL and WAN)
+- `denoise_strength`: Float 0.0-1.0 (I2I strength parameter)
+- `pipeline`: String "img2img" (indicates I2I generation)
+- `resize_policy`: String "center_crop" (reference image processing)
+- `negative_prompt_used`: Boolean (whether negative prompts were applied)
+
+#### For All Assets
+- `thumbnail_url`: String path to 256px WEBP thumbnail
+- `file_size_bytes`: Integer file size in bytes
+- `asset_index`: Integer 0-based asset index in batch
 
 ## Performance Metrics
 
@@ -437,6 +546,8 @@ All workers use a standardized callback format for job status updates:
 - **Fast (15 steps):** 30s total (3-8s per image)
 - **High (25 steps):** 42s total (5-10s per image)
 - **Batch Support:** 1, 3, or 6 images per request
+- **I2I Pipeline:** +2-5s for reference image processing
+- **Thumbnail Generation:** +0.5-1s per image
 
 ### WAN Generation
 - **Fast Images:** 25-40s
@@ -444,6 +555,7 @@ All workers use a standardized callback format for job status updates:
 - **Fast Videos:** 135-180s
 - **High Videos:** 180-240s
 - **Enhanced Variants:** +60-120s for AI enhancement
+- **Video Thumbnail Generation:** +1-2s per video (mid-frame extraction)
 
 ## System Configuration
 
@@ -491,12 +603,16 @@ HF_TOKEN=                  # Optional HuggingFace token
 - `WORKER_UNAVAILABLE` - Worker not loaded
 - `TIMEOUT_ERROR` - Request timeout
 - `REFERENCE_FRAME_ERROR` - Reference frame processing failed
+- `I2I_PIPELINE_ERROR` - Image-to-image pipeline error
+- `THUMBNAIL_GENERATION_ERROR` - Thumbnail generation failed
 
 ### Retry Logic
 - **OOM Errors:** Automatic retry with memory cleanup
 - **Network Errors:** 3 retries with exponential backoff
 - **Model Errors:** Single retry with model reload
 - **Reference Frame Errors:** Graceful fallback to standard generation
+- **I2I Errors:** Fallback to text-to-image generation
+- **Thumbnail Errors:** Continue without thumbnail (non-critical)
 
 ## Security and NSFW Features
 
@@ -545,9 +661,9 @@ memory = requests.get("http://memory-manager:8001/memory/status")
 ## Python Files Overview
 
 ### Core Worker Files
-- **`sdxl_worker.py`**: SDXL image generation with batch processing and NSFW optimization
+- **`sdxl_worker.py`**: SDXL image generation with batch processing, I2I pipeline, and thumbnail generation
 - **`chat_worker.py`**: Enhanced chat and prompt enhancement system with Qwen Instruct
-- **`wan_worker.py`**: WAN video and image processing with comprehensive reference frame support
+- **`wan_worker.py`**: WAN video and image processing with comprehensive reference frame support, I2I pipeline, and video thumbnail generation
 
 ### System Management Files
 - **`dual_orchestrator.py`**: Central job distribution and triple worker coordination
@@ -574,6 +690,7 @@ All workers are designed as pure inference engines. The edge function must provi
 - **Complete Parameters:** All generation parameters (steps, guidance_scale, batch_size, etc.)
 - **Enhanced Prompts:** Pre-enhanced prompts from Chat Worker
 - **Reference Images:** Downloaded and processed reference images
+- **I2I Parameters:** `denoise_strength` (0.0-1.0) and `exact_copy_mode` (boolean)
 - **User Validation:** Permissions and content restrictions
 - **Parameter Conversion:** Frontend presets → worker parameters
 
@@ -588,18 +705,21 @@ All workers are designed as pure inference engines. The edge function must provi
 - **Complete Parameters:** All video generation parameters
 - **Enhanced Prompts:** Pre-enhanced prompts from Chat Worker
 - **Reference Frames:** Downloaded and processed reference images
+- **I2I Parameters:** `denoise_strength` (0.0-1.0) for reference frame processing
 - **User Validation:** Video generation permissions
 - **Parameter Conversion:** Frontend presets → worker parameters
 
 ### **Frontend Integration**
 - **Parameter Validation:** Validate all parameters before sending to edge function
-- **Callback Processing:** Handle different asset types appropriately
+- **Callback Processing:** Handle different asset types and thumbnail URLs appropriately
 - **Error Handling:** Implement retry logic for transient failures
 - **Progress Tracking:** Display processing time and queue position
+- **Thumbnail Display:** Use `thumbnail_url` for grid views and previews
 
 ### **Configuration Files**
 - **Configuration/CONFIGURATION_APPROACH.md** - Complete edge function requirements and validation rules
 - **Configuration/worker_configs.py** - Worker configuration templates
 - **Configuration/validation_schemas.py** - Request validation schemas
+- **I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md** - I2I pipeline and thumbnail generation details
 
-This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns after the August 16, 2025 cleanup. 
+This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns after the August 18, 2025 I2I pipeline and thumbnail generation implementation. 

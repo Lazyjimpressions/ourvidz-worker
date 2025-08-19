@@ -2,6 +2,7 @@
 # NEW: Supports user-selected quantities (1, 3, or 6 images) and image-to-image generation
 # FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds
 # FIXED: Consistent callback parameter names (job_id, assets) for edge function compatibility
+# NEW: I2I pipeline with denoise_strength and thumbnail generation
 # Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s on RTX 6000 ADA
 
 """
@@ -33,8 +34,8 @@ job_data = {
     },
     "metadata": {
         "reference_image_url": "https://example.com/reference.jpg",
-        "reference_strength": 0.7,
-        "reference_type": "style"
+        "denoise_strength": 0.7,  # NEW: Use denoise_strength instead of reference_strength
+        "exact_copy_mode": false  # NEW: Explicit mode flag
     }
 }
 
@@ -50,11 +51,11 @@ job_data = {
     }
 }
 
-🎯 COMPEL WEIGHTS SYNTAX (SIMPLE CONCATENATION):
-- The frontend sends the correct Compel syntax
-- We simply concatenate: prompt + " " + compel_weights
-- Example: "beautiful woman" + " " + "(beautiful:1.3), (woman:1.2)"
-- Result: "beautiful woman (beautiful:1.3), (woman:1.2)"
+🎯 I2I PIPELINE CHANGES:
+- Use StableDiffusionXLImg2ImgPipeline for all I2I operations
+- Accept denoise_strength (0-1) instead of reference_strength
+- Support exact_copy_mode for promptless exact copies
+- Generate thumbnails for all images
 """
 
 import os
@@ -73,7 +74,7 @@ from io import BytesIO  # ADD: BytesIO for image serialization
 sys.path.append('/workspace/python_deps/lib/python3.11/site-packages')
 from pathlib import Path
 from PIL import Image
-from diffusers import StableDiffusionXLPipeline
+from diffusers import StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline
 import logging
 
 # Configure logging
@@ -87,15 +88,17 @@ class LustifySDXLWorker:
         print("⚡ RTX 6000 ADA: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s")
         print("📋 Phase 1: sdxl_image_fast, sdxl_image_high")
         print("🚀 NEW: User-selected quantities (1, 3, or 6 images) for flexible UX")
-        print("🖼️ NEW: Image-to-image generation with style, composition, and character reference modes")
+        print("🖼️ NEW: Image-to-image generation with I2I pipeline and denoise_strength")
         print("🌱 NEW: Seed control for reproducible generation and character consistency")
         print("🔧 FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds")
         print("🔧 FIXED: Consistent parameter naming (job_id, assets, metadata) across all callbacks")
-        print("✅ API COMPLIANT: Supports metadata.reference_image_url, reference_strength, reference_type")
+        print("✅ API COMPLIANT: Supports metadata.reference_image_url, denoise_strength, exact_copy_mode")
+        print("🖼️ NEW: Thumbnail generation for all images")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
         self.pipeline = None
+        self.i2i_pipeline = None  # NEW: Separate I2I pipeline
         self.model_loaded = False
         
         # Job configurations with batch support
@@ -310,6 +313,87 @@ class LustifySDXLWorker:
             result = self.pipeline(**generation_kwargs)
             return result.images
 
+    def generate_with_i2i_pipeline(self, prompt, reference_image, denoise_strength, exact_copy_mode, config, num_images=1, generators=None):
+        """Generate images using StableDiffusionXLImg2ImgPipeline with denoise_strength"""
+        logger.info(f"🎨 I2I pipeline generation with denoise_strength: {denoise_strength}, exact_copy_mode: {exact_copy_mode}")
+        
+        # Preprocess reference image to model size
+        processed_image = self.preprocess_reference_image(reference_image, (config['width'], config['height']))
+        
+        # Use provided generators or create new ones
+        if generators is None:
+            generators = [torch.Generator(device="cuda").manual_seed(int(time.time()) + i) for i in range(num_images)]
+        
+        # Configure generation parameters based on mode
+        if exact_copy_mode:
+            # Promptless exact copy mode - Worker-side guard clamping
+            denoise_strength = min(denoise_strength, 0.05)  # Clamp to ≤ 0.05
+            guidance_scale = 1.0
+            negative_prompt = None  # Omit negative prompt
+            steps = min(max(6, int(denoise_strength * 100)), 10)  # 6-10 steps
+            negative_prompt_used = False
+            logger.info(f"📋 Exact copy mode: denoise_strength={denoise_strength}, guidance_scale={guidance_scale}, steps={steps}, negative_prompt_used={negative_prompt_used}")
+        else:
+            # Reference modify mode
+            denoise_strength = max(0.10, min(denoise_strength, 0.25))  # Clamp to [0.10-0.25]
+            guidance_scale = max(4.0, min(config['guidance_scale'], 7.0))  # Clamp to [4-7]
+            steps = max(15, min(config['num_inference_steps'], 30))  # Clamp to [15-30]
+            negative_prompt = [
+                "blurry, low quality, distorted, deformed, bad anatomy, "
+                "watermark, signature, text, logo, extra limbs, missing limbs"
+            ] * num_images
+            negative_prompt_used = True
+            logger.info(f"📋 Reference modify mode: denoise_strength={denoise_strength}, guidance_scale={guidance_scale}, steps={steps}, negative_prompt_used={negative_prompt_used}")
+        
+        # Prepare generation kwargs
+        generation_kwargs = {
+            'image': processed_image,
+            'strength': denoise_strength,
+            'num_inference_steps': steps,
+            'guidance_scale': guidance_scale,
+            'num_images_per_prompt': 1,
+            'generator': generators
+        }
+        
+        # Handle prompt based on mode
+        if exact_copy_mode:
+            # Empty prompt for exact copy
+            generation_kwargs['prompt'] = [""] * num_images
+        else:
+            # Use provided prompt for modification
+            if isinstance(prompt, str):
+                generation_kwargs['prompt'] = [prompt] * num_images
+            elif isinstance(prompt, dict) and 'prompt_embeds' in prompt:
+                # Handle Compel conditioning tensors
+                prompt_embeds = prompt['prompt_embeds']
+                pooled_prompt_embeds = prompt['pooled_prompt_embeds']
+                negative_prompt_embeds = prompt['negative_prompt_embeds']
+                negative_pooled_prompt_embeds = prompt['negative_pooled_prompt_embeds']
+                
+                # Replicate tensors for batch generation
+                if num_images > 1:
+                    prompt_embeds = prompt_embeds.repeat(num_images, 1, 1)
+                    pooled_prompt_embeds = pooled_prompt_embeds.repeat(num_images, 1)
+                    negative_prompt_embeds = negative_prompt_embeds.repeat(num_images, 1, 1)
+                    negative_pooled_prompt_embeds = negative_pooled_prompt_embeds.repeat(num_images, 1)
+                
+                generation_kwargs['prompt_embeds'] = prompt_embeds
+                generation_kwargs['pooled_prompt_embeds'] = pooled_prompt_embeds
+                generation_kwargs['negative_prompt_embeds'] = negative_prompt_embeds
+                generation_kwargs['negative_pooled_prompt_embeds'] = negative_pooled_prompt_embeds
+                logger.info("✅ Using Compel conditioning tensors for I2I generation")
+            else:
+                generation_kwargs['prompt'] = [str(prompt)] * num_images
+        
+        # Add negative prompt if not in exact copy mode
+        if not exact_copy_mode and negative_prompt:
+            generation_kwargs['negative_prompt'] = negative_prompt
+        
+        # Generate using I2I pipeline
+        with torch.inference_mode():
+            result = self.i2i_pipeline(**generation_kwargs)
+            return result.images, negative_prompt_used
+
     def validate_environment(self):
         """Comprehensive environment validation"""
         logger.info("🔍 Validating SDXL environment...")
@@ -354,42 +438,49 @@ class LustifySDXLWorker:
             logger.info("✅ All environment variables configured")
 
     def load_model(self):
-        """Load LUSTIFY SDXL model with optimizations"""
+        """Load LUSTIFY SDXL model with optimizations for both text-to-image and image-to-image"""
         if self.model_loaded:
             return
             
-        logger.info("📦 Loading LUSTIFY SDXL v2.0...")
+        logger.info("📦 Loading LUSTIFY SDXL v2.0 (Text-to-Image + Image-to-Image)...")
         start_time = time.time()
         
         try:
-            # Load pipeline from single file
+            # Load text-to-image pipeline from single file
             self.pipeline = StableDiffusionXLPipeline.from_single_file(
                 self.model_path,
                 torch_dtype=torch.float16,
                 use_safetensors=True
             ).to("cuda")
             
-
+            # Load image-to-image pipeline from the same model
+            self.i2i_pipeline = StableDiffusionXLImg2ImgPipeline.from_single_file(
+                self.model_path,
+                torch_dtype=torch.float16,
+                use_safetensors=True
+            ).to("cuda")
             
-            # Enable memory optimizations
-            try:
-                self.pipeline.enable_attention_slicing()
-                logger.info("✅ Attention slicing enabled")
-            except Exception as e:
-                logger.warning(f"⚠️ Attention slicing failed: {e}")
-            
-            # Try xformers if available
-            try:
-                self.pipeline.enable_xformers_memory_efficient_attention()
-                logger.info("✅ xformers optimization enabled")
-            except Exception as e:
-                logger.warning(f"⚠️ xformers optimization failed: {e}")
+            # Enable memory optimizations for both pipelines
+            for pipeline_name, pipeline in [("Text-to-Image", self.pipeline), ("Image-to-Image", self.i2i_pipeline)]:
+                try:
+                    pipeline.enable_attention_slicing()
+                    logger.info(f"✅ Attention slicing enabled for {pipeline_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Attention slicing failed for {pipeline_name}: {e}")
+                
+                # Try xformers if available
+                try:
+                    pipeline.enable_xformers_memory_efficient_attention()
+                    logger.info(f"✅ xformers optimization enabled for {pipeline_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ xformers optimization failed for {pipeline_name}: {e}")
             
             load_time = time.time() - start_time
             vram_used = torch.cuda.memory_allocated() / (1024**3)
             
             self.model_loaded = True
             logger.info(f"✅ LUSTIFY loaded in {load_time:.1f}s, using {vram_used:.1f}GB VRAM")
+            logger.info(f"✅ Both text-to-image and image-to-image pipelines ready")
             
         except Exception as e:
             logger.error(f"❌ Model loading failed: {e}")
@@ -508,7 +599,7 @@ class LustifySDXLWorker:
         logger.info(f"🧹 Cleaned weights: {weights_config} → {result}")
         return result
 
-    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, reference_strength=0.5, reference_type='style', seed=None):
+    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, denoise_strength=0.5, exact_copy_mode=False, seed=None):
         """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image and seed control"""
         if job_type not in self.job_configs:
             raise ValueError(f"Unknown job type: {job_type}")
@@ -531,7 +622,10 @@ class LustifySDXLWorker:
             logger.info(f"🎲 Using random seed: {seed}")
         
         if reference_image:
-            logger.info(f"🎨 Generating {num_images} image(s) with {reference_type} reference (strength: {reference_strength})")
+            if exact_copy_mode:
+                logger.info(f"🎨 Generating {num_images} image(s) in exact copy mode (denoise_strength: {denoise_strength})")
+            else:
+                logger.info(f"🎨 Generating {num_images} image(s) with reference modification (denoise_strength: {denoise_strength})")
         else:
             if isinstance(prompt, str):
                 logger.info(f"🎨 Generating {num_images} image(s) for {job_type}: {prompt[:50]}...")
@@ -548,17 +642,9 @@ class LustifySDXLWorker:
             # Clear GPU cache before generation
             torch.cuda.empty_cache()
             
-            # Handle image-to-image generation
+            # Handle image-to-image generation using I2I pipeline
             if reference_image:
-                if reference_type == 'style':
-                    images = self.generate_with_style_reference(prompt, reference_image, reference_strength, config, num_images, generators)
-                elif reference_type == 'composition':
-                    images = self.generate_with_composition_reference(prompt, reference_image, reference_strength, config, num_images, generators)
-                elif reference_type == 'character':
-                    images = self.generate_with_character_reference(prompt, reference_image, reference_strength, config, num_images, generators)
-                else:
-                    # Default image-to-image
-                    images = self.generate_image_to_image(prompt, reference_image, reference_strength, config, num_images, generators)
+                images, negative_prompt_used = self.generate_with_i2i_pipeline(prompt, reference_image, denoise_strength, exact_copy_mode, config, num_images, generators)
             else:
                 # Standard text-to-image generation with Compel support
                 generation_kwargs = {
@@ -632,7 +718,11 @@ class LustifySDXLWorker:
             torch.cuda.empty_cache()
             gc.collect()
             
-            return images, seed
+            # Return appropriate tuple based on generation type
+            if reference_image:
+                return images, seed, negative_prompt_used
+            else:
+                return images, seed
             
         except Exception as e:
             logger.error(f"❌ Batch generation failed: {e}")
@@ -716,13 +806,41 @@ class LustifySDXLWorker:
             logger.error(f"❌ Upload traceback: {traceback.format_exc()}")
             return None
 
-    def upload_to_storage(self, images, job_id, user_id, used_seed, job_type):
-        """Upload images to workspace-temp bucket only"""
+    def generate_thumbnail(self, image, max_size=256):
+        """Generate a thumbnail from the given image"""
+        try:
+            # Calculate new size maintaining aspect ratio
+            width, height = image.size
+            if width > height:
+                new_width = max_size
+                new_height = int(height * max_size / width)
+            else:
+                new_height = max_size
+                new_width = int(width * max_size / height)
+            
+            # Resize image
+            thumbnail = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Convert to WEBP format
+            thumbnail_buffer = BytesIO()
+            thumbnail.save(thumbnail_buffer, format='WEBP', quality=85, optimize=True)
+            thumbnail_buffer.seek(0)
+            
+            logger.info(f"✅ Generated thumbnail: {new_width}x{new_height} WEBP")
+            return thumbnail_buffer.getvalue()
+            
+        except Exception as e:
+            logger.error(f"❌ Thumbnail generation failed: {e}")
+            return None
+
+    def upload_to_storage(self, images, job_id, user_id, used_seed, job_type, denoise_strength=None, negative_prompt_used=True, exact_copy_mode=False):
+        """Upload images to workspace-temp bucket with thumbnails"""
         uploaded_assets = []
         
         for i, image in enumerate(images):
             # Simple path: workspace-temp/{user_id}/{job_id}/{index}.png
             storage_path = f"{user_id}/{job_id}/{i}.png"
+            thumbnail_path = f"{user_id}/{job_id}/{i}.thumb.webp"
             logger.info(f"📤 Uploading image {i} to workspace-temp/{storage_path}")
             
             # Convert image to bytes with PNG optimization
@@ -731,7 +849,10 @@ class LustifySDXLWorker:
             img_buffer.seek(0)  # ✅ Reset buffer position
             img_bytes = img_buffer.getvalue()
             
-            # Upload to workspace-temp bucket with correct Content-Type
+            # Generate thumbnail
+            thumbnail_bytes = self.generate_thumbnail(image)
+            
+            # Upload original image to workspace-temp bucket
             upload_result = self.upload_to_supabase_storage(
                 bucket='workspace-temp',
                 path=storage_path,
@@ -739,23 +860,55 @@ class LustifySDXLWorker:
                 content_type='image/png'  # ✅ Explicitly set PNG Content-Type
             )
             
+            # Upload thumbnail if generation was successful
+            thumbnail_url = None
+            if thumbnail_bytes and upload_result:
+                thumbnail_upload_result = self.upload_to_supabase_storage(
+                    bucket='workspace-temp',
+                    path=thumbnail_path,
+                    file_data=thumbnail_bytes,
+                    content_type='image/webp'
+                )
+                if thumbnail_upload_result:
+                    thumbnail_url = thumbnail_path
+                    logger.info(f"✅ Successfully uploaded thumbnail {i} to workspace-temp/{thumbnail_path}")
+                else:
+                    logger.warning(f"⚠️ Failed to upload thumbnail {i} to workspace-temp/{thumbnail_path}")
+            
             if upload_result:
                 logger.info(f"✅ Successfully uploaded image {i} to workspace-temp/{storage_path} (Content-Type: image/png)")
-                uploaded_assets.append({
+                
+                # Build metadata with denoise_strength if provided
+                metadata = {
+                    'width': image.width,
+                    'height': image.height,
+                    'format': 'png',
+                    'batch_size': len(images),
+                    'steps': self.job_configs[job_type]['num_inference_steps'],
+                    'guidance_scale': self.job_configs[job_type]['guidance_scale'],
+                    'seed': used_seed + i,  # Each image gets seed + index
+                    'file_size_bytes': len(img_bytes),
+                    'asset_index': i,
+                    'negative_prompt_used': negative_prompt_used
+                }
+                
+                # Add I2I-specific metadata if provided
+                if denoise_strength is not None:
+                    metadata['denoise_strength'] = denoise_strength
+                    metadata['pipeline'] = 'img2img'
+                    metadata['resize_policy'] = 'center_crop'
+                
+                asset = {
                     'type': 'image',
                     'url': storage_path,  # ✅ Use 'url' field as expected by edge function
-                    'metadata': {
-                        'width': image.width,
-                        'height': image.height,
-                        'format': 'png',
-                        'batch_size': len(images),
-                        'steps': self.job_configs[job_type]['num_inference_steps'],
-                        'guidance_scale': self.job_configs[job_type]['guidance_scale'],
-                        'seed': used_seed + i,  # Each image gets seed + index
-                        'file_size_bytes': len(img_bytes),
-                        'asset_index': i
-                    }
-                })
+                    'metadata': metadata
+                }
+                
+                # Add thumbnail_url if available
+                if thumbnail_url:
+                    asset['thumbnail_url'] = thumbnail_url
+                
+                uploaded_assets.append(asset)
             else:
                 logger.error(f"❌ Failed to upload image {i} to workspace-temp/{storage_path}")
         
@@ -792,8 +945,21 @@ class LustifySDXLWorker:
         # Extract image-to-image parameters from metadata (ALREADY COMPLIANT WITH API SPEC)
         metadata = job_data.get('metadata', {})
         reference_image_url = metadata.get('reference_image_url')  # ✅ API spec: metadata.reference_image_url
-        reference_strength = metadata.get('reference_strength', 0.5)  # ✅ API spec: metadata.reference_strength
-        reference_type = metadata.get('reference_type', 'style')  # ✅ API spec: metadata.reference_type
+        
+        # Handle denoise_strength parameter (new) with fallback to reference_strength (deprecated)
+        denoise_strength = metadata.get('denoise_strength')
+        if denoise_strength is None:
+            # Fallback to deprecated reference_strength
+            reference_strength = metadata.get('reference_strength', 0.5)
+            denoise_strength = 1.0 - reference_strength  # Convert reference_strength to denoise_strength
+            logger.warning(f"⚠️ DEPRECATED: Using reference_strength={reference_strength}, converted to denoise_strength={denoise_strength}")
+        else:
+            logger.info(f"✅ Using denoise_strength: {denoise_strength}")
+        
+        # Extract exact_copy_mode flag
+        exact_copy_mode = metadata.get('exact_copy_mode', False)
+        if exact_copy_mode:
+            logger.info(f"✅ Exact copy mode enabled")
         
         # ✅ COMPEL SUPPORT: Extract Compel parameters directly from job payload
         compel_enabled = job_data.get("compel_enabled", False)
@@ -810,7 +976,10 @@ class LustifySDXLWorker:
         
         # Log image-to-image parameters if present
         if reference_image_url:
-            logger.info(f"🖼️ Image-to-image mode: {reference_type} (strength: {reference_strength})")
+            if exact_copy_mode:
+                logger.info(f"🖼️ Image-to-image exact copy mode (denoise_strength: {denoise_strength})")
+            else:
+                logger.info(f"🖼️ Image-to-image reference modify mode (denoise_strength: {denoise_strength})")
             logger.info(f"📥 Reference image URL: {reference_image_url}")
         
         # Phase validation
@@ -891,21 +1060,40 @@ class LustifySDXLWorker:
             
             # Generate batch of images with final prompt
             start_time = time.time()
-            images, used_seed = self.generate_images_batch(
-                final_prompt, 
-                job_type, 
-                num_images, 
-                reference_image=reference_image,
-                reference_strength=reference_strength,
-                reference_type=reference_type,
-                seed=seed
-            )
+            if reference_image:
+                # I2I generation
+                images, used_seed, negative_prompt_used = self.generate_images_batch(
+                    final_prompt, 
+                    job_type, 
+                    num_images, 
+                    reference_image=reference_image,
+                    denoise_strength=denoise_strength,
+                    exact_copy_mode=exact_copy_mode,
+                    seed=seed
+                )
+            else:
+                # Text-to-image generation
+                images, used_seed = self.generate_images_batch(
+                    final_prompt, 
+                    job_type, 
+                    num_images, 
+                    reference_image=reference_image,
+                    denoise_strength=denoise_strength,
+                    exact_copy_mode=exact_copy_mode,
+                    seed=seed
+                )
+                negative_prompt_used = True  # Always use negative prompt for text-to-image
             
             if not images:
                 raise Exception("Image generation failed")
             
-            # Upload all images to workspace-temp bucket
-            uploaded_assets = self.upload_to_storage(images, job_id, user_id, used_seed, job_type)
+            # Upload all images to workspace-temp bucket with thumbnails
+            uploaded_assets = self.upload_to_storage(
+                images, job_id, user_id, used_seed, job_type, 
+                denoise_strength=denoise_strength if reference_image else None,
+                negative_prompt_used=negative_prompt_used,
+                exact_copy_mode=exact_copy_mode
+            )
             
             if not uploaded_assets:
                 raise Exception("All image uploads failed")
