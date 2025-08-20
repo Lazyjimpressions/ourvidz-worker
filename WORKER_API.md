@@ -301,11 +301,12 @@ Pure image generation using Stable Diffusion XL with batch processing support (1
 #### Reference Modify Mode
 - **Trigger**: `exact_copy_mode: false` or not specified
 - **Parameters**:
-  - `denoise_strength`: Clamped to 0.10-0.25
-  - `guidance_scale`: Clamped to 4-7
-  - `steps`: Clamped to 15-30
+  - `denoise_strength`: As provided by edge function (NO CLAMPING)
+  - `guidance_scale`: As provided by edge function (NO CLAMPING)
+  - `steps`: As provided by edge function (NO CLAMPING)
   - `negative_prompt`: Standard quality prompts
 - **Use Case**: Modify reference image with provided prompt
+- **Worker Contract**: Workers respect edge function parameters completely
 
 ## WAN Worker (Pure Inference)
 
@@ -315,7 +316,7 @@ Pure video generation using WAN 2.1 with comprehensive reference frame support (
 ### I2I Pipeline Features
 - **denoise_strength Parameter**: Replaces `reference_strength` for consistency
 - **Backward Compatibility**: `reference_strength` automatically converted to `denoise_strength = 1 - reference_strength`
-- **Parameter Clamping**: Worker-side guards ensure consistent behavior
+- **Parameter Handling**: Workers respect edge function parameters (clamping only in exact copy mode)
 
 ### Video Thumbnail Generation
 - **Mid-Frame Thumbnails**: Extract middle frame of video for better representation

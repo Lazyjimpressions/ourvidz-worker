@@ -237,11 +237,12 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 #### **Reference Modify Mode**
 - **Trigger:** `exact_copy_mode: false` or not specified
 - **Parameters:**
-  - `denoise_strength`: Clamped to 0.10-0.25
-  - `guidance_scale`: Clamped to 4-7
-  - `steps`: Clamped to 15-30
+  - `denoise_strength`: As provided by edge function (NO CLAMPING)
+  - `guidance_scale`: As provided by edge function (NO CLAMPING)
+  - `steps`: As provided by edge function (NO CLAMPING)
   - `negative_prompt`: Standard quality prompts
 - **Use Case:** Modify reference image with provided prompt
+- **Worker Contract:** Workers respect edge function parameters completely
 
 ### **WAN I2I Pipeline**
 - **Pipeline:** WAN 2.1 T2V 1.3B with reference frame support

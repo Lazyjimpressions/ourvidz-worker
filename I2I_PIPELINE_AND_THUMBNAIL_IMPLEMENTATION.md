@@ -36,9 +36,9 @@ if exact_copy_mode:
 
 # Reference Modify Mode
 else:
-    denoise_strength = max(0.10, min(denoise_strength, 0.25))  # Clamp to [0.10-0.25]
-    guidance_scale = max(4.0, min(config['guidance_scale'], 7.0))  # Clamp to [4-7]
-    steps = max(15, min(config['num_inference_steps'], 30))  # Clamp to [15-30]
+    # Use parameters as provided by edge function (NO CLAMPING)
+    guidance_scale = config['guidance_scale']  # Use as provided
+    steps = config['num_inference_steps']      # Use as provided
 ```
 
 ### **2. Thumbnail Generation**

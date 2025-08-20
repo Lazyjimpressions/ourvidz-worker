@@ -21,9 +21,9 @@ This document summarizes the final implementation of the Image-to-Image (I2I) pi
   - `negative_prompt_used = false`
 
 - **Reference Modify Mode**: For workspace/library references with modification:
-  - `denoise_strength = 0.10-0.25` (clamped)
-  - `guidance_scale = 4-7` (clamped)
-  - `steps = 15-30` (clamped)
+  - `denoise_strength` (as provided by edge function - NO CLAMPING)
+  - `guidance_scale` (as provided by edge function - NO CLAMPING)
+  - `steps` (as provided by edge function - NO CLAMPING)
   - `negative_prompt_used = true`
 
 #### WAN Worker
@@ -199,9 +199,9 @@ if denoise_strength is not None:
 - **Expected**: `denoise_strength ≤ 0.05`, `guidance_scale = 1.0`, `steps = 6-10`
 - **Validation**: Result should be near-identical to reference, thumbnail present
 
-### 2. **Workspace Ref + Exact Copy Mode + Modification**
-- **Input**: `exact_copy_mode=true`, modification prompt, workspace reference
-- **Expected**: `denoise_strength = 0.10-0.25`, `guidance_scale = 4-7`, `steps = 15-30`
+### 2. **Workspace Ref + Reference Modify Mode + Modification**
+- **Input**: `exact_copy_mode=false`, modification prompt, workspace reference
+- **Expected**: `denoise_strength` (as provided by edge function), `guidance_scale` (as provided), `steps` (as provided)
 - **Validation**: Result should show modification, thumbnail present
 
 ### 3. **Job-Callback Integration**
@@ -236,12 +236,13 @@ if denoise_strength is not None:
 ## Production Readiness
 
 ### ✅ **Completed**
-- Worker-side guard clamping for exact copy mode
+- Worker-side guard clamping for exact copy mode only
 - Enhanced callback fields with auditability metadata
 - Consistent path normalization and naming
 - Mid-frame video thumbnails for better representation
 - Backward compatibility with `reference_strength`
 - Comprehensive error handling and logging
+- **Worker contract compliance**: Edge function parameters respected in modify mode
 
 ### ✅ **Validated**
 - Parameter clamping and validation
@@ -254,9 +255,10 @@ if denoise_strength is not None:
 The implementation is production-ready and aligns with the edge function contract and storage conventions. All workers now support:
 
 1. **Pure inference architecture** with edge function intelligence
-2. **I2I pipeline** with proper parameter clamping
+2. **I2I pipeline** with proper parameter handling (clamping only in exact copy mode)
 3. **Thumbnail generation** for fast grid loading
 4. **Enhanced metadata** for auditability
 5. **Backward compatibility** with existing systems
+6. **Worker contract compliance** with edge function parameter respect
 
 The workers are ready for immediate deployment and will provide fast, reliable image and video generation with comprehensive thumbnail support.
