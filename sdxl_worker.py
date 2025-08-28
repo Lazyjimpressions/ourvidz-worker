@@ -76,10 +76,46 @@ from pathlib import Path
 from PIL import Image
 from diffusers import StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline
 import logging
+from logging.handlers import RotatingFileHandler
 
-# Configure logging
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
+
+# Configure logging with both file and console handlers
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Add file handler for persistent logs
+file_handler = RotatingFileHandler(
+    'logs/sdxl_worker.log', 
+    maxBytes=10*1024*1024,  # 10MB per file
+    backupCount=5  # Keep 5 backup files
+)
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# Add error-specific log file
+error_handler = RotatingFileHandler(
+    'logs/sdxl_worker_errors.log',
+    maxBytes=5*1024*1024,  # 5MB per file
+    backupCount=3  # Keep 3 backup files
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(file_formatter)
+logger.addHandler(error_handler)
+
+# Add i2i-specific log file
+i2i_handler = RotatingFileHandler(
+    'logs/sdxl_worker_i2i.log',
+    maxBytes=10*1024*1024,  # 10MB per file
+    backupCount=5  # Keep 5 backup files
+)
+i2i_handler.setLevel(logging.INFO)
+i2i_formatter = logging.Formatter('%(asctime)s - I2I - %(levelname)s - %(message)s')
+i2i_handler.setFormatter(i2i_formatter)
+logger.addHandler(i2i_handler)
 
 class LustifySDXLWorker:
     def __init__(self):
@@ -184,6 +220,58 @@ class LustifySDXLWorker:
         except Exception as e:
             logger.error(f"❌ Failed to preprocess reference image: {e}")
             raise
+
+    def log_i2i_settings(self, job_id, job_type, denoise_strength, exact_copy_mode, config, reference_image_url, prompt):
+        """Log comprehensive i2i settings for debugging and monitoring"""
+        logger.info("🖼️" + "="*60)
+        logger.info("🖼️ IMAGE-TO-IMAGE SETTINGS LOG")
+        logger.info("🖼️" + "="*60)
+        logger.info(f"🆔 Job ID: {job_id}")
+        logger.info(f"📋 Job Type: {job_type}")
+        logger.info(f"🎯 Mode: {'EXACT COPY' if exact_copy_mode else 'REFERENCE MODIFY'}")
+        logger.info(f"🔧 Denoise Strength: {denoise_strength:.3f}")
+        logger.info(f"📥 Reference Image URL: {reference_image_url}")
+        logger.info(f"📝 Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+        
+        # Log configuration parameters
+        logger.info("⚙️ Configuration Parameters:")
+        logger.info(f"   📊 Num Images: {config.get('num_images', 'N/A')}")
+        logger.info(f"   🔢 Steps: {config.get('num_inference_steps', 'N/A')}")
+        logger.info(f"   🎛️ Guidance Scale: {config.get('guidance_scale', 'N/A')}")
+        logger.info(f"   📐 Resolution: {config.get('width', 'N/A')}x{config.get('height', 'N/A')}")
+        logger.info(f"   🌱 Seed: {config.get('seed', 'Random')}")
+        
+        # Log mode-specific settings
+        if exact_copy_mode:
+            logger.info("🎯 EXACT COPY MODE SETTINGS:")
+            logger.info(f"   🔧 Effective Denoise Strength: ≤ 0.05 (clamped)")
+            logger.info(f"   🎛️ Effective Guidance Scale: 1.0 (fixed)")
+            logger.info(f"   🔢 Effective Steps: 6-10 (calculated)")
+            logger.info(f"   🚫 Negative Prompt: Disabled")
+        else:
+            logger.info("🎯 REFERENCE MODIFY MODE SETTINGS:")
+            logger.info(f"   🔧 Effective Denoise Strength: {denoise_strength:.3f} (as provided)")
+            logger.info(f"   🎛️ Effective Guidance Scale: {config.get('guidance_scale', 'N/A')} (as provided)")
+            logger.info(f"   🔢 Effective Steps: {config.get('num_inference_steps', 'N/A')} (as provided)")
+            logger.info(f"   ✅ Negative Prompt: Enabled")
+        
+        # Log performance expectations
+        expected_time = config.get('expected_time_per_image', 0) * config.get('num_images', 1)
+        logger.info(f"⏱️ Expected Generation Time: ~{expected_time}s")
+        logger.info("🖼️" + "="*60)
+
+    def log_effective_i2i_settings(self, denoise_strength, guidance_scale, steps, negative_prompt_used, exact_copy_mode, num_images):
+        """Log the effective settings actually used during i2i generation"""
+        logger.info("⚙️" + "-"*40)
+        logger.info("⚙️ EFFECTIVE I2I GENERATION SETTINGS")
+        logger.info("⚙️" + "-"*40)
+        logger.info(f"🔧 Denoise Strength: {denoise_strength:.3f}")
+        logger.info(f"🎛️ Guidance Scale: {guidance_scale}")
+        logger.info(f"🔢 Steps: {steps}")
+        logger.info(f"📝 Negative Prompt: {'Enabled' if negative_prompt_used else 'Disabled'}")
+        logger.info(f"🎯 Mode: {'Exact Copy' if exact_copy_mode else 'Reference Modify'}")
+        logger.info(f"🖼️ Num Images: {num_images}")
+        logger.info("⚙️" + "-"*40)
 
     def generate_with_style_reference(self, prompt, reference_image, strength, config, num_images=1, generators=None):
         """Generate images using reference image for style transfer"""
@@ -344,6 +432,9 @@ class LustifySDXLWorker:
             ] * num_images
             negative_prompt_used = True
             logger.info(f"📋 Reference modify mode: denoise_strength={denoise_strength}, guidance_scale={guidance_scale}, steps={steps}, negative_prompt_used={negative_prompt_used}")
+        
+        # Log effective settings used for generation
+        self.log_effective_i2i_settings(denoise_strength, guidance_scale, steps, negative_prompt_used, exact_copy_mode, num_images)
         
         # Prepare generation kwargs
         generation_kwargs = {
@@ -976,11 +1067,9 @@ class LustifySDXLWorker:
         
         # Log image-to-image parameters if present
         if reference_image_url:
-            if exact_copy_mode:
-                logger.info(f"🖼️ Image-to-image exact copy mode (denoise_strength: {denoise_strength})")
-            else:
-                logger.info(f"🖼️ Image-to-image reference modify mode (denoise_strength: {denoise_strength})")
-            logger.info(f"📥 Reference image URL: {reference_image_url}")
+            self.log_i2i_settings(job_id, job_type, denoise_strength, exact_copy_mode, config, reference_image_url, prompt)
+        else:
+            logger.info(f"🎨 Text-to-image generation mode")
         
         # Phase validation
         if job_type not in self.phase_1_jobs:
