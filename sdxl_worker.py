@@ -690,12 +690,12 @@ class LustifySDXLWorker:
         logger.info(f"🧹 Cleaned weights: {weights_config} → {result}")
         return result
 
-    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, denoise_strength=0.5, exact_copy_mode=False, seed=None):
+    def generate_images_batch(self, prompt, job_type, num_images=1, reference_image=None, denoise_strength=0.5, exact_copy_mode=False, seed=None, config=None):
         """Generate multiple images in a single batch for efficiency (supports 1, 3, or 6 images) with optional image-to-image and seed control"""
-        if job_type not in self.job_configs:
-            raise ValueError(f"Unknown job type: {job_type}")
-            
-        config = self.job_configs[job_type]
+        if config is None:
+            if job_type not in self.job_configs:
+                raise ValueError(f"Unknown job type: {job_type}")
+            config = self.job_configs[job_type]
         
         # Ensure model is loaded
         self.load_model()
@@ -924,7 +924,7 @@ class LustifySDXLWorker:
             logger.error(f"❌ Thumbnail generation failed: {e}")
             return None
 
-    def upload_to_storage(self, images, job_id, user_id, used_seed, job_type, denoise_strength=None, negative_prompt_used=True, exact_copy_mode=False):
+    def upload_to_storage(self, images, job_id, user_id, used_seed, job_type, denoise_strength=None, negative_prompt_used=True, exact_copy_mode=False, config=None):
         """Upload images to workspace-temp bucket with thumbnails"""
         uploaded_assets = []
         
@@ -970,13 +970,16 @@ class LustifySDXLWorker:
                 logger.info(f"✅ Successfully uploaded image {i} to workspace-temp/{storage_path} (Content-Type: image/png)")
                 
                 # Build metadata with denoise_strength if provided
+                if config is None:
+                    config = self.job_configs[job_type]
+                
                 metadata = {
                     'width': image.width,
                     'height': image.height,
                     'format': 'png',
                     'batch_size': len(images),
-                    'steps': self.job_configs[job_type]['num_inference_steps'],
-                    'guidance_scale': self.job_configs[job_type]['guidance_scale'],
+                    'steps': config['num_inference_steps'],
+                    'guidance_scale': config['guidance_scale'],
                     'seed': used_seed + i,  # Each image gets seed + index
                     'file_size_bytes': len(img_bytes),
                     'asset_index': i,
@@ -1016,7 +1019,14 @@ class LustifySDXLWorker:
         
         # Optional fields with defaults
         image_id = job_data.get('image_id', f"image_{int(time.time())}")
-        config = job_data.get('config', {})
+        job_config = job_data.get('config', {})
+        
+        # Merge job config with default config for the job type
+        if job_type not in self.job_configs:
+            raise ValueError(f"Unknown job type: {job_type}")
+        
+        config = self.job_configs[job_type].copy()  # Start with default config
+        config.update(job_config)  # Override with job-specific config
         
         # Extract num_images from config (default to 1 for backward compatibility)
         num_images = config.get('num_images', 1)
@@ -1060,6 +1070,8 @@ class LustifySDXLWorker:
         logger.info(f"📝 Prompt: {prompt}")
         logger.info(f"🖼️ Generating {num_images} image(s) for user")
         logger.info(f"👤 User ID: {user_id}")
+        logger.info(f"⚙️ Job config: {job_config}")
+        logger.info(f"⚙️ Merged config: guidance_scale={config.get('guidance_scale')}, steps={config.get('num_inference_steps')}")
         
         # Log Compel configuration if present
         if compel_enabled and compel_weights:
@@ -1158,7 +1170,8 @@ class LustifySDXLWorker:
                     reference_image=reference_image,
                     denoise_strength=denoise_strength,
                     exact_copy_mode=exact_copy_mode,
-                    seed=seed
+                    seed=seed,
+                    config=config
                 )
             else:
                 # Text-to-image generation
@@ -1169,7 +1182,8 @@ class LustifySDXLWorker:
                     reference_image=reference_image,
                     denoise_strength=denoise_strength,
                     exact_copy_mode=exact_copy_mode,
-                    seed=seed
+                    seed=seed,
+                    config=config
                 )
                 negative_prompt_used = True  # Always use negative prompt for text-to-image
             
@@ -1181,7 +1195,8 @@ class LustifySDXLWorker:
                 images, job_id, user_id, used_seed, job_type, 
                 denoise_strength=denoise_strength if reference_image else None,
                 negative_prompt_used=negative_prompt_used,
-                exact_copy_mode=exact_copy_mode
+                exact_copy_mode=exact_copy_mode,
+                config=config
             )
             
             if not uploaded_assets:
