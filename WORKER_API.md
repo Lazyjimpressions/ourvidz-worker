@@ -1,6 +1,6 @@
 # Worker API Documentation
 
-**Last Updated:** August 18, 2025
+**Last Updated:** August 31, 2025
 
 ## System Overview
 
@@ -96,46 +96,46 @@ import cv2  # Available for video processing
 
 ## Core Workers (Pure Inference)
 
-### Overview
+### Chat Worker (Pure Inference Engine)
+
+#### Overview
 The Chat Worker provides **pure inference** for AI conversation and prompt enhancement using Qwen 2.5-7B models. All system prompts and enhancement logic are provided by the edge function - the worker executes exactly what's requested.
 
-### API Endpoints
+**Key Architecture Features:**
+- **Pure Inference Engine:** No hardcoded prompts or logic
+- **Dual Model Support:** Qwen 2.5-7B Instruct (primary) + Base (enhancement)
+- **Auto-Registration:** Detects RunPod URL and registers with Supabase
+- **Memory Management:** Smart loading/unloading with 15GB VRAM requirement
+- **Health Monitoring:** Comprehensive status endpoints
 
-#### Primary Chat Endpoints
+**Model Architecture:**
+- **Qwen 2.5-7B Instruct:** Primary model for chat and enhancement (safety-tuned)
+- **Qwen 2.5-7B Base:** Secondary model for enhanced jobs (no extra safety)
+- **Model Paths:** `/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/`
+- **Device Management:** Automatic CUDA device allocation and pinning
+
+#### API Endpoints
 
 **POST /chat** - Chat Conversation
 ```json
 {
-  "prompt": "User message",
-  "config": {
-    "system_prompt": "Optional custom system prompt",
-    "job_type": "chat_conversation",
-    "quality": "high"
-  },
-  "metadata": {
-    "unrestricted_mode": false,
-    "nsfw_optimization": true
-  }
+  "messages": [
+    {
+      "role": "system",
+      "content": "System prompt from edge function"
+    },
+    {
+      "role": "user",
+      "content": "User message"
+    }
+  ],
+  "max_tokens": 512,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "model": "qwen_instruct|qwen_base",
+  "sfw_mode": false
 }
 ```
-
-**POST /chat/unrestricted** - Unrestricted Mode Chat
-```json
-{
-  "prompt": "Adult content request",
-  "config": {
-    "system_prompt": "NSFW-optimized system prompt",
-    "job_type": "chat_unrestricted",
-    "quality": "high"
-  },
-  "metadata": {
-    "unrestricted_mode": true,
-    "nsfw_optimization": true
-  }
-}
-```
-
-#### Enhancement Endpoints
 
 **POST /enhance** - Pure Enhancement Inference
 ```json
@@ -156,50 +156,7 @@ The Chat Worker provides **pure inference** for AI conversation and prompt enhan
 }
 ```
 
-**GET /enhancement/info** - Pure Inference Info
-```json
-{
-  "worker_type": "pure_inference_engine",
-  "models_available": ["qwen_instruct", "qwen_base"],
-  "capabilities": {
-    "chat_conversation": true,
-    "prompt_enhancement": true,
-    "no_hardcoded_prompts": true,
-    "pure_inference": true
-  },
-  "model_info": {
-    "instruct_model": "Qwen2.5-7B-Instruct",
-    "base_model": "Qwen2.5-7B-Base",
-    "enhancement_method": "Pure inference with edge function prompts"
-  }
-}
-```
-
-**GET /memory/status** - Memory Status
-```json
-{
-  "model_loaded": true,
-  "memory_usage": "15GB",
-  "device": "cuda:0",
-  "compilation_status": "compiled"
-}
-```
-
-**POST /memory/load** - Load Model
-```json
-{
-  "force": false
-}
-```
-
-**POST /memory/unload** - Unload Model
-```json
-{
-  "force": false
-}
-```
-
-### Chat Worker Pure Inference Payload
+**POST /generate** - Generic Inference
 ```json
 {
   "messages": [
@@ -219,6 +176,152 @@ The Chat Worker provides **pure inference** for AI conversation and prompt enhan
   "sfw_mode": false
 }
 ```
+
+**GET /health** - Health Check
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "uptime": 3600.5,
+  "stats": {
+    "requests_served": 150,
+    "model_loads": 2,
+    "sfw_requests": 25,
+    "base_model_uses": 10,
+    "instruct_model_uses": 140
+  },
+  "worker_type": "pure_inference_engine",
+  "no_hardcoded_prompts": true
+}
+```
+
+**GET /worker/info** - Worker Information
+```json
+{
+  "worker_type": "pure_inference_engine",
+  "model": "Qwen2.5-7B-Instruct",
+  "capabilities": {
+    "chat": true,
+    "enhancement": true,
+    "generation": true,
+    "hardcoded_prompts": false,
+    "prompt_modification": false,
+    "pure_inference": true
+  },
+  "models_loaded": {
+    "instruct_loaded": true,
+    "base_loaded": false,
+    "active_model_type": "instruct"
+  },
+  "model_paths": {
+    "instruct": "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28",
+    "base": "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
+  },
+  "endpoints": {
+    "/chat": "POST - Chat inference with messages array",
+    "/enhance": "POST - Enhancement inference with messages array",
+    "/generate": "POST - Generic inference with messages array",
+    "/health": "GET - Health check",
+    "/worker/info": "GET - This information",
+    "/debug/model": "GET - Current model/debug status"
+  },
+  "message_format": {
+    "required": ["messages"],
+    "optional": ["max_tokens", "temperature", "top_p", "sfw_mode", "model"],
+    "example": {
+      "messages": [
+        {"role": "system", "content": "System prompt from edge function"},
+        {"role": "user", "content": "User message"}
+      ],
+      "max_tokens": 512,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "sfw_mode": false,
+      "model": "qwen_instruct"
+    }
+  }
+}
+```
+
+**GET /debug/model** - Model Debug Information
+```json
+{
+  "active_model_type": "instruct",
+  "instruct_loaded": true,
+  "base_loaded": false,
+  "paths": {
+    "instruct": "/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/snapshots/a09a35458c702b33eeacc393d103063234e8bc28",
+    "base": "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
+  },
+  "devices": {
+    "instruct": "cuda:0",
+    "base": null
+  },
+  "stats": {
+    "requests_served": 150,
+    "model_loads": 2,
+    "sfw_requests": 25,
+    "base_model_uses": 10,
+    "instruct_model_uses": 140
+  }
+}
+```
+
+**GET /memory/status** - Memory Status
+```json
+{
+  "total_vram": 48.0,
+  "allocated_vram": 15.2,
+  "available_vram": 32.8,
+  "model_loaded": true,
+  "instruct_loaded": true,
+  "base_loaded": false,
+  "instruct_device": "cuda:0"
+}
+```
+
+**POST /memory/load** - Load Model
+```json
+{
+  "which": "instruct|base|all",
+  "force": false
+}
+```
+
+**POST /memory/unload** - Unload Model
+```json
+{
+  "which": "instruct|base|all"
+}
+```
+
+#### Auto-Registration Process
+The Chat Worker automatically registers itself with Supabase on startup:
+
+1. **URL Detection:** Detects `RUNPOD_POD_ID` environment variable
+2. **URL Construction:** Creates `https://{pod_id}-7861.proxy.runpod.net`
+3. **Registration:** Calls `register-chat-worker` edge function with:
+```json
+{
+  "worker_url": "https://{pod_id}-7861.proxy.runpod.net",
+  "auto_registered": true,
+  "registration_method": "pure_inference_chat_worker",
+  "worker_type": "pure_inference_engine",
+  "capabilities": {
+    "hardcoded_prompts": false,
+    "prompt_modification": false,
+    "pure_inference": true
+  },
+  "timestamp": "2025-08-31T10:00:00Z"
+}
+```
+
+#### Performance Characteristics
+- **Chat Enhancement:** 1-3 seconds (direct inference)
+- **Chat Conversation:** 5-15 seconds (dynamic prompts)
+- **Model Loading:** 15GB VRAM required for Qwen Instruct
+- **Memory Management:** Automatic cleanup and validation
+- **PyTorch 2.0 Compilation:** Performance optimization when available
 
 ## SDXL Worker (Pure Inference)
 
@@ -568,6 +671,7 @@ UPSTASH_REDIS_REST_URL=    # Redis queue URL
 UPSTASH_REDIS_REST_TOKEN=  # Redis authentication token
 WAN_WORKER_API_KEY=        # API key for WAN worker authentication
 HF_TOKEN=                  # Optional HuggingFace token
+RUNPOD_POD_ID=             # RunPod pod ID for auto-registration
 ```
 
 ### Worker Configuration
@@ -584,7 +688,8 @@ HF_TOKEN=                  # Optional HuggingFace token
     "primary_model": "Qwen2.5-7B-Instruct",
     "max_tokens": 2048,
     "port": 7861,
-    "compilation": true
+    "compilation": true,
+    "auto_registration": true
   },
   "wan_worker": {
     "model_path": "/workspace/models/wan2.1-t2v-1.3b",
@@ -594,6 +699,11 @@ HF_TOKEN=                  # Optional HuggingFace token
   }
 }
 ```
+
+### RunPod Deployment
+- **Chat Worker URL:** `https://{RUNPOD_POD_ID}-7861.proxy.runpod.net`
+- **Auto-Registration:** Detects `RUNPOD_POD_ID` and registers with Supabase
+- **Health Monitoring:** Continuous status tracking via `/health` endpoints
 
 ## Error Handling
 
@@ -646,9 +756,12 @@ import requests
 
 # Submit chat job
 response = requests.post("http://worker:7861/chat", json={
-    "prompt": "User message",
-    "config": {"job_type": "chat_conversation"},
-    "metadata": {"user_id": "user_123"}
+    "messages": [
+        {"role": "system", "content": "System prompt from edge function"},
+        {"role": "user", "content": "User message"}
+    ],
+    "max_tokens": 512,
+    "temperature": 0.7
 })
 
 # Monitor job status
@@ -723,4 +836,4 @@ All workers are designed as pure inference engines. The edge function must provi
 - **Configuration/validation_schemas.py** - Request validation schemas
 - **I2I_THUMBNAIL_IMPLEMENTATION_SUMMARY.md** - I2I pipeline and thumbnail generation details
 
-This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns after the August 18, 2025 I2I pipeline and thumbnail generation implementation. 
+This documentation provides the frontend AI with complete context of the ourvidz-worker system architecture, all active workers, Python files, APIs, and integration patterns after the August 31, 2025 pure inference chat worker implementation and system updates. 

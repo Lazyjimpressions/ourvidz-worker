@@ -81,12 +81,13 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 - **Performance**: 30-42s total (3-8s per image), +2-5s for I2I, +0.5-1s for thumbnails
 
 #### **Enhanced Chat Worker**
-- **Dynamic system prompts**: Custom prompts for each conversation
-- **Unrestricted mode detection**: Automatic adult content detection
-- **Prompt enhancement**: Qwen 2.5-7B Instruct with intelligent fallback
-- **NSFW optimization**: Zero content restrictions with anatomical accuracy
-- **Memory management**: Smart loading/unloading with PyTorch 2.0 compilation
-- **Performance**: 5-15s for prompt enhancement, 1-3s for cached responses
+- **Pure Inference Engine**: Executes exactly what's provided by edge functions
+- **No Hardcoded Prompts**: All system prompts come from edge function layer
+- **Dual Model Support**: Qwen 2.5-7B Instruct (primary) + Base (enhancement)
+- **Auto-Registration**: Detects RunPod URL and registers with Supabase
+- **Memory Management**: Smart loading/unloading with 15GB VRAM requirement
+- **Health Monitoring**: Comprehensive status endpoints
+- **Performance**: 1-3s for enhancement, 5-15s for conversation
 
 #### **WAN 1.3B Worker**
 - **Video generation**: High-quality video with temporal consistency
@@ -142,12 +143,12 @@ This repository contains the **GPU worker system** for [OurVidz.com](https://our
 ### **🧠 Enhanced Chat Worker Features**
 | **Feature** | **Description** | **Use Case** |
 |-------------|----------------|--------------|
-| **Dynamic System Prompts** | Custom prompts per conversation | Context-aware responses |
-| **Unrestricted Mode** | Automatic adult content detection | NSFW content creation |
-| **Intelligent Enhancement** | Edge function integration with fallback | High-quality prompt enhancement |
-| **NSFW Optimization** | Zero content restrictions | Unrestricted adult content |
-| **Anatomical Accuracy** | Realistic proportions and poses | Professional quality output |
-| **Performance Caching** | Enhancement result caching | Faster repeated requests |
+| **Pure Inference Engine** | No hardcoded prompts or logic | Edge function control |
+| **Dual Model Support** | Qwen 2.5-7B Instruct + Base | Context-aware responses |
+| **Auto-Registration** | Detects RunPod URL and registers | Dynamic deployment |
+| **Memory Management** | Smart loading/unloading | Resource optimization |
+| **Health Monitoring** | Comprehensive status endpoints | System monitoring |
+| **Performance Optimization** | PyTorch 2.0 compilation | Faster inference |
 
 ### **🧠 Memory Management Features**
 | **Feature** | **Description** | **Use Case** |
@@ -187,6 +188,7 @@ UPSTASH_REDIS_REST_URL=    # Redis queue URL
 UPSTASH_REDIS_REST_TOKEN=  # Redis authentication token
 WAN_WORKER_API_KEY=        # API key for WAN worker authentication
 HF_TOKEN=                  # Optional HuggingFace token
+RUNPOD_POD_ID=             # RunPod pod ID for auto-registration
 ```
 
 ### **Directory Structure**
@@ -212,6 +214,11 @@ HF_TOKEN=                  # Optional HuggingFace token
 └── python_deps/               # Persistent Python dependencies
 ```
 
+### **RunPod Deployment**
+- **Chat Worker URL**: `https://{RUNPOD_POD_ID}-7861.proxy.runpod.net`
+- **Auto-Registration**: Detects `RUNPOD_POD_ID` and registers with Supabase
+- **Health Monitoring**: Continuous status tracking via `/health` endpoints
+
 ---
 
 ## 🤝 Contributing & Support
@@ -221,4 +228,4 @@ HF_TOKEN=                  # Optional HuggingFace token
 ---
 
 **© 2025 OurVidz.com. All rights reserved.**  
-**Last Updated:** August 18, 2025
+**Last Updated:** August 31, 2025

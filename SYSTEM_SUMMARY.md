@@ -1,6 +1,6 @@
 # OurVidz Worker System Summary
 
-**Last Updated:** August 18, 2025  
+**Last Updated:** August 31, 2025  
 **Purpose:** Frontend API reference for current system structure and capabilities
 
 ---
@@ -70,20 +70,63 @@ OurVidz Worker is a **pure inference triple-worker AI content generation system*
 - `admin_utilities` - System management (<1s)
 
 **Key Features:**
-- ✅ **Pure Inference:** Executes exactly what's provided
-- ✅ **No Hardcoded Prompts:** All prompts from edge function
-- ✅ **Dual Model Support:** Instruct and Base models
-- ✅ **Memory Management:** Smart loading/unloading
-- ✅ **PyTorch 2.0 Compilation:** Performance optimization
+- ✅ **Pure Inference Engine:** Executes exactly what's provided by edge functions
+- ✅ **No Hardcoded Prompts:** All system prompts come from edge function layer
+- ✅ **Dual Model Support:** Qwen 2.5-7B Instruct (primary) + Base (enhancement)
+- ✅ **Memory Management:** Smart loading/unloading with 15GB VRAM requirement
+- ✅ **PyTorch 2.0 Compilation:** Performance optimization when available
+- ✅ **Auto-Registration:** Detects RunPod URL and registers with Supabase
+- ✅ **Health Monitoring:** Comprehensive status endpoints
+
+**Model Architecture:**
+- **Qwen 2.5-7B Instruct:** Primary model for chat and enhancement (safety-tuned)
+- **Qwen 2.5-7B Base:** Secondary model for enhanced jobs (no extra safety)
+- **Model Paths:** `/workspace/models/huggingface_cache/models--Qwen--Qwen2.5-7B-Instruct/`
+- **Device Management:** Automatic CUDA device allocation and pinning
 
 **API Endpoints:**
-- `POST /chat` - Standard chat conversation
-- `POST /chat/unrestricted` - NSFW chat
-- `POST /enhance` - Prompt enhancement
-- `GET /enhancement/info` - Enhancement system info
-- `GET /memory/status` - Model memory status
-- `POST /memory/load` - Load model
-- `POST /memory/unload` - Unload model
+- `POST /chat` - Standard chat conversation with messages array
+- `POST /enhance` - Prompt enhancement inference
+- `POST /generate` - Generic inference endpoint
+- `GET /health` - Health check with uptime and stats
+- `GET /worker/info` - Worker capabilities and model status
+- `GET /debug/model` - Model loading and device information
+- `GET /memory/status` - VRAM usage and model status
+- `POST /memory/load` - Force load specific model
+- `POST /memory/unload` - Force unload models
+
+**Pure Inference Payload Format:**
+```json
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "System prompt from edge function"
+    },
+    {
+      "role": "user",
+      "content": "User input"
+    }
+  ],
+  "max_tokens": 512,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "model": "qwen_instruct|qwen_base",
+  "sfw_mode": false
+}
+```
+
+**Auto-Registration Process:**
+- Detects `RUNPOD_POD_ID` environment variable
+- Constructs URL: `https://{pod_id}-7861.proxy.runpod.net`
+- Registers with Supabase via `register-chat-worker` edge function
+- Includes capabilities: `pure_inference: true`, `hardcoded_prompts: false`
+
+**Performance:**
+- **Chat Enhancement:** 1-3 seconds (direct inference)
+- **Chat Conversation:** 5-15 seconds (dynamic prompts)
+- **Model Loading:** 15GB VRAM required for Qwen Instruct
+- **Memory Management:** Automatic cleanup and validation
 
 ---
 
@@ -297,6 +340,11 @@ HF_TOKEN=                  # HuggingFace token (optional)
 - **Chat Worker:** 7861 (dedicated)
 - **WAN Worker:** 7860 (shared with SDXL)
 
+### **RunPod Deployment**
+- **Chat Worker URL:** `https://{RUNPOD_POD_ID}-7861.proxy.runpod.net`
+- **Auto-Registration:** Detects `RUNPOD_POD_ID` and registers with Supabase
+- **Health Monitoring:** Continuous status tracking via `/health` endpoints
+
 ---
 
 ## 🛡️ **Error Handling & Recovery**
@@ -413,4 +461,4 @@ HF_TOKEN=                  # HuggingFace token (optional)
 
 ---
 
-**🎯 This summary provides the frontend API with complete context of the current OurVidz Worker system structure, capabilities, and integration patterns including I2I pipeline and thumbnail generation.**
+**🎯 This summary provides the frontend API with complete context of the current OurVidz Worker system structure, capabilities, and integration patterns including I2I pipeline, thumbnail generation, and pure inference chat worker architecture as of August 31, 2025.**
