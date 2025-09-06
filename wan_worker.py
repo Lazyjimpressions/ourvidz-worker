@@ -406,7 +406,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 25,
                 'sample_guide_scale': 6.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 1,                # Single frame for images
                 'enhance_prompt': False,
@@ -419,7 +419,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,
                 'sample_guide_scale': 7.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': False,
@@ -432,7 +432,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 25,
                 'sample_guide_scale': 6.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 83,               # 83 frames for 5-second videos
                 'enhance_prompt': False,
@@ -445,7 +445,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,
                 'sample_guide_scale': 7.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 83,
                 'enhance_prompt': False,
@@ -460,7 +460,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 25,
                 'sample_guide_scale': 6.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
@@ -473,7 +473,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,
                 'sample_guide_scale': 7.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 1,
                 'enhance_prompt': True,
@@ -486,7 +486,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 25,
                 'sample_guide_scale': 6.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 83,
                 'enhance_prompt': True,
@@ -499,7 +499,7 @@ class EnhancedWanWorker:
                 'size': '480*832',
                 'sample_steps': 50,
                 'sample_guide_scale': 7.5,
-                'sample_solver': 'euler',      # ✅ FIXED: Changed from unipc to euler for CUDA compatibility
+                'sample_solver': 'dpm++',     # ✅ FIXED: Changed from unipc to dpm++ for WAN compatibility
                 'sample_shift': 5.0,
                 'frame_num': 83,
                 'enhance_prompt': True,
@@ -750,7 +750,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
@@ -908,7 +908,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
@@ -1066,7 +1066,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
@@ -1228,7 +1228,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
@@ -1374,7 +1374,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
@@ -1508,7 +1508,7 @@ class EnhancedWanWorker:
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
@@ -1996,7 +1996,7 @@ Enhanced prompt:"""
                 "--size", config['size'],
                 "--sample_steps", str(config['sample_steps']),
                 "--sample_guide_scale", str(config['sample_guide_scale']),
-                "--sample_solver", config.get('sample_solver', 'euler'),
+                "--sample_solver", config.get('sample_solver', 'dpm++'),
                 "--sample_shift", str(config.get('sample_shift', 5.0)),
                 "--frame_num", str(config['frame_num']),
                 "--prompt", prompt,
