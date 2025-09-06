@@ -52,8 +52,11 @@ class ChatWorker:
         
         # Set memory fraction limit for Chat worker (15GB out of 48GB)
         if torch.cuda.is_available():
+            # Set both soft and hard memory limits
             torch.cuda.set_per_process_memory_fraction(0.31)  # 15GB / 48GB
+            torch.cuda.set_per_process_memory_limit(15 * 1024**3)  # Hard limit: 15GB in bytes
             logger.info("🧠 Memory fraction set to 0.31 (15GB) for Chat worker")
+            logger.info("🧠 Hard memory limit set to 15GB for Chat worker")
         
         # Model paths - allow env override; verified defaults
         self.instruct_model_path = os.getenv(

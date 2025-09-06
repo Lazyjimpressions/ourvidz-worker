@@ -293,6 +293,41 @@ class MemoryManager:
             }
         }
 
+    def force_memory_cleanup(self) -> Dict:
+        """Force memory cleanup across all workers"""
+        logger.warning("🧹 FORCE MEMORY CLEANUP: Attempting to free memory across all workers")
+        
+        results = {}
+        for worker in ['sdxl', 'chat', 'wan']:
+            if self.worker_urls.get(worker):
+                try:
+                    # Force unload models
+                    url = f"{self.worker_urls[worker]}/memory/unload"
+                    response = requests.post(url, timeout=10)
+                    if response.status_code == 200:
+                        results[worker] = {'unload': True, 'message': 'Success'}
+                    else:
+                        results[worker] = {'unload': False, 'message': f'HTTP {response.status_code}'}
+                except Exception as e:
+                    results[worker] = {'unload': False, 'message': str(e)}
+        
+        # Wait for cleanup to complete
+        time.sleep(3)
+        
+        # Check memory status after cleanup
+        total_used, worker_status = self.get_total_memory_usage()
+        available = self.usable_vram - total_used
+        
+        return {
+            'success': available > 5,  # Success if we have >5GB available
+            'results': results,
+            'memory_after_cleanup': {
+                'total_used': total_used,
+                'available': available,
+                'worker_status': worker_status
+            }
+        }
+
     def handle_emergency_memory_request(self, target_worker: str, reason: str = "emergency") -> Dict:
         """Handle emergency memory requests with intelligent fallback"""
         logger.warning(f"🚨 EMERGENCY MEMORY REQUEST: Need to load {target_worker} - Reason: {reason}")
@@ -416,6 +451,9 @@ def emergency_memory_operation(operation: str, target_worker: str = None, reason
     
     elif operation == "memory_report":
         return mm.get_memory_report()
+    
+    elif operation == "force_cleanup":
+        return mm.force_memory_cleanup()
     
     else:
         return {'error': f'Unknown operation: {operation}'}

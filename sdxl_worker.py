@@ -151,8 +151,11 @@ class LustifySDXLWorker:
         
         # Set memory fraction limit for SDXL worker (10GB out of 48GB)
         if torch.cuda.is_available():
+            # Set both soft and hard memory limits
             torch.cuda.set_per_process_memory_fraction(0.21)  # 10GB / 48GB
+            torch.cuda.set_per_process_memory_limit(10 * 1024**3)  # Hard limit: 10GB in bytes
             logger.info("🧠 Memory fraction set to 0.21 (10GB) for SDXL worker")
+            logger.info("🧠 Hard memory limit set to 10GB for SDXL worker")
         
         # Initialize Flask app for memory management API
         if FLASK_AVAILABLE:
@@ -639,6 +642,31 @@ class LustifySDXLWorker:
         """Load LUSTIFY SDXL model with optimizations for both text-to-image and image-to-image"""
         if self.model_loaded:
             return
+        
+        # Check available memory before loading
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            available = total - allocated
+            
+            logger.info(f"🧠 Memory check before SDXL loading:")
+            logger.info(f"   Allocated: {allocated:.2f}GB")
+            logger.info(f"   Available: {available:.2f}GB")
+            logger.info(f"   Total: {total:.2f}GB")
+            
+            # Check if we have enough memory (SDXL needs ~6-8GB)
+            if available < 6.0:
+                logger.warning(f"⚠️ Low memory available ({available:.2f}GB), attempting to free memory...")
+                torch.cuda.empty_cache()
+                gc.collect()
+                
+                # Recheck after cleanup
+                allocated = torch.cuda.memory_allocated() / (1024**3)
+                available = total - allocated
+                logger.info(f"🧠 After cleanup - Available: {available:.2f}GB")
+                
+                if available < 6.0:
+                    raise RuntimeError(f"Insufficient memory to load SDXL model. Available: {available:.2f}GB, Required: ~6GB")
             
         logger.info("📦 Loading LUSTIFY SDXL v2.0 (Text-to-Image + Image-to-Image)...")
         start_time = time.time()

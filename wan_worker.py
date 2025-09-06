@@ -383,8 +383,11 @@ class EnhancedWanWorker:
         
         # Set memory fraction limit for WAN worker (30GB out of 48GB)
         if torch.cuda.is_available():
+            # Set both soft and hard memory limits
             torch.cuda.set_per_process_memory_fraction(0.63)  # 30GB / 48GB
+            torch.cuda.set_per_process_memory_limit(30 * 1024**3)  # Hard limit: 30GB in bytes
             print("🧠 Memory fraction set to 0.63 (30GB) for WAN worker")
+            print("🧠 Hard memory limit set to 30GB for WAN worker")
         
         # UPDATED: Qwen 2.5-7B Base model path (no content filtering)
         self.hf_cache_path = "/workspace/models/huggingface_cache"
