@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OurVidz Chat Worker - Pure Inference Engine
+OurVidz Chat Worker - Pure Inference Engine + Memory Manager
 Handles: Direct model inference with provided system prompts
 Model: Qwen 2.5-7B Instruct (always loaded when possible)
 Port: 7861
@@ -17,6 +17,7 @@ OPTIMIZATIONS:
 - PyTorch 2.0 compilation (when available)
 - Comprehensive OOM error handling with retry logic
 - Memory cleanup and validation
+- Memory manager integration with VRAM fraction limits (15GB/48GB)
 """
 
 import os

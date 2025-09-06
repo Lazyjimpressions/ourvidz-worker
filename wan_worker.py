@@ -1,10 +1,11 @@
-# wan_worker.py - CLEANUP VERSION (WAN 1.3B + QWEN BASE ONLY)
+# wan_worker.py - CLEANUP VERSION (WAN 1.3B + QWEN BASE ONLY) + MEMORY MANAGER
 # FIXES: Correct task names for 1.3B model, proper I2V support for reference frames, auto URL registration
 # MAJOR FIX: Use correct 1.3B tasks (t2v-1.3B, i2v not flf2v)
 # PARAMETER FIX: Consistent parameter names (job_id, assets) with edge function
 # REFERENCE STRENGTH FIX: Adjust sample_guide_scale based on reference strength
 # AUTO-REGISTRATION FIX: Detect RunPod URL and register with Supabase automatically
 # THREAD-SAFE FIX: Replace signal-based timeouts with thread-safe concurrent.futures
+# MEMORY MANAGER: Added memory endpoints and VRAM fraction limits (30GB/48GB)
 # CLEANUP: Removed Qwen Instruct model code - WAN worker focuses on video generation + Base model enhancement only
 # Date: July 30, 2025
 
@@ -2946,7 +2947,7 @@ if FLASK_AVAILABLE:
                 'allocated_vram': allocated,
                 'available_vram': available,
                 'qwen_model_loaded': worker and hasattr(worker, 'qwen_model') and worker.qwen_model is not None,
-                'wan_model_loaded': worker and hasattr(worker, 'wan_model') and worker.qwen_model is not None,
+                'wan_model_loaded': worker and hasattr(worker, 'qwen_model') and worker.qwen_model is not None,  # WAN uses Qwen for enhancement
                 'memory_fraction': 0.63,  # WAN worker memory fraction (30GB / 48GB)
                 'worker_type': 'wan'
             }
@@ -2967,8 +2968,9 @@ if FLASK_AVAILABLE:
                     if hasattr(worker, 'unload_qwen_model'):
                         worker.unload_qwen_model()
                 if which in ('wan', 'all'):
-                    if hasattr(worker, 'unload_wan_model'):
-                        worker.unload_wan_model()
+                    # WAN worker uses Qwen model for enhancement
+                    if hasattr(worker, 'unload_qwen_model'):
+                        worker.unload_qwen_model()
             
             torch.cuda.empty_cache()
             import gc
@@ -2988,8 +2990,9 @@ if FLASK_AVAILABLE:
             if worker:
                 if which == 'qwen' and hasattr(worker, 'load_qwen_model'):
                     success = worker.load_qwen_model()
-                elif which == 'wan' and hasattr(worker, 'load_wan_model'):
-                    success = worker.load_wan_model()
+                elif which == 'wan' and hasattr(worker, 'load_qwen_model'):
+                    # WAN worker uses Qwen model for enhancement
+                    success = worker.load_qwen_model()
                 else:
                     return jsonify({'success': False, 'message': f'Unknown model type: {which}'}), 400
                 

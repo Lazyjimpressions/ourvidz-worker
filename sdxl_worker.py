@@ -1,8 +1,9 @@
-# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION + SDXL COMPEL LIBRARY INTEGRATION - CONSISTENT PARAMETER NAMING
+# sdxl_worker.py - FLEXIBLE QUANTITY + IMAGE-TO-IMAGE VERSION + SDXL COMPEL LIBRARY INTEGRATION + MEMORY MANAGER
 # NEW: Supports user-selected quantities (1, 3, or 6 images) and image-to-image generation
 # FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds
 # FIXED: Consistent callback parameter names (job_id, assets) for edge function compatibility
 # NEW: I2I pipeline with denoise_strength and thumbnail generation
+# NEW: Memory manager integration with Flask API and VRAM fraction limits (10GB/48GB)
 # Performance: 1 image: 3-8s, 3 images: 9-24s, 6 images: 18-48s on RTX 6000 ADA
 
 """

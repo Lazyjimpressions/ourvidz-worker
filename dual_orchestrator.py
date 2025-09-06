@@ -1,6 +1,7 @@
-# dual_orchestrator.py - UPDATED FOR TRIPLE WORKER SYSTEM (SDXL + WAN + CHAT)
+# dual_orchestrator.py - UPDATED FOR TRIPLE WORKER SYSTEM (SDXL + WAN + CHAT) + MEMORY MANAGER
 # Manages LUSTIFY SDXL, WAN 2.1, and Chat workers concurrently
 # Critical Fix: Graceful SDXL validation + Enhanced WAN worker support + Chat worker integration
+# Memory Manager: Integrated VRAM allocation and worker coordination
 # Optimized for RTX 6000 ADA 48GB VRAM capacity
 
 import os
