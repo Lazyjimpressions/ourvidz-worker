@@ -11,6 +11,7 @@ ENHANCED FEATURES:
 - Comprehensive emergency status reporting
 """
 
+import os
 import requests
 import logging
 import time
@@ -45,6 +46,37 @@ class MemoryManager:
         """Set worker URLs for memory management"""
         self.worker_urls.update(urls)
         logger.info(f"🌐 Worker URLs configured: {self.worker_urls}")
+
+    def auto_detect_worker_urls(self):
+        """Auto-detect worker URLs from RunPod environment"""
+        # Check for RunPod environment
+        pod_id = os.getenv('RUNPOD_POD_ID')
+        if pod_id:
+            urls = {
+                'sdxl': f"https://{pod_id}-7859.proxy.runpod.net",
+                'wan': f"https://{pod_id}-7860.proxy.runpod.net", 
+                'chat': f"https://{pod_id}-7861.proxy.runpod.net"
+            }
+            self.set_worker_urls(urls)
+            logger.info(f"🌐 Auto-detected RunPod URLs: {urls}")
+            return urls
+        else:
+            # Try hostname fallback
+            import socket
+            hostname = socket.gethostname()
+            if '-' in hostname:
+                pod_id = hostname.split('-')[0]
+                urls = {
+                    'sdxl': f"https://{pod_id}-7859.proxy.runpod.net",
+                    'wan': f"https://{pod_id}-7860.proxy.runpod.net",
+                    'chat': f"https://{pod_id}-7861.proxy.runpod.net"
+                }
+                self.set_worker_urls(urls)
+                logger.info(f"🌐 Auto-detected hostname URLs: {urls}")
+                return urls
+        
+        logger.warning("⚠️ Could not auto-detect worker URLs")
+        return {}
 
     def get_worker_memory_status(self, worker: str) -> Optional[Dict]:
         """Get memory status from a worker"""

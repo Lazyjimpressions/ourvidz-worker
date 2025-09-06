@@ -91,6 +91,10 @@ export HF_HOME=/workspace/models/huggingface_cache
 export HUGGINGFACE_HUB_CACHE=/workspace/models/huggingface_cache/hub
 export TRANSFORMERS_CACHE=/workspace/models/huggingface_cache/hub
 
+# Memory management environment variables
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+echo "🧠 Memory management: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+
 echo "=== Verifying dependencies ==="
 python << 'EOF'
 import sys

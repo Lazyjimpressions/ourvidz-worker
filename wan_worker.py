@@ -380,6 +380,11 @@ class EnhancedWanWorker:
         os.environ['HF_HOME'] = '/workspace/models/huggingface_cache'
         os.environ['HUGGINGFACE_HUB_CACHE'] = '/workspace/models/huggingface_cache/hub'
         
+        # Set memory fraction limit for WAN worker (30GB out of 48GB)
+        if torch.cuda.is_available():
+            torch.cuda.set_per_process_memory_fraction(0.63)  # 30GB / 48GB
+            print("🧠 Memory fraction set to 0.63 (30GB) for WAN worker")
+        
         # UPDATED: Qwen 2.5-7B Base model path (no content filtering)
         self.hf_cache_path = "/workspace/models/huggingface_cache"
         self.qwen_model_path = "/workspace/models/huggingface_cache/hub/models--Qwen--Qwen2.5-7B/snapshots/d149729398750b98c0af14eb82c78cfe92750796"
@@ -2925,6 +2930,74 @@ if FLASK_AVAILABLE:
             'worker_ready': worker is not None,
             'thread_safe_timeouts': True  # ✅ NEW: Indicate thread-safe fix
         })
+
+    # Memory management endpoints
+    @app.route('/memory/status', methods=['GET'])
+    def memory_status():
+        """Memory status endpoint"""
+        worker = globals().get('worker_instance')
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            available = total - allocated
+            
+            response = {
+                'total_vram': total,
+                'allocated_vram': allocated,
+                'available_vram': available,
+                'qwen_model_loaded': worker and hasattr(worker, 'qwen_model') and worker.qwen_model is not None,
+                'wan_model_loaded': worker and hasattr(worker, 'wan_model') and worker.qwen_model is not None,
+                'memory_fraction': 0.63,  # WAN worker memory fraction (30GB / 48GB)
+                'worker_type': 'wan'
+            }
+            
+            return jsonify(response)
+        else:
+            return jsonify({'error': 'CUDA not available'}), 500
+
+    @app.route('/memory/unload', methods=['POST'])
+    def force_unload():
+        """Force unload model (for memory management)"""
+        worker = globals().get('worker_instance')
+        which = request.args.get('which', 'all')
+        
+        try:
+            if worker:
+                if which in ('qwen', 'all'):
+                    if hasattr(worker, 'unload_qwen_model'):
+                        worker.unload_qwen_model()
+                if which in ('wan', 'all'):
+                    if hasattr(worker, 'unload_wan_model'):
+                        worker.unload_wan_model()
+            
+            torch.cuda.empty_cache()
+            import gc
+            gc.collect()
+            
+            return jsonify({'success': True, 'message': f'WAN models unloaded: {which}'})
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Unload failed: {str(e)}'}), 500
+
+    @app.route('/memory/load', methods=['POST'])
+    def force_load():
+        """Force load model"""
+        worker = globals().get('worker_instance')
+        which = request.args.get('which', 'qwen')
+        
+        try:
+            if worker:
+                if which == 'qwen' and hasattr(worker, 'load_qwen_model'):
+                    success = worker.load_qwen_model()
+                elif which == 'wan' and hasattr(worker, 'load_wan_model'):
+                    success = worker.load_wan_model()
+                else:
+                    return jsonify({'success': False, 'message': f'Unknown model type: {which}'}), 400
+                
+                return jsonify({'success': success, 'message': f'{which} model load attempted'})
+            else:
+                return jsonify({'success': False, 'message': 'Worker not available'}), 500
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Load failed: {str(e)}'}), 500
 
     @app.route('/debug/env', methods=['GET'])
     def debug_env():

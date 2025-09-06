@@ -83,6 +83,18 @@ class DualWorkerOrchestrator:
         logger.info("💬 Chat: Qwen Instruct service (5-15s) - Port 7861")
         logger.info("🎬 Enhanced WAN: Video + Qwen 7B enhancement + FLF2V/T2V tasks (67-294s) - Port 7860")
         logger.info("🔧 FIXED: Graceful validation + consistent parameter naming + FLF2V/T2V support + Chat integration")
+        logger.info("🧠 NEW: Memory manager integration with smart VRAM allocation")
+        
+        # Initialize memory manager
+        try:
+            from memory_manager import get_memory_manager
+            self.memory_manager = get_memory_manager()
+            # Auto-detect worker URLs
+            self.memory_manager.auto_detect_worker_urls()
+            logger.info("🧠 Memory manager initialized and worker URLs configured")
+        except ImportError:
+            self.memory_manager = None
+            logger.warning("⚠️ Memory manager not available - memory management disabled")
 
     def get_worker_startup_command(self, worker_id):
         """Generate startup command and environment for a worker"""

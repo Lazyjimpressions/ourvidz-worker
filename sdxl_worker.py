@@ -78,6 +78,22 @@ from diffusers import StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipelin
 import logging
 from logging.handlers import RotatingFileHandler
 
+# Flask imports for memory management API
+try:
+    from flask import Flask, request, jsonify
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
+    print("⚠️ Flask not available - memory management API will be disabled")
+
+# Memory manager integration
+try:
+    from memory_manager import get_memory_manager
+    MEMORY_MANAGER_AVAILABLE = True
+except ImportError:
+    MEMORY_MANAGER_AVAILABLE = False
+    print("⚠️ Memory manager not available - memory management will be disabled")
+
 # Create logs directory if it doesn't exist
 os.makedirs('logs', exist_ok=True)
 
@@ -130,6 +146,29 @@ class LustifySDXLWorker:
         print("🔧 FIXED: Consistent parameter naming (job_id, assets, metadata) across all callbacks")
         print("✅ API COMPLIANT: Supports metadata.reference_image_url, denoise_strength, exact_copy_mode")
         print("🖼️ NEW: Thumbnail generation for all images")
+        print("🧠 NEW: Memory manager integration with Flask API")
+        
+        # Set memory fraction limit for SDXL worker (10GB out of 48GB)
+        if torch.cuda.is_available():
+            torch.cuda.set_per_process_memory_fraction(0.21)  # 10GB / 48GB
+            logger.info("🧠 Memory fraction set to 0.21 (10GB) for SDXL worker")
+        
+        # Initialize Flask app for memory management API
+        if FLASK_AVAILABLE:
+            self.app = Flask(__name__)
+            self.setup_flask_routes()
+            logger.info("🌐 Flask server initialized for memory management API")
+        else:
+            self.app = None
+            logger.warning("⚠️ Flask not available - memory management API disabled")
+        
+        # Initialize memory manager
+        if MEMORY_MANAGER_AVAILABLE:
+            self.memory_manager = get_memory_manager()
+            logger.info("🧠 Memory manager integrated")
+        else:
+            self.memory_manager = None
+            logger.warning("⚠️ Memory manager not available")
         
         # Model configuration
         self.model_path = "/workspace/models/sdxl-lustify/lustifySDXLNSFWSFW_v20.safetensors"
@@ -178,6 +217,73 @@ class LustifySDXLWorker:
         
         self.validate_environment()
         logger.info("🎨 LUSTIFY SDXL Worker with flexible quantities and image-to-image support initialized")
+
+    def setup_flask_routes(self):
+        """Setup Flask routes for memory management API"""
+        if not FLASK_AVAILABLE or not self.app:
+            return
+        
+        # Memory management endpoints
+        @self.app.route('/memory/status', methods=['GET'])
+        def memory_status():
+            """Memory status endpoint"""
+            if torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / (1024**3)
+                total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                available = total - allocated
+                
+                response = {
+                    'total_vram': total,
+                    'allocated_vram': allocated,
+                    'available_vram': available,
+                    'model_loaded': self.model_loaded,
+                    'pipeline_loaded': self.pipeline is not None,
+                    'i2i_pipeline_loaded': self.i2i_pipeline is not None,
+                    'memory_fraction': 0.21,  # SDXL worker memory fraction
+                    'worker_type': 'sdxl'
+                }
+                
+                return jsonify(response)
+            else:
+                return jsonify({'error': 'CUDA not available'}), 500
+
+        @self.app.route('/memory/unload', methods=['POST'])
+        def force_unload():
+            """Force unload model (for memory management)"""
+            try:
+                if self.pipeline:
+                    del self.pipeline
+                    self.pipeline = None
+                if self.i2i_pipeline:
+                    del self.i2i_pipeline
+                    self.i2i_pipeline = None
+                
+                self.model_loaded = False
+                torch.cuda.empty_cache()
+                gc.collect()
+                
+                return jsonify({'success': True, 'message': 'SDXL models unloaded successfully'})
+            except Exception as e:
+                return jsonify({'success': False, 'message': f'Unload failed: {str(e)}'}), 500
+
+        @self.app.route('/memory/load', methods=['POST'])
+        def force_load():
+            """Force load model"""
+            try:
+                self.load_model()
+                return jsonify({'success': True, 'message': 'SDXL models loaded successfully'})
+            except Exception as e:
+                return jsonify({'success': False, 'message': f'Load failed: {str(e)}'}), 500
+
+        @self.app.route('/health', methods=['GET'])
+        def health_check():
+            """Health check endpoint"""
+            return jsonify({
+                'status': 'healthy',
+                'worker': 'sdxl',
+                'model_loaded': self.model_loaded,
+                'timestamp': time.time()
+            })
 
     def download_image_from_url(self, image_url):
         """Download image from URL and return PIL Image object"""
@@ -1304,6 +1410,24 @@ class LustifySDXLWorker:
         
         return None
 
+    def start_flask_server(self):
+        """Start Flask server in a separate thread"""
+        if not FLASK_AVAILABLE or not self.app:
+            logger.warning("⚠️ Flask server not started - Flask not available")
+            return
+        
+        def run_flask():
+            try:
+                logger.info("🌐 Starting Flask server for memory management on port 7859...")
+                self.app.run(host='0.0.0.0', port=7859, debug=False, use_reloader=False)
+            except Exception as e:
+                logger.error(f"❌ Flask server failed to start: {e}")
+        
+        import threading
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        logger.info("✅ Flask server thread started on port 7859")
+
     def run(self):
         """Main SDXL worker loop - handles both direct execution and module import"""
         logger.info("🎨 LUSTIFY SDXL WORKER READY!")
@@ -1314,6 +1438,10 @@ class LustifySDXLWorker:
         logger.info("🌱 SEED CONTROL: Reproducible generation and character consistency")
         logger.info("🔧 FIXED: SDXL-specific Compel library integration with prompt_embeds and pooled_prompt_embeds")
         logger.info("🔧 CONSISTENT: Standardized callback parameters (job_id, status, assets, error_message, metadata)")
+        logger.info("🧠 NEW: Memory manager integration with Flask API on port 7859")
+        
+        # Start Flask server for memory management
+        self.start_flask_server()
         
         job_count = 0
         

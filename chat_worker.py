@@ -49,6 +49,11 @@ class ChatWorker:
         self.model_loaded = False
         self.loading_lock = threading.Lock()
         
+        # Set memory fraction limit for Chat worker (15GB out of 48GB)
+        if torch.cuda.is_available():
+            torch.cuda.set_per_process_memory_fraction(0.31)  # 15GB / 48GB
+            logger.info("🧠 Memory fraction set to 0.31 (15GB) for Chat worker")
+        
         # Model paths - allow env override; verified defaults
         self.instruct_model_path = os.getenv(
             'QWEN_INSTRUCT_PATH',
